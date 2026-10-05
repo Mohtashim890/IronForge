@@ -1,0 +1,125 @@
+@using IronForge.Shared.Components.Management
+@using IronForge.Shared.Models.McpClients
+@using Microsoft.AspNetCore.Components.Forms
+
+<EditForm Model="@Model"
+          OnValidSubmit="OnValidSubmit">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @ErrorMessage
+        </div>
+    }
+
+    <div class="mcp-client-form">
+        <div class="mcp-client-form-field">
+            <label for="mcp-client-id">Client ID</label>
+
+            @if (IsEdit)
+            {
+                <div class="mcp-client-readonly-id">
+                    <code>@Model.ClientId</code>
+                </div>
+            }
+            else
+            {
+                <InputText id="mcp-client-id"
+                           class="form-control"
+                           @bind-Value="Model.ClientId" />
+                <ValidationMessage For="@(() => Model.ClientId)" />
+                <small>
+                    Immutable registry identifier used by MCP identity
+                    and delegation.
+                </small>
+            }
+        </div>
+
+        <div class="mcp-client-form-field">
+            <label for="mcp-client-name">Name</label>
+
+            <InputText id="mcp-client-name"
+                       class="form-control"
+                       @bind-Value="Model.Name" />
+
+            <ValidationMessage For="@(() => Model.Name)" />
+        </div>
+
+        <div class="mcp-client-form-field">
+            <label for="mcp-client-description">Description</label>
+
+            <InputTextArea id="mcp-client-description"
+                           class="form-control"
+                           @bind-Value="Model.Description"
+                           rows="4" />
+
+            <ValidationMessage For="@(() => Model.Description)" />
+        </div>
+
+        <div class="mcp-client-form-grid">
+            <div class="mcp-client-form-field">
+                <label for="mcp-client-type">Client Type</label>
+
+                <InputText id="mcp-client-type"
+                           class="form-control"
+                           @bind-Value="Model.ClientType" />
+
+                <ValidationMessage For="@(() => Model.ClientType)" />
+            </div>
+
+            <div class="mcp-client-form-field">
+                <label for="mcp-client-version">Version</label>
+
+                <InputText id="mcp-client-version"
+                           class="form-control"
+                           @bind-Value="Model.Version" />
+
+                <ValidationMessage For="@(() => Model.Version)" />
+            </div>
+        </div>
+
+        <div class="form-check mb-3">
+            <InputCheckbox id="mcp-client-active"
+                           class="form-check-input"
+                           @bind-Value="Model.IsActive" />
+
+            <label class="form-check-label"
+                   for="mcp-client-active">
+                Active
+            </label>
+        </div>
+
+        <div class="mcp-client-form-note">
+            The registry stores client identity and metadata only.
+            It does not store access tokens, secrets, private keys,
+            or MCP connection credentials.
+        </div>
+
+        <ResourceFormActions
+            OnCancel="OnCancel"
+            IsSubmitting="@IsSubmitting"
+            SubmitText="@(IsEdit ? "Save Changes" : "Register Client")"
+            BusyText="@(IsEdit ? "Saving..." : "Registering...")" />
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public McpClientEditorModel Model { get; set; } = null!;
+
+    [Parameter]
+    public bool IsEdit { get; set; }
+
+    [Parameter]
+    public bool IsSubmitting { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback OnValidSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+}

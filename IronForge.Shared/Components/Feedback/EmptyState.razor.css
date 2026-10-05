@@ -1,0 +1,21 @@
+.ui-empty-icon {
+    margin-bottom: 0.75rem;
+    font-size: 2rem;
+}
+
+.ui-empty-state h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #172033;
+}
+
+.ui-empty-state p {
+    margin: 0.5rem 0 1.25rem;
+    color: #667085;
+}
+
+.ui-empty-actions {
+    display: flex;
+    justify-content: center;
+}

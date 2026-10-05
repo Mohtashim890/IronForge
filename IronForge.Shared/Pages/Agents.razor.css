@@ -1,0 +1,283 @@
+.agent-management-page {
+    width: 100%;
+}
+
+.agent-management-header,
+.agent-editor-heading,
+.agent-list-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.agent-management-header {
+    margin-bottom: 1.25rem;
+}
+
+.agent-management-header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.agent-management-header p {
+    margin: 0.35rem 0 0;
+    color: #667085;
+}
+
+.agent-editor-panel,
+.agent-list-panel {
+    border: 1px solid #e4e7ec;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.agent-editor-panel {
+    margin-bottom: 1.25rem;
+    padding: 1.25rem;
+    box-shadow: 0 4px 14px rgba(16, 24, 40, 0.05);
+}
+
+.agent-editor-heading {
+    margin-bottom: 1.25rem;
+}
+
+.agent-editor-heading h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.agent-editor-heading p {
+    margin: 0.35rem 0 0;
+    color: #667085;
+}
+
+.agent-list-toolbar {
+    align-items: center;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid #e4e7ec;
+}
+
+.agent-list-muted {
+    margin-left: 0.75rem;
+    color: #667085;
+    font-size: 0.85rem;
+}
+
+.agent-state,
+.agent-empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #667085;
+}
+
+.agent-empty-state h2 {
+    margin: 0;
+    color: #101828;
+    font-size: 1.05rem;
+}
+
+.agent-empty-state p {
+    margin: 0.4rem 0 1rem;
+}
+
+.agent-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.agent-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(250px, 1fr) auto;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1rem;
+    border-bottom: 1px solid #eaecf0;
+}
+
+.agent-row:last-child {
+    border-bottom: 0;
+}
+
+.agent-main {
+    min-width: 0;
+}
+
+.agent-title-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.agent-title-line strong {
+    font-size: 1rem;
+}
+
+.agent-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.agent-status.active {
+    background: #ecfdf3;
+    color: #027a48;
+}
+
+.agent-status.inactive {
+    background: #f2f4f7;
+    color: #475467;
+}
+
+.agent-id {
+    display: inline-block;
+    margin-top: 0.4rem;
+    color: #475467;
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+}
+
+.agent-description {
+    margin: 0.45rem 0 0;
+    color: #667085;
+    line-height: 1.45;
+}
+
+.agent-metadata {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+
+.agent-metadata > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.agent-metadata span {
+    color: #667085;
+    font-size: 0.72rem;
+}
+
+.agent-metadata strong {
+    color: #344054;
+    font-size: 0.84rem;
+    overflow-wrap: anywhere;
+}
+
+.agent-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    white-space: nowrap;
+}
+
+.agent-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(16, 24, 40, 0.45);
+}
+
+.agent-confirm-dialog {
+    width: min(100%, 500px);
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    box-shadow: 0 20px 50px rgba(16, 24, 40, 0.2);
+}
+
+.agent-confirm-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    border-radius: 50%;
+    background: #fef3f2;
+    color: #b42318;
+    font-weight: 700;
+}
+
+.agent-confirm-dialog h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.agent-confirm-dialog p {
+    margin: 0.75rem 0;
+    color: #667085;
+    line-height: 1.5;
+}
+
+.agent-confirm-details {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 1rem;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    border: 1px solid #e4e7ec;
+    border-radius: 0.5rem;
+    background: #f9fafb;
+}
+
+.agent-confirm-details span {
+    color: #667085;
+    font-size: 0.75rem;
+}
+
+.agent-confirm-details code,
+.agent-confirm-details strong {
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.agent-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+@media (max-width: 1000px) {
+    .agent-row {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 650px) {
+    .agent-management-header,
+    .agent-editor-heading {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .agent-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-confirm-actions {
+        flex-direction: column-reverse;
+    }
+
+    .agent-confirm-actions .btn {
+        width: 100%;
+    }
+}

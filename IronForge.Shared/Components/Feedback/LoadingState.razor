@@ -1,0 +1,17 @@
+﻿<div class="ui-state ui-loading-state">
+
+    <div class="ui-spinner"
+         aria-hidden="true">
+    </div>
+
+    <p>
+        @Message
+    </p>
+
+</div>
+
+@code
+{
+    [Parameter]
+    public string Message { get; set; } = "Loading...";
+}

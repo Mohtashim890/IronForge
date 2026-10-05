@@ -1,0 +1,15 @@
+.management-resource-list { width: 100%; }
+.management-resource-list__header { margin-bottom: 1rem; }
+.management-resource-list__toolbar { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin-bottom:1rem; }
+.management-resource-list__items { display:flex; flex-direction:column; gap:.75rem; }
+.management-resource-list__item { width:100%; padding:1rem 1.1rem; border:1px solid #e5e7eb; border-radius:.75rem; background:#fff; }
+.management-resource-list__item:hover { border-color:#d1d5db; }
+.management-resource-list__state { padding:3rem 1.5rem; text-align:center; border:1px solid #e5e7eb; border-radius:.75rem; background:#fff; }
+.management-resource-list__state h3 { margin:0; font-size:1.05rem; font-weight:600; }
+.management-resource-list__state p { margin:.5rem 0 1rem; color:#6c757d; }
+.management-resource-list__state--error { border-color:#f1c7c7; }
+.management-resource-list__empty-icon { width:42px; height:42px; display:flex; align-items:center; justify-content:center; margin:0 auto .75rem; border-radius:10px; background:#f3f4f6; color:#6b7280; font-weight:700; }
+.management-resource-list__empty-actions { display:flex; justify-content:center; gap:.5rem; }
+.management-resource-list__spinner { width:24px; height:24px; margin:0 auto .75rem; border:3px solid #e5e7eb; border-top-color:#6b7280; border-radius:50%; animation:management-resource-list-spin .8s linear infinite; }
+@keyframes management-resource-list-spin { to { transform:rotate(360deg); } }
+@media (max-width:768px) { .management-resource-list__toolbar { align-items:stretch; flex-direction:column; } .management-resource-list__item { padding:.9rem; } }

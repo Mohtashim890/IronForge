@@ -1,0 +1,8 @@
+<span class="management-status-badge @CssClass">
+    @Text
+</span>
+
+@code {
+    [Parameter] public string Text { get; set; } = string.Empty;
+    [Parameter] public string? CssClass { get; set; }
+}

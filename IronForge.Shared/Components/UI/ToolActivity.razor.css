@@ -1,0 +1,119 @@
+.tool-activity {
+    width: 100%;
+    max-width: 680px;
+    margin: 6px 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background: #f9fafb;
+    overflow: hidden;
+}
+
+.tool-activity-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+    .tool-activity-header:hover {
+        background: #f3f4f6;
+    }
+
+.tool-activity-icon {
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: #eef2ff;
+    font-size: 14px;
+}
+
+.tool-activity-summary {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-left: 10px;
+}
+
+.tool-activity-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tool-activity-status {
+    margin-top: 2px;
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.tool-activity-chevron {
+    margin-left: auto;
+    padding-left: 12px;
+    color: #6b7280;
+    font-size: 16px;
+}
+
+.tool-activity-details {
+    padding: 0 12px 12px;
+}
+
+.tool-activity-section {
+    margin-top: 8px;
+}
+
+.tool-activity-section-title {
+    margin-bottom: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #6b7280;
+}
+
+.tool-activity-section pre {
+    max-width: 100%;
+    margin: 0;
+    padding: 10px;
+    overflow-x: auto;
+    border-radius: 7px;
+    background: #111827;
+    color: #e5e7eb;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 240px;
+    overflow: auto;
+}
+
+@media (max-width: 700px) {
+
+    .tool-activity {
+        max-width: 100%;
+        margin: 5px 0;
+    }
+
+    .tool-activity-header {
+        padding: 9px 10px;
+    }
+
+    .tool-activity-details {
+        padding: 0 10px 10px;
+    }
+
+    .tool-activity-section pre {
+        max-height: 220px;
+        font-size: 10px;
+    }
+}

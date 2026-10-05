@@ -1,0 +1,842 @@
+@page "/"
+
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@using IronForge.Mcp.Client.Services
+@using ModelContextProtocol.Client
+@using ModelContextProtocol.Protocol
+@using Microsoft.Extensions.Configuration
+
+@inject McpClientExplorerService McpClient
+@inject McpAgentService McpAgent
+@inject IConfiguration Configuration
+
+<PageTitle>IronForge MCP Client Explorer</PageTitle>
+
+<div class="mcp-page">
+
+    <header class="mcp-page-header">
+        <div>
+            <div class="mcp-eyebrow">MCP CLIENT</div>
+            <h1>IronForge MCP Client Explorer</h1>
+            <p>
+                Connect to an IronForge MCP server, inspect its capabilities,
+                invoke tools manually, or work with the server through the AI assistant.
+            </p>
+        </div>
+
+        <div class="mcp-status @(McpClient.IsConnected ? "connected" : "disconnected")">
+            <span class="mcp-status-dot"></span>
+            @(McpClient.IsConnected ? "Connected" : "Disconnected")
+        </div>
+    </header>
+
+    <section class="mcp-connection-card">
+        <div class="mcp-section-heading">
+            <div>
+                <h2>Connection</h2>
+                <p>Configure the remote MCP server and delegated credential.</p>
+            </div>
+        </div>
+
+        <div class="mcp-form-grid">
+            <div class="mcp-field">
+                <label for="mcp-endpoint">MCP Server Endpoint</label>
+                <input id="mcp-endpoint"
+                       class="mcp-input"
+                       @bind="endpoint"
+                       disabled="@isBusy"
+                       placeholder="https://localhost:7083/" />
+            </div>
+
+            <div class="mcp-field">
+                <label for="mcp-token">Access Token</label>
+                <input id="mcp-token"
+                       type="password"
+                       class="mcp-input"
+                       @bind="accessToken"
+                       disabled="@isBusy"
+                       autocomplete="off"
+                       placeholder="Bearer credential" />
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="mcp-error" role="alert">
+                <strong>Connection failed</strong>
+                <span>@errorMessage</span>
+            </div>
+        }
+
+        <div class="mcp-connection-actions">
+            @if (!McpClient.IsConnected)
+            {
+                <button type="button"
+                        class="mcp-primary-button"
+                        @onclick="ConnectAsync"
+                        disabled="@isBusy">
+                    @if (isBusy)
+                    {
+                        <span class="mcp-spinner"></span>
+                        <span>Connecting...</span>
+                    }
+                    else
+                    {
+                        <span>Connect to MCP Server</span>
+                    }
+                </button>
+            }
+            else
+            {
+                <button type="button"
+                        class="mcp-secondary-button"
+                        @onclick="DisconnectAsync"
+                        disabled="@isBusy">
+                    Disconnect
+                </button>
+            }
+        </div>
+    </section>
+
+    @if (McpClient.IsConnected)
+    {
+        <section class="mcp-server-card">
+            <div class="mcp-section-heading">
+                <div>
+                    <h2>Server</h2>
+                    <p>Information returned during the MCP initialization handshake.</p>
+                </div>
+            </div>
+
+            <div class="mcp-server-grid">
+                <div class="mcp-info-item">
+                    <span class="mcp-info-label">Server</span>
+                    <strong>@McpClient.ServerName</strong>
+                </div>
+
+                <div class="mcp-info-item">
+                    <span class="mcp-info-label">Version</span>
+                    <strong>@McpClient.ServerVersion</strong>
+                </div>
+
+                <div class="mcp-info-item">
+                    <span class="mcp-info-label">Protocol</span>
+                    <strong>@McpClient.ProtocolVersion</strong>
+                </div>
+
+                <div class="mcp-info-item">
+                    <span class="mcp-info-label">Transport</span>
+                    <strong>Streamable HTTP</strong>
+                </div>
+            </div>
+        </section>
+
+        <div class="mcp-tabs" role="tablist" aria-label="MCP workspace">
+            <button type="button"
+                    class="mcp-tab @(activeTab == ExplorerTab.Tools ? "active" : "")"
+                    @onclick="() => SetTab(ExplorerTab.Tools)"
+                    role="tab"
+                    aria-selected="@(activeTab == ExplorerTab.Tools)">
+                <span class="mcp-tab-icon">⚙</span>
+                <span>
+                    <strong>Tools &amp; Invocation</strong>
+                    <small>Discover and call MCP tools</small>
+                </span>
+                <span class="mcp-tab-count">@McpClient.Tools.Count</span>
+            </button>
+
+            <button type="button"
+                    class="mcp-tab @(activeTab == ExplorerTab.Assistant ? "active" : "")"
+                    @onclick="() => SetTab(ExplorerTab.Assistant)"
+                    role="tab"
+                    aria-selected="@(activeTab == ExplorerTab.Assistant)">
+                <span class="mcp-tab-icon ai">✦</span>
+                <span>
+                    <strong>IronForge AI Assistant</strong>
+                    <small>Let the model use MCP tools</small>
+                </span>
+            </button>
+        </div>
+
+        @if (activeTab == ExplorerTab.Tools)
+        {
+            <section class="mcp-workspace-card">
+
+                <div class="mcp-section-heading">
+                    <div>
+                        <div class="mcp-eyebrow">TOOLS</div>
+                        <h2>Discovered Tools</h2>
+                        <p>
+                            These tools were returned by the MCP
+                            <code>tools/list</code> request.
+                            Select a tool to inspect its schema and invoke it.
+                        </p>
+                    </div>
+
+                    <span class="mcp-count">@McpClient.Tools.Count</span>
+                </div>
+
+                @if (McpClient.Tools.Count == 0)
+                {
+                    <div class="mcp-empty">
+                        <div class="mcp-empty-icon">∅</div>
+                        <h3>No tools exposed</h3>
+                        <p>The server connected successfully but did not expose any tools.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="mcp-tool-grid">
+                        @foreach (var tool in McpClient.Tools)
+                        {
+                            var isSelected = string.Equals(
+                                selectedToolName,
+                                tool.Name,
+                                StringComparison.Ordinal);
+
+                            <button type="button"
+                                    class="mcp-tool-card @(isSelected ? "selected" : "")"
+                                    @onclick="() => SelectTool(tool.Name)">
+                                <span class="mcp-tool-icon">⚙</span>
+
+                                <span class="mcp-tool-content">
+                                    <strong>@tool.Name</strong>
+                                    <span>
+                                        @(string.IsNullOrWhiteSpace(tool.Description)
+                                            ? "No description provided."
+                                            : tool.Description)
+                                    </span>
+                                </span>
+
+                                <span class="mcp-tool-arrow">→</span>
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+
+            @if (!string.IsNullOrWhiteSpace(selectedToolName))
+            {
+                <section class="mcp-workspace-card mcp-invocation-workspace">
+
+                    <div class="mcp-section-heading">
+                        <div>
+                            <div class="mcp-eyebrow">MANUAL INVOCATION</div>
+                            <h2>Call <code>@selectedToolName</code></h2>
+                            <p>
+                                Review the schema advertised by the MCP server,
+                                provide JSON arguments, then send a
+                                <code>tools/call</code> request.
+                            </p>
+                        </div>
+
+                        <span class="mcp-selected-tool-badge">
+                            @selectedToolName
+                        </span>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(toolInvocationError))
+                    {
+                        <div class="mcp-error" role="alert">
+                            <strong>Tool invocation failed</strong>
+                            <span>@toolInvocationError</span>
+                        </div>
+                    }
+
+                    <div class="mcp-invocation-grid">
+
+                        <div class="mcp-schema-panel">
+                            <div class="mcp-panel-header">
+                                <div>
+                                    <span class="mcp-panel-kicker">SERVER CONTRACT</span>
+                                    <h3>Input JSON Schema</h3>
+                                </div>
+                                <span class="mcp-readonly-badge">Read only</span>
+                            </div>
+
+                            <p class="mcp-panel-description">
+                                This is the input schema advertised by the selected
+                                MCP tool. It is the contract used by MCP clients and
+                                LLM tool calling.
+                            </p>
+
+                            <textarea class="mcp-json-editor mcp-schema-editor"
+                                      readonly
+                                      spellcheck="false">@selectedToolSchemaJson</textarea>
+                        </div>
+
+                        <div class="mcp-arguments-panel">
+                            <div class="mcp-panel-header">
+                                <div>
+                                    <span class="mcp-panel-kicker">REQUEST</span>
+                                    <h3>Tool Arguments</h3>
+                                </div>
+                                <span class="mcp-json-badge">JSON</span>
+                            </div>
+
+                            <p class="mcp-panel-description">
+                                Enter the arguments expected by the schema above.
+                                The JSON object is sent directly as the MCP
+                                <code>arguments</code> object.
+                            </p>
+
+                            <textarea class="mcp-json-editor"
+                                      @bind="manualArgumentsJson"
+                                      spellcheck="false"
+                                      placeholder='{}'></textarea>
+
+                            <div class="mcp-argument-actions">
+                                <button type="button"
+                                        class="mcp-secondary-button mcp-small-button"
+                                        @onclick="ResetArguments">
+                                    Reset
+                                </button>
+
+                                <button type="button"
+                                        class="mcp-primary-button"
+                                        @onclick="InvokeSelectedToolAsync"
+                                        disabled="@isInvokingTool">
+                                    @if (isInvokingTool)
+                                    {
+                                        <span class="mcp-spinner"></span>
+                                        <span>Executing...</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Call Tool</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(toolResult))
+            {
+                <section class="mcp-workspace-card mcp-result-workspace">
+                    <div class="mcp-section-heading">
+                        <div>
+                            <div class="mcp-eyebrow">RESPONSE</div>
+                            <h2>Tool Result</h2>
+                            <p>Response returned by the MCP server.</p>
+                        </div>
+
+                        <span class="mcp-result-status @(toolResultIsError ? "error" : "success")">
+                            @(toolResultIsError ? "Error" : "Success")
+                        </span>
+                    </div>
+
+                    <pre class="mcp-tool-result @(toolResultIsError ? "error" : "")">@toolResult</pre>
+                </section>
+            }
+        }
+        else
+        {
+            <section class="mcp-assistant-workspace">
+
+                <div class="mcp-assistant-hero">
+                    <div class="mcp-assistant-icon">✦</div>
+
+                    <div>
+                        <div class="mcp-eyebrow">IRONFORGE AI</div>
+                        <h2>Work with your MCP server through natural language</h2>
+                        <p>
+                            The assistant receives the discovered MCP tool definitions.
+                            When the model decides a tool is required, the function
+                            invocation pipeline constructs the tool arguments and
+                            sends the call through the MCP client.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="mcp-assistant-card">
+                    <div class="mcp-assistant-tools">
+                        <div>
+                            <span class="mcp-panel-kicker">AVAILABLE CAPABILITIES</span>
+                            <strong>@McpClient.Tools.Count MCP tools connected</strong>
+                        </div>
+
+                        <div class="mcp-assistant-tool-chips">
+                            @foreach (var tool in McpClient.Tools.Take(6))
+                            {
+                                <span class="mcp-tool-chip">@tool.Name</span>
+                            }
+
+                            @if (McpClient.Tools.Count > 6)
+                            {
+                                <span class="mcp-tool-chip muted">
+                                    +@(McpClient.Tools.Count - 6) more
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="mcp-ai-composer">
+                        <label for="ai-message">Message</label>
+
+                        <textarea id="ai-message"
+                                  class="mcp-ai-input"
+                                  @bind="aiMessage"
+                                  @bind:event="oninput"
+                                  disabled="@isAsking"
+                                  placeholder="Try: Create a product called Laptop with a price of 2500."
+                                  rows="5">
+                        </textarea>
+
+                        <div class="mcp-ai-actions">
+                            <span class="mcp-ai-hint">
+                                The assistant may invoke the connected MCP tools when needed.
+                            </span>
+
+                            <button type="button"
+                                    class="mcp-primary-button mcp-assistant-button"
+                                    @onclick="AskAssistantAsync"
+                                    disabled="@(!CanAskAssistant)">
+                                @if (isAsking)
+                                {
+                                    <span class="mcp-spinner"></span>
+                                    <span>Thinking...</span>
+                                }
+                                else
+                                {
+                                    <span>Ask IronForge Assistant</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(aiError))
+                    {
+                        <div class="mcp-error" role="alert">
+                            <strong>Assistant request failed</strong>
+                            <span>@aiError</span>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(aiResponse))
+                    {
+                        <div class="mcp-ai-response">
+                            <div class="mcp-ai-response-header">
+                                <div class="mcp-ai-avatar">AI</div>
+
+                                <div>
+                                    <strong>IronForge Assistant</strong>
+                                    <span>Final response</span>
+                                </div>
+                            </div>
+
+                            <div class="mcp-ai-response-body">
+                                @aiResponse
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="mcp-assistant-note">
+                    <span class="mcp-note-icon">i</span>
+                    <div>
+                        <strong>How tool calling works</strong>
+                        <span>
+                            The assistant does not bypass MCP authorization.
+                            LLM-selected tool calls still travel through this MCP
+                            client to the IronForge MCP server, where the normal
+                            identity, delegation, permission, and resource
+                            authorization pipeline applies.
+                        </span>
+                    </div>
+                </div>
+
+            </section>
+        }
+    }
+</div>
+
+@code
+{
+    private enum ExplorerTab
+    {
+        Tools,
+        Assistant
+    }
+
+    private ExplorerTab activeTab = ExplorerTab.Tools;
+
+    private string endpoint = string.Empty;
+    private string accessToken = string.Empty;
+
+    private bool isBusy;
+    private string? errorMessage;
+
+    private string? selectedToolName;
+    private string selectedToolSchemaJson = "{}";
+    private string manualArgumentsJson = "{}";
+
+    private bool isInvokingTool;
+    private string? toolResult;
+    private bool toolResultIsError;
+    private string? toolInvocationError;
+
+    private string aiMessage = string.Empty;
+    private string? aiResponse;
+    private string? aiError;
+    private bool isAsking;
+
+    private bool CanAskAssistant =>
+        !isAsking &&
+        McpClient.IsConnected &&
+        !string.IsNullOrWhiteSpace(aiMessage);
+
+    private void SetTab(ExplorerTab tab)
+    {
+        activeTab = tab;
+    }
+
+    protected override void OnInitialized()
+    {
+        endpoint = Configuration["McpSettings:ServerUrl"] ?? endpoint;
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (isBusy)
+            return;
+
+        isBusy = true;
+        errorMessage = null;
+
+        try
+        {
+            await McpClient.ConnectAsync(endpoint, accessToken);
+
+            selectedToolName = null;
+            selectedToolSchemaJson = "{}";
+            manualArgumentsJson = "{}";
+            toolResult = null;
+            toolInvocationError = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage =
+                string.IsNullOrWhiteSpace(ex.Message)
+                    ? "Unable to connect to the MCP server."
+                    : ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DisconnectAsync()
+    {
+        if (isBusy)
+            return;
+
+        isBusy = true;
+        errorMessage = null;
+
+        try
+        {
+            await McpClient.DisconnectAsync();
+
+            selectedToolName = null;
+            selectedToolSchemaJson = "{}";
+            manualArgumentsJson = "{}";
+            toolResult = null;
+            toolInvocationError = null;
+            aiResponse = null;
+            aiError = null;
+        }
+        catch (Exception ex)
+        {
+            errorMessage =
+                string.IsNullOrWhiteSpace(ex.Message)
+                    ? "Unable to disconnect from the MCP server."
+                    : ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void SelectTool(string toolName)
+    {
+        selectedToolName = toolName;
+
+        toolResult = null;
+        toolResultIsError = false;
+        toolInvocationError = null;
+
+        var tool = McpClient.Tools.FirstOrDefault(
+            x => string.Equals(
+                x.Name,
+                toolName,
+                StringComparison.Ordinal));
+
+        selectedToolSchemaJson =
+            tool is null
+                ? "{}"
+                : FormatJsonSchema(tool.JsonSchema);
+
+        manualArgumentsJson =
+            CreateExampleArguments(tool?.JsonSchema);
+    }
+
+    private void ResetArguments()
+    {
+        var tool = GetSelectedTool();
+
+        manualArgumentsJson =
+            CreateExampleArguments(tool?.JsonSchema);
+
+        toolInvocationError = null;
+    }
+
+    private async Task InvokeSelectedToolAsync()
+    {
+        if (string.IsNullOrWhiteSpace(selectedToolName) ||
+            isInvokingTool)
+        {
+            return;
+        }
+
+        isInvokingTool = true;
+        toolResult = null;
+        toolResultIsError = false;
+        toolInvocationError = null;
+
+        try
+        {
+            var arguments =
+                ParseArguments(manualArgumentsJson);
+
+            var result =
+                await McpClient.CallToolAsync(
+                    selectedToolName,
+                    arguments);
+
+            toolResultIsError =
+                result.IsError == true;
+
+            toolResult =
+                FormatToolResult(result);
+        }
+        catch (JsonException ex)
+        {
+            toolInvocationError =
+                $"Invalid tool arguments JSON: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            toolInvocationError =
+                string.IsNullOrWhiteSpace(ex.Message)
+                    ? "Tool invocation failed."
+                    : ex.Message;
+        }
+        finally
+        {
+            isInvokingTool = false;
+        }
+    }
+
+    private async Task AskAssistantAsync()
+    {
+        if (!CanAskAssistant)
+            return;
+
+        isAsking = true;
+        aiError = null;
+        aiResponse = null;
+
+        try
+        {
+            aiResponse =
+                await McpAgent.AskAsync(aiMessage);
+        }
+        catch (Exception ex)
+        {
+            aiError =
+                string.IsNullOrWhiteSpace(ex.Message)
+                    ? "The assistant request failed."
+                    : ex.Message;
+        }
+        finally
+        {
+            isAsking = false;
+        }
+    }
+
+    private McpClientTool? GetSelectedTool()
+    {
+        if (string.IsNullOrWhiteSpace(selectedToolName))
+            return null;
+
+        return McpClient.Tools.FirstOrDefault(
+            x => string.Equals(
+                x.Name,
+                selectedToolName,
+                StringComparison.Ordinal));
+    }
+
+    private static Dictionary<string, object?> ParseArguments(
+        string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, object?>();
+
+        var node =
+            JsonNode.Parse(json)
+            ?? throw new JsonException("The JSON document is empty.");
+
+        if (node is not JsonObject jsonObject)
+        {
+            throw new JsonException(
+                "Tool arguments must be a JSON object.");
+        }
+
+        var arguments =
+            new Dictionary<string, object?>(
+                StringComparer.Ordinal);
+
+        foreach (var property in jsonObject)
+        {
+            arguments[property.Key] =
+                property.Value is null
+                    ? null
+                    : JsonSerializer.Deserialize<object>(
+                        property.Value.ToJsonString());
+        }
+
+        return arguments;
+    }
+
+    private static string FormatJsonSchema(object? schema)
+    {
+        if (schema is null)
+            return "{}";
+
+        try
+        {
+            var json =
+                JsonSerializer.Serialize(
+                    schema,
+                    new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+
+            return json;
+        }
+        catch
+        {
+            return schema.ToString() ?? "{}";
+        }
+    }
+
+    private static string CreateExampleArguments(object? schema)
+    {
+        if (schema is null)
+            return "{}";
+
+        try
+        {
+            var json =
+                JsonSerializer.Serialize(
+                    schema);
+
+            using var document =
+                JsonDocument.Parse(json);
+
+            if (document.RootElement.TryGetProperty(
+                    "type",
+                    out var typeElement) &&
+                string.Equals(
+                    typeElement.GetString(),
+                    "object",
+                    StringComparison.OrdinalIgnoreCase) &&
+                document.RootElement.TryGetProperty(
+                    "properties",
+                    out var properties))
+            {
+                var example =
+                    new JsonObject();
+
+                foreach (var property in properties.EnumerateObject())
+                {
+                    example[property.Name] =
+                        CreateExampleValue(property.Value);
+                }
+
+                return example.ToJsonString(
+                    new JsonSerializerOptions
+                    {
+                        WriteIndented = true
+                    });
+            }
+        }
+        catch
+        {
+            // Fall back to an empty argument object.
+        }
+
+        return "{}";
+    }
+
+    private static JsonNode? CreateExampleValue(
+        JsonElement schema)
+    {
+        if (schema.TryGetProperty(
+                "default",
+                out var defaultValue))
+        {
+            return JsonNode.Parse(
+                defaultValue.GetRawText());
+        }
+
+        if (schema.TryGetProperty(
+                "type",
+                out var typeElement))
+        {
+            return typeElement.GetString() switch
+            {
+                "string" => "",
+                "integer" => 0,
+                "number" => 0,
+                "boolean" => false,
+                "array" => new JsonArray(),
+                "object" => new JsonObject(),
+                _ => null
+            };
+        }
+
+        return null;
+    }
+
+    private static string FormatToolResult(
+        CallToolResult result)
+    {
+        var parts = new List<string>();
+
+        foreach (var content in result.Content)
+        {
+            if (content is TextContentBlock text)
+            {
+                parts.Add(text.Text);
+            }
+            else
+            {
+                parts.Add(content.GetType().Name);
+            }
+        }
+
+        return parts.Count == 0
+            ? "(Tool returned no content.)"
+            : string.Join(
+                Environment.NewLine + Environment.NewLine,
+                parts);
+    }
+
+}

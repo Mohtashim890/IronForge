@@ -1,0 +1,561 @@
+@page "/agents"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(
+    Policy = IronForge.Shared.Authorization.Permissions.AgentsRead)]
+
+@using IronForge.Shared.Authorization
+@using IronForge.Shared.Features
+@using IronForge.Shared.Models.Agents.Manage
+@using IronForge.Shared.Services
+
+@inject IAgentManagementService AgentManagementService
+@inject NavigationManager Navigation;
+
+<PageTitle>Agents</PageTitle>
+
+<div class="agent-management-page">
+    <div class="agent-management-header">
+        <div>
+            <h1>Agents</h1>
+            <p>
+                Manage registered agent identities, capabilities, and lifecycle state.
+            </p>
+        </div>
+
+        <AuthorizeView Policy="@Permissions.AgentsCreate">
+            <Authorized>
+                <button type="button"
+                        class="btn btn-primary"
+                        @onclick="BeginCreate">
+                    + New Agent
+                </button>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    @if (showEditor)
+    {
+        <section class="agent-editor-panel" aria-label="Agent editor">
+            <div class="agent-editor-heading">
+                <div>
+                    <h2>@(editingAgentId is null ? "Create Agent" : "Edit Agent")</h2>
+                    <p>
+                        @(editingAgentId is null
+                            ? "Register a persistent agent identity."
+                            : "Update the agent's metadata and lifecycle state.")
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="CloseEditor"
+                        disabled="@isSaving">
+                    Close
+                </button>
+            </div>
+
+            <AgentEditorForm Model="@editorModel"
+                             IsEdit="@(editingAgentId is not null)"
+                             IsSubmitting="@isSaving"
+                             ErrorMessage="@editorError"
+                             OnValidSubmit="SaveEditorAsync"
+                             OnCancel="CloseEditor" />
+        </section>
+    }
+
+    <section class="agent-list-panel">
+        <div class="agent-list-toolbar">
+            <div>
+                <strong>@agents.Count agent@(agents.Count == 1 ? "" : "s")</strong>
+
+                @if (agents.Count > 0)
+                {
+                    <span class="agent-list-muted">
+                        @activeAgentCount active
+                    </span>
+                }
+            </div>
+
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    @onclick="LoadAgentsAsync"
+                    disabled="@isLoading">
+                @(isLoading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
+
+        @if (isLoading && agents.Count == 0)
+        {
+            <div class="agent-state">
+                Loading agents...
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                <div>@errorMessage</div>
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger mt-2"
+                        @onclick="LoadAgentsAsync">
+                    Retry
+                </button>
+            </div>
+        }
+        else if (agents.Count == 0)
+        {
+            <div class="agent-empty-state">
+                <h2>No agents registered</h2>
+                <p>Register an agent identity to begin configuring agent capabilities.</p>
+
+                <AuthorizeView Policy="@Permissions.AgentsCreate">
+                    <Authorized>
+                        <button type="button"
+                                class="btn btn-primary"
+                                @onclick="BeginCreate">
+                            Register Agent
+                        </button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        }
+        else
+        {
+            <div class="agent-list">
+                @foreach (var agent in agents)
+                {
+                    <article class="agent-row">
+                        <div class="agent-main">
+                            <div class="agent-title-line">
+                                <strong>@agent.Name</strong>
+
+                                <span class="agent-status @(agent.IsActive ? "active" : "inactive")">
+                                    @(agent.IsActive ? "Active" : "Inactive")
+                                </span>
+                            </div>
+
+                            <code class="agent-id">@agent.AgentId</code>
+
+                            @if (!string.IsNullOrWhiteSpace(agent.Description))
+                            {
+                                <p class="agent-description">@agent.Description</p>
+                            }
+                        </div>
+
+                        <div class="agent-metadata">
+                            <div>
+                                <span>Version</span>
+                                <strong>@agent.Version</strong>
+                            </div>
+
+                            <div>
+                                <span>Permissions</span>
+                                <strong>@agent.Permissions.Count</strong>
+                            </div>
+
+                            <div>
+                                <span>Updated</span>
+                                <strong>@agent.UpdatedAtUtc.ToLocalTime().ToString("g")</strong>
+                            </div>
+                        </div>
+
+                        <div class="agent-actions">
+                            <AuthorizeView Policy="@Permissions.AgentsPermissionsManage">
+                                <Authorized>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => BeginPermissions(agent)">
+                                        Permissions
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+
+                            <AuthorizeView Policy="@Permissions.AgentsUpdate">
+                                <Authorized>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => BeginEdit(agent)">
+                                        Edit
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+
+                            <AuthorizeView Policy="@Permissions.AgentsDelete">
+                                <Authorized>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => RequestDelete(agent)">
+                                        Delete
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+                            <AuthorizeView Policy="@Permissions.AgentsMcpClientsManage">
+                                <Authorized>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => ManageMcpAccess(agent)">
+                                        MCP Access
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    @if (permissionsAgent is not null)
+    {
+        <section class="agent-editor-panel" aria-label="Agent permissions editor">
+            <div class="agent-editor-heading">
+                <div>
+                    <h2>Permissions — @permissionsAgent.Name</h2>
+                    <p>
+                        <code>@permissionsAgent.AgentId</code>
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClosePermissions"
+                        disabled="@isSavingPermissions">
+                    Close
+                </button>
+            </div>
+
+            <AgentPermissionsEditor
+                Agent="@permissionsAgent"
+                IsSubmitting="@isSavingPermissions"
+                ErrorMessage="@permissionsError"
+                OnSave="SavePermissionsAsync"
+                OnCancel="ClosePermissions" />
+        </section>
+    }
+
+    @if (deleteCandidate is not null)
+    {
+        <div class="agent-confirm-backdrop"
+             role="presentation"
+             @onclick="CloseDeleteConfirmation">
+            <div class="agent-confirm-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="agent-delete-title"
+                 @onclick:stopPropagation="true">
+
+                <div class="agent-confirm-icon">!</div>
+
+                <h2 id="agent-delete-title">
+                    Delete @deleteCandidate.Name?
+                </h2>
+
+                <p>
+                    This permanently removes the registered agent identity
+                    from the current tenant. Existing agent-related data may
+                    have dependent relationships, so the API remains
+                    authoritative for whether deletion is permitted.
+                </p>
+
+                <div class="agent-confirm-details">
+                    <span>Agent ID</span>
+                    <code>@deleteCandidate.AgentId</code>
+
+                    <span>Permissions</span>
+                    <strong>@deleteCandidate.Permissions.Count</strong>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(deleteError))
+                {
+                    <div class="alert alert-danger" role="alert">
+                        @deleteError
+                    </div>
+                }
+
+                <div class="agent-confirm-actions">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="CloseDeleteConfirmation"
+                            disabled="@isDeleting">
+                        Cancel
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-danger"
+                            @onclick="DeleteAsync"
+                            disabled="@isDeleting">
+                        @(isDeleting ? "Deleting..." : "Delete Agent")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<AgentDto> agents = [];
+
+    private bool isLoading;
+    private string? errorMessage;
+
+    private bool showEditor;
+    private string? editingAgentId;
+    private AgentEditorModel editorModel = new();
+    private bool isSaving;
+    private string? editorError;
+
+    private AgentDto? permissionsAgent;
+    private bool isSavingPermissions;
+    private string? permissionsError;
+
+    private AgentDto? deleteCandidate;
+    private bool isDeleting;
+    private string? deleteError;
+
+    private int activeAgentCount =>
+        agents.Count(x => x.IsActive);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAgentsAsync();
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await AgentManagementService.GetAgentsAsync();
+
+            if (!result.Success)
+            {
+                errorMessage =
+                    result.ErrorMessage ??
+                    "Unable to load agents.";
+
+                return;
+            }
+
+            agents = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginCreate()
+    {
+        editingAgentId = null;
+        editorModel = new AgentEditorModel();
+        editorError = null;
+        showEditor = true;
+    }
+
+    private void BeginEdit(AgentDto agent)
+    {
+        editingAgentId = agent.AgentId;
+        editorModel = AgentEditorModel.From(agent);
+        editorError = null;
+        showEditor = true;
+    }
+
+    private void CloseEditor()
+    {
+        if (isSaving)
+            return;
+
+        showEditor = false;
+        editingAgentId = null;
+        editorError = null;
+    }
+
+    private async Task SaveEditorAsync()
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        editorError = null;
+
+        try
+        {
+            if (editingAgentId is null)
+            {
+                var result =
+                    await AgentManagementService.CreateAgentAsync(
+                        editorModel.ToCreateRequest());
+
+                if (!result.Success)
+                {
+                    editorError =
+                        result.ErrorMessage ??
+                        "Unable to create the agent.";
+
+                    return;
+                }
+            }
+            else
+            {
+                var result =
+                    await AgentManagementService.UpdateAgentAsync(
+                        editingAgentId,
+                        editorModel.ToUpdateRequest());
+
+                if (!result.Success)
+                {
+                    editorError =
+                        result.ErrorMessage ??
+                        "Unable to update the agent.";
+
+                    return;
+                }
+            }
+
+            showEditor = false;
+            editingAgentId = null;
+
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            editorError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void BeginPermissions(AgentDto agent)
+    {
+        permissionsAgent = CloneAgent(agent);
+        permissionsError = null;
+    }
+
+    private void ClosePermissions()
+    {
+        if (isSavingPermissions)
+            return;
+
+        permissionsAgent = null;
+        permissionsError = null;
+    }
+
+    private async Task SavePermissionsAsync(
+        IReadOnlyCollection<string> permissions)
+    {
+        if (permissionsAgent is null || isSavingPermissions)
+            return;
+
+        isSavingPermissions = true;
+        permissionsError = null;
+
+        try
+        {
+            var result =
+                await AgentManagementService.UpdatePermissionsAsync(
+                    permissionsAgent.AgentId,
+                    new UpdateAgentPermissionsRequest
+                    {
+                        Permissions = permissions.ToList()
+                    });
+
+            if (!result.Success)
+            {
+                permissionsError =
+                    result.ErrorMessage ??
+                    "Unable to update agent permissions.";
+
+                return;
+            }
+
+            permissionsAgent = null;
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            permissionsError = ex.Message;
+        }
+        finally
+        {
+            isSavingPermissions = false;
+        }
+    }
+
+    private void RequestDelete(AgentDto agent)
+    {
+        deleteCandidate = agent;
+        deleteError = null;
+    }
+
+    private void CloseDeleteConfirmation()
+    {
+        if (isDeleting)
+            return;
+
+        deleteCandidate = null;
+        deleteError = null;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (deleteCandidate is null || isDeleting)
+            return;
+
+        isDeleting = true;
+        deleteError = null;
+
+        try
+        {
+            var result =
+                await AgentManagementService.DeleteAgentAsync(
+                    deleteCandidate.AgentId);
+
+            if (!result.Success)
+            {
+                deleteError =
+                    result.ErrorMessage ??
+                    "Unable to delete the agent.";
+
+                return;
+            }
+
+            deleteCandidate = null;
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            deleteError = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private void ManageMcpAccess(AgentDto agent)
+    {
+        Navigation.NavigateTo(
+            $"/agents/{Uri.EscapeDataString(agent.AgentId)}/mcp-clients");
+    }
+
+    private static AgentDto CloneAgent(AgentDto source) =>
+        new()
+        {
+            Id = source.Id,
+            AgentId = source.AgentId,
+            Name = source.Name,
+            Description = source.Description,
+            Version = source.Version,
+            IsActive = source.IsActive,
+            CreatedAtUtc = source.CreatedAtUtc,
+            UpdatedAtUtc = source.UpdatedAtUtc,
+            Permissions = [.. source.Permissions]
+        };
+}

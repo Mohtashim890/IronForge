@@ -1,0 +1,32 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="stylesheet"
+          href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["IronForge.Web.styles.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="PageRenderMode" />
+</head>
+
+<body>
+    <Routes @rendermode="PageRenderMode" />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_content/IronForge.Shared/js/agent-workspace.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    // Prerendering is disabled: pages depend on JWTs held in the browser's
+    // localStorage, which is only reachable via JS interop once the interactive
+    // circuit is connected. Prerendered output would always be "anonymous".
+    private static readonly IComponentRenderMode PageRenderMode =
+        new InteractiveServerRenderMode(prerender: false);
+}

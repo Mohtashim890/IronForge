@@ -1,0 +1,150 @@
+services:
+  ironforge-api:
+    build:
+      context: .
+      dockerfile: IronForge.Api/Dockerfile
+    container_name: ironforge-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ConnectionStrings__DefaultConnection: ${CONNECTIONSTRINGS__DEFAULTCONNECTION}
+      JwtSettings__Key: ${JWTSETTINGS__KEY}
+      AISettings__ApiKey: ${AISETTINGS__APIKEY}
+      OpenTelemetry__Otlp__Headers: ${OPENTELEMETRY__OTLP__HEADERS}
+
+    networks:
+      - ironforge-network
+    
+    healthcheck:
+        test:
+          [
+            "CMD",
+            "curl",
+            "--fail",
+            "--silent",
+            "--show-error",
+            "http://localhost:8080/health/ready"
+          ]
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 10s
+
+  ironforge-mcp:
+    build:
+      context: .
+      dockerfile: IronForge.Mcp/Dockerfile
+    container_name: ironforge-mcp
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ConnectionStrings__DefaultConnection: ${CONNECTIONSTRINGS__DEFAULTCONNECTION}
+      JwtSettings__Key: ${JWTSETTINGS__KEY}
+      OpenTelemetry__Otlp__Headers: ${OPENTELEMETRY__OTLP__HEADERS}
+
+    networks:
+      - ironforge-network
+      
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "--fail",
+          "--silent",
+          "--show-error",
+          "http://localhost:8080/health/ready"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ironforge-web:
+    build:
+      context: .
+      dockerfile: IronForge.Web/Dockerfile
+    container_name: ironforge-web
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ApiSettings__BaseUrl: http://ironforge-api:8080
+
+    networks:
+      - ironforge-network
+    
+    depends_on:
+      ironforge-api:
+        condition: service_healthy
+
+  ironforge-mcp-client:
+    build:
+      context: .
+      dockerfile: IronForge.Mcp.Client/Dockerfile
+    container_name: ironforge-mcp-client
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      AISettings__ApiKey: ${AISETTINGS__APIKEY}
+      McpSettings__ServerUrl: http://ironforge-mcp:8080
+
+    networks:
+      - ironforge-network
+      
+    depends_on:
+      ironforge-mcp:
+        condition: service_healthy
+        
+  ironforge-migrator:
+    profiles:
+      - migration
+    build:
+      context: .
+      dockerfile: IronForge.Migrator/Dockerfile
+    container_name: ironforge-migrator
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: ${CONNECTIONSTRINGS__DEFAULTCONNECTION}
+
+    networks:
+      - ironforge-network
+        
+  ironforge-proxy:
+    image: caddy:2
+    container_name: ironforge-proxy
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    networks:
+      ironforge-network:
+        ipv4_address: 172.30.0.10
+
+    depends_on:
+        ironforge-web:
+            condition: service_started
+        ironforge-api:
+            condition: service_healthy
+        ironforge-mcp:
+            condition: service_healthy
+        ironforge-mcp-client:
+            condition: service_started
+
+volumes:
+  caddy_data:
+  caddy_config:
+  
+networks:
+  ironforge-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+    

@@ -1,0 +1,130 @@
+@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.Agents.Manage
+@using Microsoft.AspNetCore.Components.Forms
+
+<EditForm Model="@Model"
+          OnValidSubmit="OnValidSubmit">
+    <DataAnnotationsValidator />
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @ErrorMessage
+        </div>
+    }
+
+    <div class="agent-form">
+        <div class="agent-form-field">
+            <label for="agent-id">Agent ID</label>
+
+            @if (IsEdit)
+            {
+                <div class="agent-readonly-id">
+                    <code>@Model.AgentId</code>
+                </div>
+            }
+            else
+            {
+                <InputText id="agent-id"
+                           class="form-control"
+                           @bind-Value="Model.AgentId" />
+
+                <ValidationMessage For="@(() => Model.AgentId)" />
+
+                <small>
+                    The agent ID is the stable identity used by authorization,
+                    delegation, and runtime agent execution.
+                </small>
+            }
+        </div>
+
+        <div class="agent-form-field">
+            <label for="agent-name">Name</label>
+
+            <InputText id="agent-name"
+                       class="form-control"
+                       @bind-Value="Model.Name" />
+
+            <ValidationMessage For="@(() => Model.Name)" />
+        </div>
+
+        <div class="agent-form-field">
+            <label for="agent-description">Description</label>
+
+            <InputTextArea id="agent-description"
+                           class="form-control"
+                           @bind-Value="Model.Description"
+                           rows="4" />
+
+            <ValidationMessage For="@(() => Model.Description)" />
+        </div>
+
+        <div class="agent-form-grid">
+            <div class="agent-form-field">
+                <label for="agent-version">Version</label>
+
+                <InputText id="agent-version"
+                           class="form-control"
+                           @bind-Value="Model.Version" />
+
+                <ValidationMessage For="@(() => Model.Version)" />
+            </div>
+
+            <div class="agent-form-field agent-form-active">
+                <div class="form-check">
+                    <InputCheckbox id="agent-active"
+                                   class="form-check-input"
+                                   @bind-Value="Model.IsActive" />
+
+                    <label class="form-check-label"
+                           for="agent-active">
+                        Active
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="agent-form-note">
+            Permissions are managed separately from identity metadata.
+            This prevents a metadata edit from accidentally changing the
+            agent's effective capabilities.
+        </div>
+
+        <div class="agent-form-actions">
+            <button type="button"
+                    class="btn btn-outline-secondary"
+                    @onclick="OnCancel"
+                    disabled="@IsSubmitting">
+                Cancel
+            </button>
+
+            <button type="submit"
+                    class="btn btn-primary"
+                    disabled="@IsSubmitting">
+                @(IsSubmitting
+                    ? (IsEdit ? "Saving..." : "Creating...")
+                    : (IsEdit ? "Save Changes" : "Create Agent"))
+            </button>
+        </div>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter, EditorRequired]
+    public AgentEditorModel Model { get; set; } = null!;
+
+    [Parameter]
+    public bool IsEdit { get; set; }
+
+    [Parameter]
+    public bool IsSubmitting { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback OnValidSubmit { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+}

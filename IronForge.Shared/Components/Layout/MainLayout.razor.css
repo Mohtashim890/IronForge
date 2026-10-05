@@ -1,0 +1,298 @@
+.ironforge-shell {
+    min-height: 100vh;
+    display: flex;
+    background: #f6f8fb;
+    color: #172033;
+    position: relative;
+}
+
+.ironforge-sidebar {
+    width: 250px;
+    min-width: 250px;
+    min-height: 100vh;
+    background: #101827;
+    color: #ffffff;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    z-index: 100;
+}
+
+.ironforge-main {
+    flex: 1;
+    min-width: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.ironforge-topbar {
+    height: 72px;
+    background: #ffffff;
+    border-bottom: 1px solid #e7ebf2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    position: sticky;
+    top: 0;
+    z-index: 90;
+}
+
+.topbar-title {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.topbar-page-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #667085;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+.icon-button {
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    position: relative;
+    color: #475467;
+}
+
+    .icon-button:hover {
+        background: #f2f4f7;
+    }
+
+    .icon-button svg {
+        width: 21px;
+        height: 21px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+.notification-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #635bff;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+.user-menu {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.user-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    background: #635bff;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.user-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.user-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #172033;
+}
+
+.user-role {
+    font-size: 0.72rem;
+    color: #98a2b3;
+    margin-top: 3px;
+}
+
+
+/* ================================
+   Content
+   ================================ */
+
+.ironforge-content {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    padding: 32px;
+    /*
+     * Prevent the entire application from becoming wider
+     * than the device viewport.
+     */
+    /*overflow-x: hidden;*/
+}
+
+
+/* ================================
+   Mobile menu button
+   ================================ */
+
+.topbar-mobile-menu {
+    display: none;
+}
+
+.mobile-menu-button {
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 10px;
+}
+
+    .mobile-menu-button:hover {
+        background: #f2f4f7;
+    }
+
+    .mobile-menu-button span {
+        width: 100%;
+        height: 2px;
+        background: #344054;
+        border-radius: 2px;
+    }
+
+
+/* ================================
+   Mobile backdrop
+   ================================ */
+
+.mobile-menu-backdrop {
+    display: none;
+}
+
+
+/* ================================
+   Tablet
+   ================================ */
+
+@media (max-width: 900px) {
+
+    .ironforge-sidebar {
+        width: 220px;
+        min-width: 220px;
+    }
+
+    .ironforge-content {
+        padding: 24px;
+    }
+}
+
+
+/* ================================
+   Mobile
+   ================================ */
+
+@media (max-width: 700px) {
+
+    .ironforge-shell {
+        display: block;
+    }
+
+    /*
+     * Hidden by default on mobile.
+     */
+    .ironforge-sidebar {
+        display: none;
+        width: 280px;
+        min-width: 280px;
+        height: 100vh;
+        min-height: 100vh;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1000;
+        overflow-y: auto;
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.2);
+    }
+
+    /*
+     * This is the missing connection:
+     *
+     * MainLayout adds "mobile-menu-open"
+     * when the hamburger is clicked.
+     */
+    .ironforge-shell.mobile-menu-open .ironforge-sidebar {
+        display: block;
+    }
+
+    .ironforge-main {
+        width: 100%;
+    }
+
+    .topbar-mobile-menu {
+        display: block;
+    }
+
+    .ironforge-topbar {
+        height: 64px;
+        padding: 0 16px;
+    }
+
+    .ironforge-content {
+        width: 100%;
+        padding: 20px 16px 88px;
+        min-width: 0;
+    }
+
+    .user-info {
+        display: none;
+    }
+
+    .topbar-title {
+        margin-right: auto;
+        margin-left: 12px;
+    }
+
+    /*
+     * Backdrop behind the drawer.
+     */
+    .mobile-menu-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 950;
+        border: 0;
+        padding: 0;
+        background: rgba(0, 0, 0, 0.35);
+        cursor: pointer;
+    }
+
+    /*
+     * Sidebar must sit above the backdrop.
+     */
+    .ironforge-sidebar {
+        z-index: 1000;
+    }
+}

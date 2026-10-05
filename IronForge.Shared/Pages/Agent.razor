@@ -1,0 +1,926 @@
+﻿@page "/agent"
+@attribute [Authorize]
+
+@using IronForge.Shared.Components.UI
+@using IronForge.Shared.Models
+@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.Agents.Workflows
+@using IronForge.Shared.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+
+@inject IAgentWorkspaceService AgentWorkspaceService
+@inject IJSRuntime JS
+
+<PageTitle>Agent Workspace</PageTitle>
+
+<div class="agent-workspace @(isSessionSidebarOpen ? "session-sidebar-open" : "")">
+
+    <aside class="agent-session-sidebar">
+
+        <div class="agent-sidebar-header">
+
+            <div>
+                <h2>Sessions</h2>
+                <span>Product Agent</span>
+            </div>
+
+            <button type="button"
+                    class="btn btn-primary btn-sm"
+                    @onclick="CreateNewSessionAsync"
+                    disabled="@isCreatingSession">
+                @(isCreatingSession ? "Creating..." : "+ New Chat")
+            </button>
+
+        </div>
+
+        <div class="agent-session-list">
+
+            @if (isLoadingSessions)
+            {
+                <div class="agent-session-loading">
+                    Loading sessions...
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(sessionErrorMessage))
+            {
+                <div class="agent-session-error">
+
+                    <p>@sessionErrorMessage</p>
+
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            @onclick="LoadSessionsAsync">
+                        Retry
+                    </button>
+
+                </div>
+            }
+            else if (sessions.Count == 0)
+            {
+                <div class="agent-session-empty">
+                    <p>No conversations yet.</p>
+
+                    <button type="button"
+                            class="btn btn-sm btn-primary"
+                            @onclick="CreateNewSessionAsync">
+                        Start a conversation
+                    </button>
+                </div>
+            }
+            else
+            {
+                @foreach (var session in sessions)
+                {
+                    <button type="button"
+                            class="agent-session-item @(selectedSessionId == session.Id ? "active" : "")"
+                            @onclick="() => SelectSession(session)">
+
+                        <div class="session-title">
+                            @(string.IsNullOrWhiteSpace(session.Title)
+                                ? "New conversation"
+                                : session.Title)
+                        </div>
+
+                        <div class="session-time">
+                            @FormatSessionTime(session)
+                        </div>
+
+                    </button>
+                }
+            }
+
+        </div>
+
+    </aside>
+
+    @if (isSessionSidebarOpen)
+    {
+        <button type="button"
+                class="agent-session-backdrop"
+                aria-label="Close sessions"
+                @onclick="CloseSessionSidebar">
+        </button>
+    }
+    <section class="agent-conversation">
+
+        <header class="agent-conversation-header">
+
+            <button type="button"
+                    class="agent-session-toggle"
+                    aria-label="Open sessions"
+                    @onclick="ToggleSessionSidebar">
+
+                <span></span>
+                <span></span>
+                <span></span>
+
+            </button>
+
+            <div class="agent-title">
+
+                <div class="agent-avatar">
+                    AI
+                </div>
+
+                <div>
+                    <h1>Product Agent</h1>
+
+                    <span class="agent-status">
+                        Ready
+                    </span>
+                </div>
+
+            </div>
+
+        </header>
+
+
+        <main class="agent-message-area" @ref="conversationContainer">
+
+            @if (selectedSessionId is null)
+            {
+                <div class="agent-welcome">
+
+                    <div class="agent-welcome-icon">
+                        AI
+                    </div>
+
+                    <h2>
+                        Select a conversation
+                    </h2>
+
+                    <p>
+                        Choose an existing conversation or start a new one.
+                    </p>
+
+                </div>
+            }
+            else if (isLoadingMessages)
+            {
+                <div class="agent-conversation-loading">
+                    Loading conversation...
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(messageErrorMessage))
+            {
+                <div class="agent-conversation-error">
+
+                    <h3>
+                        Unable to load conversation
+                    </h3>
+
+                    <p>
+                        @messageErrorMessage
+                    </p>
+
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="() => LoadMessagesAsync(selectedSessionId.Value)">
+                        Retry
+                    </button>
+
+                </div>
+            }
+            else if (messages.Count == 0)
+            {
+                <div class="agent-welcome">
+
+                    <div class="agent-welcome-icon">
+                        AI
+                    </div>
+
+                    <h2>
+                        Start a conversation
+                    </h2>
+
+                    <p>
+                        Ask the Product Agent something about your products.
+                    </p>
+
+                </div>
+            }
+            else
+            {
+                <div class="agent-message-list">
+
+                    @foreach (var item in ConversationDisplayItems)
+                    {
+                        @if (item.IsToolActivity)
+                        {
+                            <ToolActivity Activity="@item.ToolActivity" />
+                        }
+                        else if (item.Message is not null)
+                        {
+                            <div class="agent-message-row @GetMessageRowClass(item.Message)">
+
+                                <div class="agent-message-bubble">
+
+                                    <div class="agent-message-role">
+                                        @GetMessageRoleLabel(item.Message)
+                                    </div>
+
+                                    <div class="agent-message-content">
+                                        @item.Message.Content
+                                    </div>
+
+                                    <div class="agent-message-time">
+                                        @item.Message.CreatedAtUtc.ToLocalTime().ToString("g")
+                                    </div>
+
+                                </div>
+
+                            </div>
+                        }
+                    }
+
+                </div>
+            }
+
+        </main>
+
+        @if (pendingApproval is not null)
+        {
+            <AgentApprovalCard Approval="@pendingApproval"
+                               Busy="@isProcessingApproval"
+                               Approve="ApprovePendingAsync"
+                               Reject="RejectPendingAsync" />
+        }
+        @if (currentWorkflow is not null)
+        {
+            <AgentWorkflowPanel Workflow="@currentWorkflow"
+                                InitiallyExpanded="@ShouldExpandWorkflow" />
+        }
+        <footer class="agent-composer">
+
+            @if (!string.IsNullOrWhiteSpace(composerErrorMessage))
+            {
+                <div class="agent-composer-error">
+
+                    <div>
+                        @composerErrorMessage
+                    </div>
+
+                    <button type="button"
+                            class="agent-retry-button"
+                            @onclick="SendMessageAsync"
+                            disabled="@IsAgentBusy">
+                        Retry
+                    </button>
+
+                </div>
+            }
+            <AgentExecutionStatus Visible="@(executionState != AgentExecutionState.Idle)"
+                                  Title="@GetExecutionTitle()"
+                                  Message="@AgentStatusMessage"
+                                  CssClass="@GetExecutionCssClass()" />
+
+            <div class="agent-composer-box">
+
+                <textarea class="agent-composer-input"
+                          @bind="composerText"
+                          @bind:event="oninput"
+                          placeholder="@(selectedSessionId is null
+                                          ? "Select a conversation first..."
+                                          : "Ask the Product Agent...")"
+                          disabled="@(selectedSessionId is null || IsAgentBusy)"
+                          rows="1">
+                </textarea>
+
+                <button type="button"
+                        class="btn btn-primary agent-send-button"
+                        @onclick="SendMessageAsync"
+                        disabled="@(selectedSessionId is null
+                                                    || IsAgentBusy
+                                                    || string.IsNullOrWhiteSpace(composerText))">
+
+                    @if (IsAgentBusy)
+                    {
+                        <span class="ui-button-spinner"></span>
+                        <span>Working...</span>
+                    }
+                    else
+                    {
+                        <span>Send</span>
+                    }
+
+                </button>
+
+            </div>
+
+            <div class="agent-composer-hint">
+                The agent can read and manage products according to your permissions.
+            </div>
+
+        </footer>
+
+        <div class="agent-conversation-bottom"></div>
+
+    </section>
+
+</div>
+
+
+@code
+{
+    private List<AgentSessionDto> sessions = [];
+    private AgentApprovalRequestDto? pendingApproval;
+    private List<ConversationMessageDto> messages = [];
+    private AgentWorkflowDto? currentWorkflow;
+
+    private ElementReference conversationContainer;
+    private bool shouldScrollConversation;
+
+    private Guid? selectedSessionId;
+    private string composerText = "";
+    private AgentExecutionState executionState = AgentExecutionState.Idle;
+    private bool IsAgentBusy =>
+        executionState is
+            AgentExecutionState.Sending
+            or AgentExecutionState.Processing
+            or AgentExecutionState.AwaitingApproval;
+
+    private IReadOnlyList<ConversationDisplayItem>
+        ConversationDisplayItems => BuildConversationDisplayItems();
+    private bool ShouldExpandWorkflow = false;
+
+    private bool isLoadingSessions;
+    private bool isCreatingSession;
+    private bool isLoadingMessages;
+    private bool isSessionSidebarOpen;
+    private bool isProcessingApproval;
+    private bool isLoadingWorkflow;
+    
+    private string? sessionErrorMessage;
+    private string? messageErrorMessage;
+    private string? composerErrorMessage;
+    private string? approvalErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessionsAsync();
+    }
+    protected override async Task OnAfterRenderAsync(
+    bool firstRender)
+    {
+        if (!shouldScrollConversation)
+        {
+            return;
+        }
+
+        shouldScrollConversation = false;
+
+        await ScrollConversationToBottomAsync();
+    }
+
+    private void ToggleSessionSidebar()
+    {
+        isSessionSidebarOpen = !isSessionSidebarOpen;
+    }
+
+    private void CloseSessionSidebar()
+    {
+        isSessionSidebarOpen = false;
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        isLoadingSessions = true;
+        sessionErrorMessage = null;
+
+        try
+        {
+            var result =
+                await AgentWorkspaceService.GetSessionsAsync();
+
+            if (!result.Success)
+            {
+                sessionErrorMessage =
+                    result.ErrorMessage ?? "Unable to load sessions.";
+
+                return;
+            }
+
+            sessions = result.Data ?? [];
+
+            if (selectedSessionId.HasValue &&
+                !sessions.Any(x => x.Id == selectedSessionId.Value))
+            {
+                selectedSessionId = null;
+            }
+        }
+        catch (Exception ex)
+        {
+            sessionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoadingSessions = false;
+        }
+    }
+
+    private async Task CreateNewSessionAsync()
+    {
+        if (isCreatingSession)
+            return;
+
+        executionState = AgentExecutionState.Idle;
+        composerErrorMessage = null;
+        composerText = "";
+
+        isCreatingSession = true;
+        sessionErrorMessage = null;
+
+        try
+        {
+            var result =
+                await AgentWorkspaceService.CreateSessionAsync(AgentIds.ProductAgent);
+
+            if (!result.Success || result.Data is null)
+            {
+                sessionErrorMessage =
+                    result.ErrorMessage
+                    ?? "Unable to create session.";
+
+                return;
+            }
+
+            sessions.Insert(0, result.Data);
+
+            selectedSessionId = result.Data.Id;
+
+            await LoadMessagesAsync(result.Data.Id);
+            CloseSessionSidebar();
+        }
+        catch (Exception ex)
+        {
+            sessionErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isCreatingSession = false;
+        }
+    }
+    private async Task SelectSession(AgentSessionDto session)
+    {
+        selectedSessionId = session.Id;
+
+        executionState =
+            AgentExecutionState.Idle;
+
+        composerErrorMessage = null;
+
+        composerText = "";
+
+        await LoadMessagesAsync(session.Id);
+        // await LoadWorkflowAsync(session.Id);
+
+        CloseSessionSidebar();
+        shouldScrollConversation = true;
+    }
+
+    private async Task LoadMessagesAsync(Guid sessionId)
+    {
+        isLoadingMessages = true;
+        messageErrorMessage = null;
+        messages = [];
+
+        try
+        {
+            var result =
+                await AgentWorkspaceService.GetMessagesAsync(sessionId);
+
+            if (!result.Success)
+            {
+                messageErrorMessage =
+                    result.ErrorMessage
+                    ?? "Unable to load conversation.";
+
+                return;
+            }
+
+            messages = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            messageErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoadingMessages = false;
+        }
+    }
+    private static string GetMessageRowClass(
+        ConversationMessageDto message)
+    {
+        return message.Role switch
+        {
+            ConversationMessageRole.User
+                => "user-message",
+
+            ConversationMessageRole.Assistant
+                => "assistant-message",
+
+            ConversationMessageRole.Tool
+                => "tool-message",
+
+            ConversationMessageRole.System
+                => "system-message",
+
+            _ => "assistant-message"
+        };
+    }
+
+    private static string GetMessageRoleLabel(
+        ConversationMessageDto message)
+    {
+        return message.Role switch
+        {
+            ConversationMessageRole.User
+                => "You",
+
+            ConversationMessageRole.Assistant
+                => "Product Agent",
+
+            ConversationMessageRole.Tool
+                => "Tool",
+
+            ConversationMessageRole.System
+                => "System",
+
+            _ => "Message"
+        };
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (selectedSessionId is null)
+            return;
+
+        var message = composerText.Trim();
+
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        if (IsAgentBusy)
+            return;
+
+        var sessionId = selectedSessionId.Value;
+
+        composerErrorMessage = null;
+
+        executionState =
+            AgentExecutionState.Sending;
+        try
+        {
+            composerText = "";
+
+            var result =
+                await AgentWorkspaceService.RunProductAgentAsync(
+                    sessionId,
+                    message);
+
+            if (!result.Success || result.Data is null)
+            {
+                composerText = message;
+
+                composerErrorMessage =
+                    result.ErrorMessage
+                    ?? "Unable to run the Product Agent.";
+
+                executionState =
+                    AgentExecutionState.Failed;
+
+                return;
+            }
+
+            executionState =
+                AgentExecutionState.Processing;
+
+            var agentResult = result.Data;
+
+            if (agentResult.Status == AgentRunStatus.ApprovalRequired)
+            {
+                pendingApproval =
+                    agentResult.Approvals.FirstOrDefault();
+
+                executionState =
+                    AgentExecutionState.AwaitingApproval;
+
+                await LoadMessagesAsync(sessionId);
+
+                shouldScrollConversation = true;
+
+                return;
+            }
+
+            await LoadMessagesAsync(sessionId);
+
+            executionState =
+                AgentExecutionState.Idle;
+
+            shouldScrollConversation = true;
+        }
+        catch (Exception ex)
+        {
+            composerText = message;
+
+            composerErrorMessage =
+                ex.Message;
+
+            executionState =
+                AgentExecutionState.Failed;
+        }
+    }
+
+    private static string FormatSessionTime(AgentSessionDto session)
+    {
+        var timestamp =
+            session.LastMessageAtUtc
+            ?? session.UpdatedAtUtc;
+
+        return timestamp.ToLocalTime().ToString("g");
+    }
+    private string AgentStatusMessage =>
+        executionState switch
+        {
+            AgentExecutionState.Sending =>
+                "Sending your request...",
+
+            AgentExecutionState.Processing =>
+                "Product Agent is processing your request...",
+
+            AgentExecutionState.AwaitingApproval =>
+                "Waiting for your approval...",
+
+            AgentExecutionState.Completed =>
+                "Completed",
+
+            AgentExecutionState.Failed =>
+                "The request failed.",
+
+            _ =>
+                "Ready"
+        };
+    private string GetExecutionTitle()
+    {
+        return executionState switch
+        {
+            AgentExecutionState.Sending =>
+                "Sending",
+
+            AgentExecutionState.Processing =>
+                "Product Agent",
+
+            AgentExecutionState.AwaitingApproval =>
+                "Approval required",
+
+            AgentExecutionState.Completed =>
+                "Completed",
+
+            AgentExecutionState.Failed =>
+                "Execution failed",
+
+            _ =>
+                ""
+        };
+    }
+    private string GetExecutionCssClass()
+    {
+        return executionState switch
+        {
+            AgentExecutionState.Sending
+                or AgentExecutionState.Processing
+                or AgentExecutionState.AwaitingApproval
+                    => "is-busy",
+
+            AgentExecutionState.Failed
+                => "is-error",
+
+            _ => ""
+        };
+    }
+
+    private async Task ScrollConversationToBottomAsync()
+    {
+        await JS.InvokeVoidAsync(
+            "ironForgeAgent.scrollToBottom",
+            conversationContainer);
+    }
+
+    private sealed class ConversationDisplayItem
+    {
+        public ConversationMessageDto? Message { get; init; }
+
+        public ToolActivityDto? ToolActivity { get; init; }
+
+        public bool IsToolActivity =>
+            ToolActivity is not null;
+    }
+
+    private List<ConversationDisplayItem>BuildConversationDisplayItems()
+    {
+        var result =
+            new List<ConversationDisplayItem>();
+
+        var toolActivities =
+            new Dictionary<string, ToolActivityDto>();
+
+        foreach (var message in messages)
+        {
+            var activity =
+                AgentToolActivityMapper.FromMessage(message);
+
+            if (activity is not null)
+            {
+                if (!toolActivities.TryGetValue(
+                        activity.ToolCallId,
+                        out var existing))
+                {
+                    existing = activity;
+
+                    toolActivities.Add(
+                        activity.ToolCallId,
+                        existing);
+
+                    result.Add(
+                        new ConversationDisplayItem
+                        {
+                            ToolActivity = existing
+                        });
+                }
+                else
+                {
+                    if (!string.IsNullOrWhiteSpace(
+                            activity.ArgumentsJson))
+                    {
+                        existing.ArgumentsJson =
+                            activity.ArgumentsJson;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(
+                            activity.ResultJson))
+                    {
+                        existing.ResultJson =
+                            activity.ResultJson;
+
+                        existing.Status =
+                            ToolActivityStatus.Completed;
+                    }
+                }
+
+                continue;
+            }
+
+            result.Add(
+                new ConversationDisplayItem
+                {
+                    Message = message
+                });
+        }
+
+        return result;
+    }
+
+    private async Task ApprovePendingAsync()
+    {
+        if (pendingApproval is null)
+            return;
+
+        if (isProcessingApproval)
+            return;
+
+        isProcessingApproval = true;
+        approvalErrorMessage = null;
+
+        try
+        {
+            var decision =
+                new AgentApprovalDecisionDto
+                {
+                    ApprovalId =
+                        pendingApproval.ApprovalId,
+
+                    Approved = true,
+
+                    Reason =
+                        "Approved by the user."
+                };
+
+            var result =
+                await AgentWorkspaceService
+                    .RespondToApprovalAsync(decision);
+
+            if (!result.Success)
+            {
+                approvalErrorMessage =
+                    result.ErrorMessage
+                    ?? "Unable to process the approval.";
+
+                return;
+            }
+
+            pendingApproval = null;
+
+            executionState =
+                AgentExecutionState.Processing;
+
+            await LoadMessagesAsync(
+                selectedSessionId!.Value);
+
+            // await LoadWorkflowAsync(selectedSessionId!.Value);
+
+            executionState =
+                AgentExecutionState.Idle;
+
+            shouldScrollConversation = true;
+        }
+        catch (Exception ex)
+        {
+            approvalErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isProcessingApproval = false;
+        }
+    }
+
+    private async Task RejectPendingAsync()
+    {
+        if (pendingApproval is null)
+            return;
+
+        if (isProcessingApproval)
+            return;
+
+        isProcessingApproval = true;
+        approvalErrorMessage = null;
+
+        try
+        {
+            var decision =
+                new AgentApprovalDecisionDto
+                {
+                    ApprovalId =
+                        pendingApproval.ApprovalId,
+
+                    Approved = false,
+
+                    Reason =
+                        "Rejected by the user."
+                };
+
+            var result =
+                await AgentWorkspaceService
+                    .RespondToApprovalAsync(decision);
+
+            if (!result.Success)
+            {
+                approvalErrorMessage =
+                    result.ErrorMessage
+                    ?? "Unable to process the rejection.";
+
+                return;
+            }
+
+            pendingApproval = null;
+
+            executionState =
+                AgentExecutionState.Idle;
+
+            await LoadMessagesAsync(
+                selectedSessionId!.Value);
+
+            shouldScrollConversation = true;
+        }
+        catch (Exception ex)
+        {
+            approvalErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isProcessingApproval = false;
+        }
+    }
+
+    private async Task LoadWorkflowAsync(Guid sessionId)
+    {
+        isLoadingWorkflow = true;
+
+        try
+        {
+            var result =
+                await AgentWorkspaceService
+                    .GetWorkflowAsync(sessionId);
+
+            if (result.Success)
+            {
+                currentWorkflow = result.Data;
+            }
+        }
+        finally
+        {
+            isLoadingWorkflow = false;
+        }
+    }
+}

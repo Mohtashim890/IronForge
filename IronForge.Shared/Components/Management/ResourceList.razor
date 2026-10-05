@@ -1,0 +1,109 @@
+@typeparam TItem
+
+<div class="management-resource-list">
+    @if (HeaderContent is not null)
+    {
+        <div class="management-resource-list__header">
+            @HeaderContent
+        </div>
+    }
+
+    @if (ToolbarContent is not null)
+    {
+        <div class="management-resource-list__toolbar">
+            @ToolbarContent
+        </div>
+    }
+
+    @if (IsLoading)
+    {
+        <div class="management-resource-list__state">
+            <div class="management-resource-list__spinner" aria-hidden="true"></div>
+            <p>Loading...</p>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="management-resource-list__state management-resource-list__state--error">
+            <h3>Unable to load data</h3>
+            <p>@ErrorMessage</p>
+
+            @if (OnRetry.HasDelegate)
+            {
+                <button type="button"
+                        class="btn btn-outline-primary btn-sm"
+                        @onclick="OnRetry">
+                    Retry
+                </button>
+            }
+        </div>
+    }
+    else if (Items is null || Items.Count == 0)
+    {
+        <div class="management-resource-list__state">
+            <div class="management-resource-list__empty-icon" aria-hidden="true">
+                @EmptyIcon
+            </div>
+
+            <h3>@EmptyTitle</h3>
+            <p>@EmptyMessage</p>
+
+            @if (EmptyActions is not null)
+            {
+                <div class="management-resource-list__empty-actions">
+                    @EmptyActions
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="management-resource-list__items">
+            @foreach (var item in Items)
+            {
+                <div class="management-resource-list__item">
+                    @if (RowTemplate is not null)
+                    {
+                        @RowTemplate(item)
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public IReadOnlyList<TItem>? Items { get; set; }
+
+    [Parameter]
+    public bool IsLoading { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public string EmptyTitle { get; set; } = "Nothing here yet.";
+
+    [Parameter]
+    public string EmptyMessage { get; set; } =
+        "There are no resources to display.";
+
+    [Parameter]
+    public string EmptyIcon { get; set; } = "—";
+
+    [Parameter]
+    public RenderFragment? HeaderContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? ToolbarContent { get; set; }
+
+    [Parameter]
+    public RenderFragment<TItem>? RowTemplate { get; set; }
+
+    [Parameter]
+    public RenderFragment? EmptyActions { get; set; }
+
+    [Parameter]
+    public EventCallback OnRetry { get; set; }
+}

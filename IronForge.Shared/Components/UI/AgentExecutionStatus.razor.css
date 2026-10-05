@@ -1,0 +1,61 @@
+.agent-execution-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 14px;
+    box-sizing: border-box;
+    font-size: 13px;
+}
+
+.agent-execution-content {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+    .agent-execution-content strong {
+        font-size: 13px;
+        font-weight: 600;
+    }
+
+    .agent-execution-content span {
+        color: #6b7280;
+        font-size: 12px;
+    }
+
+.agent-execution-indicator {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 50%;
+    background: #22c55e;
+}
+
+.agent-execution-status.is-busy
+.agent-execution-indicator {
+    animation: agent-pulse 1.2s ease-in-out infinite;
+}
+
+.agent-execution-status.is-error
+.agent-execution-indicator {
+    background: #dc2626;
+}
+
+@keyframes agent-pulse {
+
+    0% {
+        opacity: 0.35;
+        transform: scale(0.85);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    100% {
+        opacity: 0.35;
+        transform: scale(0.85);
+    }
+}

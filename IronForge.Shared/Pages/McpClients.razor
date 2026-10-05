@@ -1,0 +1,396 @@
+@page "/mcp-clients"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(
+    Policy = IronForge.Shared.Authorization.Permissions.McpClientsRead)]
+
+@using IronForge.Shared.Components.Management
+@using IronForge.Shared.Components.UI
+@using IronForge.Shared.Features
+@using IronForge.Shared.Models.McpClients
+@using IronForge.Shared.Services
+
+@inject IMcpClientManagementService McpClientManagementService
+
+<PageTitle>MCP Clients</PageTitle>
+
+<div class="mcp-client-management-page">
+    <PageHeader Title="MCP Clients"
+                Subtitle="Manage tenant-scoped external MCP client identities.">
+        <Actions>
+            <AuthorizeView Policy="@IronForge.Shared.Authorization.Permissions.McpClientsCreate">
+                <Authorized>
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="BeginCreate">
+                        + New MCP Client
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+        </Actions>
+    </PageHeader>
+
+    @if (showEditor)
+    {
+        <section class="mcp-client-editor-panel" aria-label="MCP client editor">
+            <div class="mcp-client-editor-header">
+                <div>
+                    <h2>@(editingClientId is null ? "Register MCP Client" : "Edit MCP Client")</h2>
+                    <p>
+                        @(editingClientId is null
+                            ? "Create a persistent identity for an external MCP client."
+                            : "Update the registered client identity.")
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="CloseEditor"
+                        disabled="@isSaving">
+                    Close
+                </button>
+            </div>
+
+            <McpClientForm Model="@editorModel"
+                           IsEdit=@(editingClientId is not null)
+                           IsSubmitting="@isSaving"
+                           ErrorMessage="@editorError"
+                           OnValidSubmit="SaveEditorAsync"
+                           OnCancel="CloseEditor" />
+        </section>
+    }
+
+    <ResourceList TItem="McpClientDto"
+                  Items="@clients"
+                  IsLoading="@isLoading"
+                  ErrorMessage="@errorMessage"
+                  EmptyTitle="No MCP clients registered"
+                  EmptyMessage="Register an external MCP client identity before configuring Agent access or delegations."
+                  OnRetry="LoadClientsAsync">
+
+        <ToolbarContent>
+            <div class="mcp-client-list-summary">
+                <span>@clients.Count registered</span>
+
+                @if (activeClientCount > 0)
+                {
+                    <span>@activeClientCount active</span>
+                }
+            </div>
+        </ToolbarContent>
+
+        <RowTemplate Context="client">
+            <div class="mcp-client-row">
+                <div class="mcp-client-main">
+                    <div class="mcp-client-title">
+                        <strong>@client.Name</strong>
+                        <StatusBadge Text="@(client.IsActive ? "Active" : "Inactive")" />
+                    </div>
+
+                    <code class="mcp-client-id">@client.ClientId</code>
+
+                    @if (!string.IsNullOrWhiteSpace(client.Description))
+                    {
+                        <p class="mcp-client-description">@client.Description</p>
+                    }
+                </div>
+
+                <div class="mcp-client-metadata">
+                    <div>
+                        <span>Type</span>
+                        <strong>@client.ClientType</strong>
+                    </div>
+
+                    <div>
+                        <span>Version</span>
+                        <strong>@client.Version</strong>
+                    </div>
+
+                    <div>
+                        <span>Updated</span>
+                        <strong>@client.UpdatedAtUtc.ToLocalTime().ToString("g")</strong>
+                    </div>
+                </div>
+
+                <div class="mcp-client-actions">
+                    <AuthorizeView Policy="@IronForge.Shared.Authorization.Permissions.McpClientsUpdate">
+                        <Authorized>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    @onclick="() => BeginEdit(client)">
+                                Edit
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
+
+                    <AuthorizeView Policy="@IronForge.Shared.Authorization.Permissions.McpClientsDelete">
+                        <Authorized>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-danger"
+                                    @onclick="() => RequestDelete(client)">
+                                Delete
+                            </button>
+                        </Authorized>
+                    </AuthorizeView>
+                </div>
+            </div>
+        </RowTemplate>
+
+        <EmptyActions>
+            <AuthorizeView Policy="@IronForge.Shared.Authorization.Permissions.McpClientsCreate">
+                <Authorized>
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="BeginCreate">
+                        Register MCP Client
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+        </EmptyActions>
+    </ResourceList>
+
+    @if (deleteCandidate is not null)
+    {
+        <div class="mcp-client-confirm-backdrop"
+             role="presentation"
+             @onclick="CloseDeleteConfirmation">
+            <div class="mcp-client-confirm-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="mcp-delete-title"
+                 @onclick:stopPropagation="true">
+
+                <div class="mcp-client-confirm-icon">!</div>
+
+                <h2 id="mcp-delete-title">
+                    Delete @deleteCandidate.Name?
+                </h2>
+
+                <p>
+                    This removes the persistent MCP client identity from the
+                    tenant registry. It does not delete credentials because
+                    credentials are not stored by the registry.
+                </p>
+
+                <div class="mcp-client-confirm-details">
+                    <span>Client ID</span>
+                    <code>@deleteCandidate.ClientId</code>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(deleteError))
+                {
+                    <div class="alert alert-danger" role="alert">
+                        @deleteError
+                    </div>
+                }
+
+                <div class="mcp-client-confirm-actions">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="CloseDeleteConfirmation"
+                            disabled="@isDeleting">
+                        Cancel
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-danger"
+                            @onclick="DeleteAsync"
+                            disabled="@isDeleting">
+                        @(isDeleting ? "Deleting..." : "Delete Client")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<McpClientDto> clients = [];
+    private bool isLoading;
+    private string? errorMessage;
+
+    private bool showEditor;
+    private string? editingClientId;
+    private McpClientEditorModel editorModel = new();
+    private bool isSaving;
+    private string? editorError;
+
+    private McpClientDto? deleteCandidate;
+    private bool isDeleting;
+    private string? deleteError;
+
+    private int activeClientCount =>
+        clients.Count(x => x.IsActive);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadClientsAsync();
+    }
+
+    private async Task LoadClientsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await McpClientManagementService.GetClientsAsync();
+
+            if (!result.Success)
+            {
+                errorMessage =
+                    result.ErrorMessage ??
+                    "Unable to load MCP clients.";
+
+                return;
+            }
+
+            clients = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void BeginCreate()
+    {
+        editingClientId = null;
+        editorModel = new McpClientEditorModel();
+        editorError = null;
+        showEditor = true;
+    }
+
+    private void BeginEdit(McpClientDto client)
+    {
+        editingClientId = client.ClientId;
+        editorModel = McpClientEditorModel.From(client);
+        editorError = null;
+        showEditor = true;
+    }
+
+    private void CloseEditor()
+    {
+        if (isSaving)
+            return;
+
+        showEditor = false;
+        editingClientId = null;
+        editorError = null;
+    }
+
+    private async Task SaveEditorAsync()
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+        editorError = null;
+
+        try
+        {
+            if (editingClientId is null)
+            {
+                var createRequest = editorModel.ToCreateRequest();
+
+                var createResult =
+                    await McpClientManagementService.CreateClientAsync(
+                        createRequest);
+
+                if (!createResult.Success)
+                {
+                    editorError =
+                        createResult.ErrorMessage ??
+                        "Unable to register the MCP client.";
+
+                    return;
+                }
+            }
+            else
+            {
+                var updateRequest = editorModel.ToUpdateRequest();
+
+                var updateResult =
+                    await McpClientManagementService.UpdateClientAsync(
+                        editingClientId,
+                        updateRequest);
+
+                if (!updateResult.Success)
+                {
+                    editorError =
+                        updateResult.ErrorMessage ??
+                        "Unable to update the MCP client.";
+
+                    return;
+                }
+            }
+
+            showEditor = false;
+            editingClientId = null;
+
+            await LoadClientsAsync();
+        }
+        catch (Exception ex)
+        {
+            editorError = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void RequestDelete(McpClientDto client)
+    {
+        deleteCandidate = client;
+        deleteError = null;
+    }
+
+    private void CloseDeleteConfirmation()
+    {
+        if (isDeleting)
+            return;
+
+        deleteCandidate = null;
+        deleteError = null;
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (deleteCandidate is null || isDeleting)
+            return;
+
+        isDeleting = true;
+        deleteError = null;
+
+        try
+        {
+            var result =
+                await McpClientManagementService.DeleteClientAsync(
+                    deleteCandidate.ClientId);
+
+            if (!result.Success)
+            {
+                deleteError =
+                    result.ErrorMessage ??
+                    "Unable to delete the MCP client.";
+
+                return;
+            }
+
+            deleteCandidate = null;
+            await LoadClientsAsync();
+        }
+        catch (Exception ex)
+        {
+            deleteError = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+}

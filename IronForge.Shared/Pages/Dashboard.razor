@@ -1,0 +1,247 @@
+﻿@page "/dashboard"
+
+@attribute [Authorize]
+
+@using Microsoft.AspNetCore.Authorization
+@using IronForge.Shared.Services
+@using IronForge.Shared.Models
+
+@inject IProductService ProductService
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Dashboard | IronForge</PageTitle>
+
+<div class="dashboard-page">
+    <header class="dashboard-header">
+        <div>
+            <div class="dashboard-eyebrow">
+                WORKSPACE OVERVIEW
+            </div>
+
+            <h1>Dashboard</h1>
+
+            <p>
+                Welcome to IronForge. Manage your products
+                and access your AI-powered workspace.
+            </p>
+        </div>
+
+        <button class="dashboard-refresh"
+                @onclick="LoadDashboardAsync"
+                disabled="@isLoading">
+            @(isLoading ? "Refreshing..." : "Refresh")
+        </button>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="dashboard-error" role="alert">
+            @errorMessage
+            <button @onclick="LoadDashboardAsync">
+                Try again
+            </button>
+        </div>
+    }
+
+    <section class="dashboard-stats">
+
+        <article class="dashboard-stat-card">
+            <div class="stat-icon products-icon">
+                📦
+            </div>
+
+            <div class="stat-label">
+                Total products
+            </div>
+
+            <div class="stat-value">
+                @(isLoading ? "..." : totalProducts.ToString())
+            </div>
+
+            <div class="stat-description">
+                Products in your catalog
+            </div>
+        </article>
+
+        <article class="dashboard-stat-card">
+            <div class="stat-icon agent-icon">
+                ✦
+            </div>
+
+            <div class="stat-label">
+                AI Agent
+            </div>
+
+            <div class="stat-value stat-text">
+                Workspace
+            </div>
+
+            <div class="stat-description">
+                Agent-assisted operations
+            </div>
+        </article>
+
+    </section>
+
+    <section class="dashboard-section">
+        <div class="section-heading">
+            <h2>Quick actions</h2>
+            <p>Go directly to your frequently used tools.</p>
+        </div>
+
+        <div class="quick-actions">
+
+            <button class="quick-action"
+                    @onclick='() => Navigation.NavigateTo("/products")'>
+                <span class="quick-action-icon">
+                    📦
+                </span>
+
+                <span class="quick-action-content">
+                    <strong>Manage products</strong>
+                    <small>
+                        View, create, and update your catalog
+                    </small>
+                </span>
+
+                <span class="quick-action-arrow">→</span>
+            </button>
+
+            <button class="quick-action"
+                    @onclick='() => Navigation.NavigateTo("/agent")'>
+                <span class="quick-action-icon agent-action-icon">
+                    ✦
+                </span>
+
+                <span class="quick-action-content">
+                    <strong>AI Agent</strong>
+                    <small>
+                        Open your agent workspace
+                    </small>
+                </span>
+
+                <span class="quick-action-arrow">→</span>
+            </button>
+
+        </div>
+    </section>
+
+    <section class="dashboard-section recent-section">
+
+        <div class="section-heading section-heading-row">
+            <div>
+                <h2>Products</h2>
+                <p>A snapshot of your current catalog.</p>
+            </div>
+
+            <button class="text-action"
+                    @onclick='() => Navigation.NavigateTo("/products")'>
+                View all →
+            </button>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="dashboard-empty">
+                Loading products...
+            </div>
+        }
+        else if (products.Count == 0)
+        {
+            <div class="dashboard-empty">
+                No products found.
+            </div>
+        }
+        else
+        {
+            <div class="dashboard-table-container">
+                <table class="dashboard-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Price</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        @foreach (var product in products.Take(5))
+                        {
+                            <tr>
+                                <td>@product.Name</td>
+                                <td>@product.Price.ToString("N2")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+    </section>
+
+</div>
+
+@code {
+    private bool isLoading = true;
+    private int totalProducts;
+    private string? errorMessage;
+
+    private List<Product> products = new();
+
+    // OnInitializedAsync (unlike OnAfterRenderAsync) re-renders the component
+    // when it completes, so the isLoading = false state is displayed.
+    // The app runs without prerendering, so JS interop (token storage) works here.
+    protected override async Task OnInitializedAsync()
+    {
+        var activeTenant =
+            await AuthService.GetActiveTenantAsync();
+
+        if (activeTenant is null)
+        {
+            Navigation.NavigateTo(
+                "/select-tenant");
+
+            return;
+        }
+
+        await LoadDashboardAsync();
+    }
+
+    private async Task LoadDashboardAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await ProductService.GetProductsAsync();
+
+            if (!result.Success)
+            {
+                products = new();
+                totalProducts = 0;
+
+                errorMessage = string.IsNullOrWhiteSpace(
+                    result.ErrorMessage)
+                    ? "Unable to load products."
+                    : result.ErrorMessage;
+
+                return;
+            }
+
+            products = result.Data ?? new();
+            totalProducts = products.Count;
+        }
+        catch (Exception)
+        {
+            products = new();
+            totalProducts = 0;
+            errorMessage =
+                "An unexpected error occurred while loading the dashboard.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

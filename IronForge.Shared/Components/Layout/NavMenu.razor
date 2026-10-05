@@ -1,0 +1,113 @@
+﻿@using IronForge.Shared.Services
+
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<div class="nav-header">
+
+    <a class="navbar-brand"
+       href="/">
+        IronForge
+    </a>
+
+</div>
+
+<nav class="nav-scrollable">
+
+    <Microsoft.AspNetCore.Components.Authorization.AuthorizeView>
+
+        <Authorized>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/"
+                         Match="NavLinkMatch.All">
+                    <span class="nav-icon">⌂</span>
+                    <span>Dashboard</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/products">
+                    <span class="nav-icon">▣</span>
+                    <span>Products</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/agent">
+                    <span class="nav-icon">✦</span>
+                    <span>Chat</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/agents">
+                    <span class="nav-icon">✓</span>
+                    <span>Agents</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/mcp-clients">
+                    <span class="nav-icon">🤝</span>
+                    <span>Clients</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/delegations">
+                    <span class="nav-icon">📋</span>
+                    <span>Delegations</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item nav-logout">
+
+                <button type="button"
+                        class="nav-link"
+                        @onclick="LogoutAsync">
+
+                    <span class="nav-icon">↪</span>
+                    <span>Sign out</span>
+
+                </button>
+
+            </div>
+
+        </Authorized>
+
+        <NotAuthorized>
+
+            <div class="nav-item">
+
+                <NavLink class="nav-link"
+                         href="/login">
+
+                    <span class="nav-icon">🔐</span>
+                    <span>Login</span>
+
+                </NavLink>
+
+            </div>
+
+        </NotAuthorized>
+
+    </Microsoft.AspNetCore.Components.Authorization.AuthorizeView>
+
+</nav>
+
+@code
+{
+    private async Task LogoutAsync()
+    {
+        await AuthService.LogoutAsync();
+
+        Navigation.NavigateTo("/login");
+    }
+}

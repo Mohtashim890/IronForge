@@ -1,0 +1,160 @@
+﻿@using IronForge.Shared.Models.Agents
+<div class="agent-approval-card">
+
+    <div class="agent-approval-header">
+
+        <div class="agent-approval-icon">
+            !
+        </div>
+
+        <div class="agent-approval-header-content">
+
+            <h3>Approval required</h3>
+
+            <span>
+                The Product Agent wants to perform an action.
+            </span>
+
+        </div>
+
+    </div>
+
+    <div class="agent-approval-body">
+
+        <div class="agent-approval-field">
+
+            <span class="agent-approval-label">
+                Action
+            </span>
+
+            <strong>
+                @DisplayToolName
+            </strong>
+
+        </div>
+
+        <div class="agent-approval-field">
+
+            <span class="agent-approval-label">
+                Risk level
+            </span>
+
+            <span class="agent-risk-badge @RiskCssClass">
+                @Approval.RiskLevel
+            </span>
+
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(
+            Approval.Description))
+        {
+            <div class="agent-approval-description">
+                @Approval.Description
+            </div>
+        }
+
+        <div class="agent-approval-field">
+
+            <span class="agent-approval-label">
+                Requested
+            </span>
+
+            <span>
+                @Approval.CreatedAtUtc.ToLocalTime().ToString("g")
+            </span>
+
+        </div>
+
+        <div class="agent-approval-field">
+
+            <span class="agent-approval-label">
+                Expires
+            </span>
+
+            <span>
+                @Approval.ExpiresAtUtc.ToLocalTime().ToString("g")
+            </span>
+
+        </div>
+
+    </div>
+
+    <div class="agent-approval-actions">
+
+        <button type="button"
+                class="btn btn-outline-secondary"
+                disabled="@Busy"
+                @onclick="Reject">
+
+            Reject
+
+        </button>
+
+        <button type="button"
+                class="btn btn-primary"
+                disabled="@Busy"
+                @onclick="Approve">
+
+            @if (Busy)
+            {
+                <span class="ui-button-spinner"></span>
+                <span>Processing...</span>
+            }
+            else
+            {
+                <span>Approve</span>
+            }
+
+        </button>
+
+    </div>
+
+</div>
+
+@code {
+
+    [Parameter, EditorRequired]
+    public AgentApprovalRequestDto Approval { get; set; } = new();
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback Approve { get; set; }
+
+    [Parameter]
+    public EventCallback Reject { get; set; }
+
+    private string DisplayToolName =>
+        Approval.ToolName switch
+        {
+            "create_product" =>
+                "Create product",
+
+            "update_product" =>
+                "Update product",
+
+            "delete_product" =>
+                "Delete product",
+
+            "get_product" =>
+                "Get product",
+
+            "get_products" =>
+                "Get products",
+
+            _ =>
+                Approval.ToolName
+                    .Replace("_", " ")
+        };
+
+    private string RiskCssClass =>
+        Approval.RiskLevel.ToLowerInvariant() switch
+        {
+            "low" => "risk-low",
+            "medium" => "risk-medium",
+            "high" => "risk-high",
+            "critical" => "risk-critical",
+            _ => "risk-unknown"
+        };
+}

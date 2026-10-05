@@ -1,0 +1,70 @@
+.nav-header {
+    min-height: 3.5rem;
+    padding: 0 1rem;
+    display: flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.navbar-brand {
+    color: white;
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+
+/* ================================
+   Navigation
+   ================================ */
+
+.nav-scrollable {
+    display: block;
+    padding: 0.75rem 0;
+    height: calc(100vh - 3.5rem);
+    overflow-y: auto;
+}
+
+.nav-item {
+    padding: 0.25rem 0.75rem;
+}
+
+    .nav-item ::deep .nav-link {
+        width: 100%;
+        min-height: 3rem;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: #d7d7d7;
+        background: transparent;
+        border: none;
+        border-radius: 0.5rem;
+        text-decoration: none;
+        text-align: left;
+        cursor: pointer;
+    }
+
+        .nav-item ::deep .nav-link:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+    .nav-item ::deep a.active {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+    }
+
+.nav-icon {
+    width: 1.25rem;
+    min-width: 1.25rem;
+    text-align: center;
+}
+
+.nav-logout {
+    margin-top: 1rem;
+}
+
+    .nav-logout button {
+        font: inherit;
+    }

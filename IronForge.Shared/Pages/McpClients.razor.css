@@ -1,0 +1,220 @@
+.mcp-client-management-page {
+    width: 100%;
+}
+
+.mcp-client-editor-panel {
+    margin-bottom: 1.25rem;
+    padding: 1.25rem;
+    border: 1px solid #d0d5dd;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    box-shadow: 0 4px 14px rgba(16, 24, 40, 0.06);
+}
+
+.mcp-client-editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.mcp-client-editor-header h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.mcp-client-editor-header p {
+    margin: 0.35rem 0 0;
+    color: #667085;
+}
+
+.mcp-client-list-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    color: #667085;
+    font-size: 0.875rem;
+}
+
+.mcp-client-list-summary span + span {
+    padding-left: 0.75rem;
+    border-left: 1px solid #d0d5dd;
+}
+
+.mcp-client-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr) auto;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.mcp-client-main {
+    min-width: 0;
+}
+
+.mcp-client-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.mcp-client-title strong {
+    font-size: 1rem;
+}
+
+.mcp-client-id {
+    display: inline-block;
+    margin-top: 0.4rem;
+    color: #475467;
+    font-size: 0.82rem;
+    overflow-wrap: anywhere;
+}
+
+.mcp-client-description {
+    margin: 0.5rem 0 0;
+    color: #667085;
+    line-height: 1.45;
+}
+
+.mcp-client-metadata {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+}
+
+.mcp-client-metadata > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.mcp-client-metadata span {
+    color: #667085;
+    font-size: 0.75rem;
+}
+
+.mcp-client-metadata strong {
+    color: #344054;
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+}
+
+.mcp-client-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+.mcp-client-confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(16, 24, 40, 0.45);
+}
+
+.mcp-client-confirm-dialog {
+    width: min(100%, 480px);
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    box-shadow: 0 20px 50px rgba(16, 24, 40, 0.2);
+}
+
+.mcp-client-confirm-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    border-radius: 50%;
+    background: #fef3f2;
+    color: #b42318;
+    font-weight: 700;
+}
+
+.mcp-client-confirm-dialog h2 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.mcp-client-confirm-dialog p {
+    margin: 0.75rem 0;
+    color: #667085;
+    line-height: 1.5;
+}
+
+.mcp-client-confirm-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    border: 1px solid #e4e7ec;
+    border-radius: 0.5rem;
+    background: #f9fafb;
+}
+
+.mcp-client-confirm-details span {
+    color: #667085;
+    font-size: 0.75rem;
+}
+
+.mcp-client-confirm-details code {
+    overflow-wrap: anywhere;
+}
+
+.mcp-client-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
+@media (max-width: 950px) {
+    .mcp-client-row {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .mcp-client-metadata {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .mcp-client-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 600px) {
+    .mcp-client-editor-panel {
+        padding: 1rem;
+    }
+
+    .mcp-client-editor-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .mcp-client-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    .mcp-client-confirm-actions {
+        flex-direction: column-reverse;
+    }
+
+    .mcp-client-confirm-actions .btn {
+        width: 100%;
+    }
+}

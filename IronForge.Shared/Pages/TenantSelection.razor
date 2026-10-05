@@ -1,0 +1,250 @@
+﻿@page "/select-tenant"
+
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using IronForge.Shared.Models
+@using IronForge.Shared.Services
+@using IronForge.Shared.Components.Layout
+
+@layout AuthLayout
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Select Workspace | IronForge</PageTitle>
+
+<div class="tenant-selection-page">
+    <div class="tenant-selection-brand">
+        <div class="tenant-selection-logo">
+            ⚒
+        </div>
+
+        <div>
+            <div class="tenant-selection-brand-name">
+                IronForge
+            </div>
+
+            <div class="tenant-selection-brand-subtitle">
+                Agentic Workspace
+            </div>
+        </div>
+    </div>
+
+    <div class="tenant-selection-card">
+
+        <div class="tenant-selection-header">
+            <span class="tenant-selection-eyebrow">
+                WORKSPACE
+            </span>
+
+            <h1>Select your workspace</h1>
+
+            <p>
+                Choose the workspace you want to work in.
+                Your data and agent activity are isolated
+                by workspace.
+            </p>
+        </div>
+
+        @if (isLoading)
+        {
+            <div class="tenant-loading">
+                <div class="tenant-spinner"></div>
+
+                <span>
+                    Loading your workspaces...
+                </span>
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="tenant-error" role="alert">
+                <strong>Unable to continue</strong>
+
+                <span>
+                    @errorMessage
+                </span>
+
+                <button type="button"
+                        @onclick="LoadTenantsAsync">
+                    Try again
+                </button>
+            </div>
+        }
+        else if (tenants.Count == 0)
+        {
+            <div class="tenant-empty">
+                <div class="tenant-empty-icon">
+                    !
+                </div>
+
+                <h2>No workspace available</h2>
+
+                <p>
+                    Your account is not currently a member
+                    of any active workspace.
+                </p>
+            </div>
+        }
+        else
+        {
+            <div class="tenant-list">
+
+                @foreach (var tenant in tenants)
+                {
+                    <button type="button"
+                            class="tenant-option"
+                            disabled="@isSelecting"
+                            @onclick="() => SelectTenantAsync(tenant)">
+
+                        <span class="tenant-option-icon">
+                            @GetTenantInitial(tenant)
+                        </span>
+
+                        <span class="tenant-option-content">
+                            <strong>
+                                @tenant.TenantName
+                            </strong>
+
+                            <small>
+                                @tenant.Role
+                                @if (!string.IsNullOrWhiteSpace(tenant.Slug))
+                                {
+                                    <span> · @tenant.Slug</span>
+                                }
+                            </small>
+                        </span>
+
+                        <span class="tenant-option-arrow">
+                            →
+                        </span>
+                    </button>
+                }
+
+            </div>
+        }
+
+        @if (isSelecting)
+        {
+            <div class="tenant-selection-status">
+                Switching workspace...
+            </div>
+        }
+
+    </div>
+
+    <div class="tenant-selection-footer">
+        IronForge · Agentic SaaS Platform
+    </div>
+
+</div>
+
+@code {
+
+    private List<TenantMembership> tenants = new();
+
+    private bool isLoading = true;
+    private bool isSelecting;
+
+    private string? errorMessage;
+
+    // OnInitializedAsync (unlike OnAfterRenderAsync) re-renders the component
+    // when it completes, so the isLoading = false state is displayed.
+    // The app runs without prerendering, so JS interop (token storage) works here.
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTenantsAsync();
+    }
+
+    private async Task LoadTenantsAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await AuthService.GetMyTenantsAsync();
+
+            if (!result.Success)
+            {
+                errorMessage =
+                    string.IsNullOrWhiteSpace(
+                        result.ErrorMessage)
+                        ? "Unable to load your workspaces."
+                        : result.ErrorMessage;
+
+                tenants = new();
+
+                return;
+            }
+
+            tenants =
+                result.Data ?? new();
+
+            // One workspace:
+            // select it automatically.
+            if (tenants.Count == 1)
+            {
+                await SelectTenantAsync(
+                    tenants[0]);
+
+                return;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectTenantAsync(
+        TenantMembership tenant)
+    {
+        if (isSelecting)
+            return;
+
+        isSelecting = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await AuthService.SelectTenantAsync(
+                    tenant.TenantId);
+
+            if (!result.Success)
+            {
+                errorMessage =
+                    string.IsNullOrWhiteSpace(
+                        result.ErrorMessage)
+                        ? "Unable to select this workspace."
+                        : result.ErrorMessage;
+
+                return;
+            }
+
+            Navigation.NavigateTo(
+                "/dashboard",
+                forceLoad: false);
+        }
+        finally
+        {
+            isSelecting = false;
+        }
+    }
+
+    private static string GetTenantInitial(
+        TenantMembership tenant)
+    {
+        if (string.IsNullOrWhiteSpace(
+            tenant.TenantName))
+        {
+            return "?";
+        }
+
+        return tenant.TenantName
+            .Trim()[0]
+            .ToString()
+            .ToUpperInvariant();
+    }
+}

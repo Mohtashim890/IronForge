@@ -1,0 +1,86 @@
+﻿@using IronForge.Shared.Models.Agents.Workflows
+@if (Workflow is not null)
+{
+    <div class="if-workflow-panel">
+
+        <button type="button"
+                class="if-workflow-panel-header"
+                @onclick="ToggleExpanded"
+                aria-expanded="@IsExpanded">
+
+            <div class="if-workflow-panel-summary">
+
+                <div class="if-workflow-panel-icon">
+                    ↗
+                </div>
+
+                <div class="if-workflow-panel-text">
+
+                    <div class="if-workflow-panel-title">
+                        Workflow
+                    </div>
+
+                    <div class="if-workflow-panel-subtitle">
+                        @WorkflowTitle
+                        <span> • </span>
+                        @StatusText
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="if-workflow-panel-chevron">
+                @(IsExpanded ? "▲" : "▼")
+            </div>
+
+        </button>
+
+        @if (IsExpanded)
+        {
+            <div class="if-workflow-panel-content">
+
+                <AgentWorkflowTimeline Workflow="Workflow" />
+
+            </div>
+        }
+
+    </div>
+}
+
+@code {
+
+    [Parameter]
+    public AgentWorkflowDto? Workflow { get; set; }
+
+    [Parameter]
+    public bool InitiallyExpanded { get; set; }
+
+    private bool IsExpanded;
+
+    private bool _initialized;
+
+    protected override void OnParametersSet()
+    {
+        if (!_initialized)
+        {
+            IsExpanded = InitiallyExpanded;
+            _initialized = true;
+        }
+    }
+
+    private void ToggleExpanded()
+    {
+        IsExpanded = !IsExpanded;
+    }
+
+    private string WorkflowTitle =>
+        Workflow?.WorkflowType switch
+        {
+            "ProductUpdate" => "Product Update",
+            _ => Workflow?.WorkflowType ?? "Workflow"
+        };
+
+    private string StatusText =>
+        Workflow?.Status.ToString() ?? "Unknown";
+}

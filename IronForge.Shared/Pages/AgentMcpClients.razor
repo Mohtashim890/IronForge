@@ -1,0 +1,359 @@
+@page "/agents/{AgentId}/mcp-clients"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(
+    Policy = IronForge.Shared.Authorization.Permissions.AgentsMcpClientsManage)]
+
+@using IronForge.Shared.Authorization
+@using IronForge.Shared.Components.Management
+@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.McpClients
+@using IronForge.Shared.Services
+
+@inject IAgentMcpClientManagementService AgentMcpClientManagementService
+@inject IMcpClientManagementService McpClientManagementService
+@inject NavigationManager Navigation
+
+<PageTitle>MCP Access — @AgentId</PageTitle>
+
+<div class="agent-mcp-clients-page">
+    <header class="agent-mcp-clients-header">
+        <div>
+            <button type="button"
+                    class="btn btn-link p-0 mb-2"
+                    @onclick="BackToAgents">
+                ← Back to Agents
+            </button>
+
+            <h1>MCP Client Access</h1>
+            <p>
+                Configure which registered MCP clients are allowed to act as
+                <strong>@AgentId</strong>.
+            </p>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(pageError))
+    {
+        <div class="alert alert-danger" role="alert">
+            @pageError
+        </div>
+    }
+
+    <div class="agent-mcp-clients-grid">
+        <section class="agent-mcp-clients-card">
+            <div class="agent-mcp-clients-card-header">
+                <div>
+                    <h2>Authorized MCP Clients</h2>
+                    <p>Clients currently associated with this agent.</p>
+                </div>
+
+                <StatusBadge
+                    Text="@($"{activeLinks.Count} active")"
+                    CssClass="status-active" />
+            </div>
+
+            <ResourceList TItem="AgentMcpClientLinkDto"
+                          Items="@activeLinks"
+                          IsLoading="@isLoadingLinks"
+                          ErrorMessage="@linksError"
+                          EmptyTitle="No MCP clients authorized"
+                          EmptyMessage="Select a registered MCP client to grant this agent access."
+                          OnRetry="LoadLinksAsync">
+                <RowTemplate Context="link">
+                    <div class="agent-mcp-client-row">
+                        <div class="agent-mcp-client-row__identity">
+                            <div class="agent-mcp-client-row__name">
+                                @link.ClientName
+                            </div>
+                            <div class="agent-mcp-client-row__id">
+                                @link.ClientId
+                            </div>
+                        </div>
+
+                        <div class="agent-mcp-client-row__meta">
+                            <StatusBadge
+                                Text="@(link.IsActive ? "Active" : "Inactive")"
+                                CssClass="@(link.IsActive ? "status-active" : "status-inactive")" />
+
+                            @if (unlinkClientId == link.ClientId)
+                            {
+                                <button type="button"
+                                        class="btn btn-sm btn-danger"
+                                        disabled="@isSubmitting"
+                                        @onclick="() => ConfirmUnlinkAsync(link.ClientId)">
+                                    Confirm revoke
+                                </button>
+
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary"
+                                        disabled="@isSubmitting"
+                                        @onclick="CancelUnlink">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        disabled="@isSubmitting"
+                                        @onclick="() => BeginUnlink(link.ClientId)">
+                                    Revoke
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </RowTemplate>
+            </ResourceList>
+        </section>
+
+        <section class="agent-mcp-clients-card">
+            <div class="agent-mcp-clients-card-header">
+                <div>
+                    <h2>Grant Access</h2>
+                    <p>Select a registered MCP client for this agent.</p>
+                </div>
+            </div>
+
+            @if (isLoadingClients)
+            {
+                <div class="agent-mcp-clients-inline-state">
+                    Loading MCP clients...
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(clientsError))
+            {
+                <div class="alert alert-warning">
+                    @clientsError
+                </div>
+            }
+            else if (availableClients.Count == 0)
+            {
+                <div class="agent-mcp-clients-inline-state">
+                    <strong>No MCP clients available.</strong>
+                    <span>Register an MCP client before granting access.</span>
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm"
+                            @onclick="OpenMcpClients">
+                        Manage MCP Clients
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="agent-mcp-client-picker">
+                    @foreach (var client in availableClients)
+                    {
+                        var linked = linkedClientIds.Contains(client.ClientId);
+
+                        <div class="agent-mcp-client-option @(linked ? "is-linked" : "")">
+                            <div>
+                                <div class="agent-mcp-client-option__name">
+                                    @client.Name
+                                </div>
+                                <div class="agent-mcp-client-option__id">
+                                    @client.ClientId
+                                </div>
+                                <div class="agent-mcp-client-option__meta">
+                                    @client.ClientType · v@client.Version
+                                </div>
+                            </div>
+
+                            <div class="agent-mcp-client-option__action">
+                                @if (!client.IsActive)
+                                {
+                                    <StatusBadge Text="Inactive"
+                                                 CssClass="status-inactive" />
+                                }
+                                else if (linked)
+                                {
+                                    <StatusBadge Text="Authorized"
+                                                 CssClass="status-active" />
+                                }
+                                else
+                                {
+                                    <button type="button"
+                                            class="btn btn-sm btn-primary"
+                                            disabled="@isSubmitting"
+                                            @onclick="() => GrantAccessAsync(client.ClientId)">
+                                        Grant access
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string AgentId { get; set; } = string.Empty;
+
+    private List<AgentMcpClientLinkDto> links = [];
+    private List<McpClientDto> clients = [];
+
+    private bool isLoadingLinks;
+    private bool isLoadingClients;
+    private bool isSubmitting;
+
+    private string? linksError;
+    private string? clientsError;
+    private string? pageError;
+    private string? unlinkClientId;
+
+    private IReadOnlyList<AgentMcpClientLinkDto> activeLinks =>
+        links.Where(x => x.IsActive).ToList();
+
+    private HashSet<string> linkedClientIds =>
+        links
+            .Where(x => x.IsActive)
+            .Select(x => x.ClientId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private IReadOnlyList<McpClientDto> availableClients =>
+        clients
+            .OrderBy(x => x.Name)
+            .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(
+            LoadLinksAsync(),
+            LoadClientsAsync());
+    }
+
+    private async Task LoadLinksAsync()
+    {
+        isLoadingLinks = true;
+        linksError = null;
+
+        try
+        {
+            var result = await AgentMcpClientManagementService
+                .GetLinksAsync(AgentId);
+
+            if (!result.Success)
+            {
+                linksError = result.ErrorMessage ??
+                             "Unable to load MCP client access.";
+                return;
+            }
+
+            links = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            linksError = ex.Message;
+        }
+        finally
+        {
+            isLoadingLinks = false;
+        }
+    }
+
+    private async Task LoadClientsAsync()
+    {
+        isLoadingClients = true;
+        clientsError = null;
+
+        try
+        {
+            var result = await McpClientManagementService
+                .GetClientsAsync();
+
+            if (!result.Success)
+            {
+                clientsError = result.ErrorMessage ??
+                               "Unable to load MCP clients.";
+                return;
+            }
+
+            clients = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            clientsError = ex.Message;
+        }
+        finally
+        {
+            isLoadingClients = false;
+        }
+    }
+
+    private async Task GrantAccessAsync(string clientId)
+    {
+        isSubmitting = true;
+        pageError = null;
+
+        try
+        {
+            var result = await AgentMcpClientManagementService
+                .LinkAsync(AgentId, clientId);
+
+            if (!result.Success)
+            {
+                pageError = result.ErrorMessage ??
+                            "Unable to grant MCP client access.";
+                return;
+            }
+
+            await LoadLinksAsync();
+        }
+        catch (Exception ex)
+        {
+            pageError = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void BeginUnlink(string clientId)
+    {
+        unlinkClientId = clientId;
+        pageError = null;
+    }
+
+    private void CancelUnlink()
+    {
+        unlinkClientId = null;
+    }
+
+    private async Task ConfirmUnlinkAsync(string clientId)
+    {
+        isSubmitting = true;
+        pageError = null;
+
+        try
+        {
+            var result = await AgentMcpClientManagementService
+                .UnlinkAsync(AgentId, clientId);
+
+            if (!result.Success)
+            {
+                pageError = result.ErrorMessage ??
+                            "Unable to revoke MCP client access.";
+                return;
+            }
+
+            unlinkClientId = null;
+            await LoadLinksAsync();
+        }
+        catch (Exception ex)
+        {
+            pageError = ex.Message;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void BackToAgents()
+        => Navigation.NavigateTo("/agents");
+
+    private void OpenMcpClients()
+        => Navigation.NavigateTo("/mcp-clients");
+}

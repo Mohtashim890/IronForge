@@ -1,0 +1,153 @@
+﻿@using System.Text.Json
+@using IronForge.Shared.Models.Agents
+<div class="tool-activity">
+
+    <button type="button"
+            class="tool-activity-header"
+            @onclick="ToggleExpanded"
+            aria-expanded="@isExpanded">
+
+        <div class="tool-activity-icon">
+            🔧
+        </div>
+
+        <div class="tool-activity-summary">
+
+            <span class="tool-activity-name">
+                @DisplayToolName
+            </span>
+
+            <span class="tool-activity-status">
+                @StatusText
+            </span>
+
+        </div>
+
+        <div class="tool-activity-chevron">
+            @(isExpanded ? "⌃" : "⌄")
+        </div>
+
+    </button>
+
+    @if (isExpanded)
+    {
+        <div class="tool-activity-details">
+
+            @if (!string.IsNullOrWhiteSpace(Activity.ArgumentsJson))
+            {
+                <div class="tool-activity-section">
+
+                    <div class="tool-activity-section-title">
+                        Arguments
+                    </div>
+
+                    <pre>@FormatJson(Activity.ArgumentsJson)</pre>
+
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(Activity.ResultJson))
+            {
+                <div class="tool-activity-section">
+
+                    <div class="tool-activity-section-title">
+                        Result
+                    </div>
+
+                    <pre>@FormatJson(Activity.ResultJson)</pre>
+
+                </div>
+            }
+
+        </div>
+    }
+</div>
+
+@code {
+
+    [Parameter, EditorRequired]
+    public ToolActivityDto Activity { get; set; } = new();
+
+    private bool isExpanded;
+
+    private string DisplayToolName =>
+        FormatToolName(Activity.ToolName);
+
+    private string StatusText =>
+        Activity.Status switch
+        {
+            ToolActivityStatus.Started =>
+                "Running",
+
+            ToolActivityStatus.Completed =>
+                "Completed",
+
+            ToolActivityStatus.Failed =>
+                "Failed",
+
+            _ =>
+                "Unknown"
+        };
+
+    private void ToggleExpanded()
+    {
+        isExpanded = !isExpanded;
+    }
+    private static string FormatToolName(
+    string toolName)
+    {
+        return toolName switch
+        {
+            "get_products" =>
+                "Get products",
+
+            "get_product" =>
+                "Get product",
+
+            "create_product" =>
+                "Create product",
+
+            "update_product" =>
+                "Update product",
+
+            "delete_product" =>
+                "Delete product",
+
+            _ =>
+                toolName
+                    .Replace("_", " ")
+        };
+    }
+
+    // private static string FormatToolName(
+    //     string toolName)
+    // {
+    //     if (string.IsNullOrWhiteSpace(toolName))
+    //         return "Tool";
+
+    //     return toolName
+    //         .Replace("_", " ")
+    //         .Replace("-", " ");
+    // }
+
+    private static string FormatJson(
+        string json)
+    {
+        try
+        {
+            using var document =
+                JsonDocument.Parse(json);
+
+            return JsonSerializer.Serialize(
+                document,
+                new JsonSerializerOptions
+                {
+                    WriteIndented = true
+                });
+        }
+        catch (JsonException)
+        {
+            return json;
+        }
+    }
+}

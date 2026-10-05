@@ -1,0 +1,732 @@
+﻿@page "/products"
+@attribute [Authorize]
+
+@using IronForge.Shared.Authorization
+@using IronForge.Shared.Components.Dialogs
+@using IronForge.Shared.Components.Feedback
+@using IronForge.Shared.Components.UI
+@using IronForge.Shared.Models
+@using IronForge.Shared.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Security.Claims
+
+@inject IProductService ProductService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+@if (!hasActiveTenant)
+{
+    <div class="alert alert-warning">
+        No active tenant is selected.
+    </div>
+
+    <button class="btn btn-primary"
+            @onclick="GoToTenantSelection">
+        Select Tenant
+    </button>
+}
+
+else if (isLoading)
+{
+    <LoadingState Message="Loading products..." />
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <ErrorState Title="Unable to load products"
+                Message="@errorMessage"
+                Retry="LoadProducts" />
+}
+@if (products.Count == 0)
+{
+    <EmptyState Title="No products yet"
+                Message="There are no products in this workspace."
+                Icon="📦">
+        <Actions>
+            <AuthorizeView Policy="@Permissions.ProductsCreate">
+                <Authorized>
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="StartCreate">
+
+                        Add Product
+
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+        </Actions>
+    </EmptyState>
+}
+else
+{
+    <PageHeader Title="Products"
+                Subtitle="Manage products for the current workspace">
+        <Actions>
+
+            <button type="button"
+                    class="btn btn-outline-secondary"
+                    @onclick="LoadProducts"
+                    disabled="@isLoading"> Refresh
+            </button>
+            <AuthorizeView Policy="@Permissions.ProductsCreate">
+                <Authorized>
+
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="StartCreate">Add Product
+                    </button>
+
+                </Authorized>
+            </AuthorizeView>
+        </Actions>
+    </PageHeader>
+
+    @if (isCreateDialogOpen)
+    {
+        <div class="product-dialog-backdrop">
+
+            <div class="product-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="create-product-title">
+
+                <div class="product-dialog-header">
+
+                    <div>
+                        <h2 id="create-product-title">
+                            Create Product
+                        </h2>
+
+                        <p>
+                            Add a new product to this workspace.
+                        </p>
+                    </div>
+
+                    <button type="button"
+                            class="product-dialog-close"
+                            aria-label="Close"
+                            @onclick="CancelCreate"
+                            disabled="@isCreating">
+
+                        ×
+
+                    </button>
+
+                </div>
+
+                <div class="product-dialog-body">
+
+                    <EditForm Model="@createProductModel"
+                              OnValidSubmit="@CreateProductAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <ValidationSummary />
+
+                        <div class="product-form-field">
+
+                            <label for="product-name">
+                                Product Name
+                            </label>
+
+                            <InputText id="product-name"
+                                       class="form-control"
+                                       @bind-Value="createProductModel.Name"
+                                       disabled="@isCreating" />
+
+                            <ValidationMessage For="@(() => createProductModel.Name)" />
+
+                        </div>
+
+                        <div class="product-form-field">
+
+                            <label for="product-price">
+                                Price
+                            </label>
+
+                            <InputNumber id="product-price"
+                                         class="form-control"
+                                         @bind-Value="createProductModel.Price"
+                                         disabled="@isCreating" />
+
+                            <ValidationMessage For="@(() => createProductModel.Price)" />
+
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(createErrorMessage))
+                        {
+                            <div class="product-form-error">
+                                @createErrorMessage
+                            </div>
+                        }
+
+                        <div class="product-dialog-footer">
+
+                            <button type="button"
+                                    class="btn btn-outline-secondary"
+                                    @onclick="CancelCreate"
+                                    disabled="@isCreating">
+                                Cancel
+                            </button>
+
+                            <button type="submit"
+                                    class="btn btn-primary"
+                                    disabled="@isCreating">
+
+                                @if (isCreating)
+                                {
+                                    <span class="product-button-spinner"></span>
+                                    <span>Creating...</span>
+                                }
+                                else
+                                {
+                                    <span>Create Product</span>
+                                }
+
+                            </button>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+
+            </div>
+
+        </div>
+    }
+    @if (isEditDialogOpen)
+    {
+        <div class="product-dialog-backdrop">
+
+            <div class="product-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="edit-product-title">
+
+                <div class="product-dialog-header">
+
+                    <div>
+                        <h2 id="edit-product-title">
+                            Edit Product
+                        </h2>
+
+                        <p>
+                            Update the product information.
+                        </p>
+                    </div>
+
+                    <button type="button"
+                            class="product-dialog-close"
+                            aria-label="Close"
+                            @onclick="CancelEdit"
+                            disabled="@isUpdating">
+
+                        ×
+
+                    </button>
+
+                </div>
+
+                <div class="product-dialog-body">
+
+                    <EditForm Model="@editProductModel"
+                              OnValidSubmit="@UpdateProductAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <ValidationSummary />
+
+                        <div class="product-form-field">
+
+                            <label for="edit-product-name">
+                                Product Name
+                            </label>
+
+                            <InputText id="edit-product-name"
+                                       class="form-control"
+                                       @bind-Value="editProductModel.Name"
+                                       disabled="@isUpdating" />
+
+                            <ValidationMessage For="@(() => editProductModel.Name)" />
+
+                        </div>
+
+                        <div class="product-form-field">
+
+                            <label for="edit-product-price">
+                                Price
+                            </label>
+
+                            <InputNumber id="edit-product-price"
+                                         class="form-control"
+                                         @bind-Value="editProductModel.Price"
+                                         disabled="@isUpdating" />
+
+                            <ValidationMessage For="@(() => editProductModel.Price)" />
+
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(editErrorMessage))
+                        {
+                            <div class="product-form-error">
+                                @editErrorMessage
+                            </div>
+                        }
+
+                        <div class="product-dialog-footer">
+
+                            <button type="button"
+                                    class="btn btn-outline-secondary"
+                                    @onclick="CancelEdit"
+                                    disabled="@isUpdating">
+
+                                Cancel
+
+                            </button>
+
+                            <button type="submit"
+                                    class="btn btn-primary"
+                                    disabled="@isUpdating">
+
+                                @if (isUpdating)
+                                {
+                                    <span class="product-button-spinner"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <span>Save Changes</span>
+                                }
+
+                            </button>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+
+            </div>
+
+        </div>
+    }
+    @if (isDeleteDialogOpen && productPendingDeletion is not null)
+    {
+        <ConfirmDialog Visible="@isDeleteDialogOpen"
+                       Title="Delete Product?"
+                       Busy="@isDeleting"
+                       BusyText="Deleting..."
+                       ConfirmText="Delete Product"
+                       CancelText="Cancel"
+                       OnConfirm="ConfirmDeleteAsync"
+                       OnCancel="CancelDelete">
+
+            @if (productPendingDeletion is not null)
+            {
+                <p>
+                    Are you sure you want to delete
+                    <strong>@productPendingDeletion.Name</strong>?
+                </p>
+
+                <div class="product-delete-details">
+
+                    <div>
+                        <span class="product-delete-label">
+                            Product ID
+                        </span>
+
+                        <span class="product-delete-value">
+                            @productPendingDeletion.Id
+                        </span>
+                    </div>
+
+                    <div>
+                        <span class="product-delete-label">
+                            Price
+                        </span>
+
+                        <span class="product-delete-value">
+                            RM @productPendingDeletion.Price.ToString("N2")
+                        </span>
+                    </div>
+
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(deleteErrorMessage))
+                {
+                    <div class="product-form-error">
+                        @deleteErrorMessage
+                    </div>
+                }
+            }
+
+        </ConfirmDialog>
+    }
+
+    <div class="products-table-container">
+        <table class="products-table">
+
+            <thead>
+                <tr>
+                    <th class="product-id-column">
+                        ID
+                    </th>
+
+                    <th>
+                        Product
+                    </th>
+
+                    <th class="product-price-column">
+                        Price
+                    </th>
+
+                    <th class="product-actions-column">
+                        Actions
+                    </th>
+                </tr>
+            </thead>
+
+            <tbody>
+                @foreach (var product in products)
+                {
+                    <tr>
+                        <td class="product-id-column">
+                            @product.Id
+                        </td>
+
+                        <td>
+                            <span class="product-name">
+                                @product.Name
+                            </span>
+                        </td>
+
+                        <td class="product-price-column">
+                            RM @product.Price.ToString("N2")
+                        </td>
+
+                        <td class="product-actions-column">
+
+                            <div class="product-actions">
+
+                                <Microsoft.AspNetCore.Components.Authorization.AuthorizeView Policy="@Permissions.ProductsUpdate">
+
+                                    <Authorized>
+                                        <button type="button"
+                                                class="btn btn-sm btn-secondary"
+                                                @onclick="() => StartEdit(product)">
+                                            Edit
+                                        </button>
+                                    </Authorized>
+
+                                </Microsoft.AspNetCore.Components.Authorization.AuthorizeView>
+
+                                <AuthorizeView Policy="@Permissions.ProductsDelete">
+                                    <Authorized>
+                                        <button type="button"
+                                                class="btn btn-sm btn-danger"
+                                                @onclick="() => RequestDelete(product)">
+                                            Delete
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
+
+                            </div>
+
+                        </td>
+                    </tr>
+                }
+            </tbody>
+
+        </table>
+    </div>
+}
+@code {
+
+    private List<Product> products = [];
+    private bool isLoading = true;
+    private bool isEditing;
+    private bool hasActiveTenant;
+    private Product? editingProduct;
+    private string? errorMessage;
+    private bool isCreateDialogOpen;
+    private bool isEditDialogOpen;
+    private Product editProductModel = new();
+    private int editingProductId;
+    private bool isUpdating;
+    private string? editErrorMessage;
+    private Product createProductModel = new();
+    private bool isCreating;
+    private string? createErrorMessage;
+
+    private bool isDeleteDialogOpen;
+    private Product? productPendingDeletion;
+    private bool isDeleting;
+    private string? deleteErrorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authenticationState =
+            await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+        var user = authenticationState.User;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            isLoading = false;
+            return;
+        }
+
+        hasActiveTenant =
+            user.FindFirst("tenant_id") is not null;
+
+        if (!hasActiveTenant)
+        {
+            isLoading = false;
+            return;
+        }
+
+        await LoadProducts();
+    }
+
+    private async Task LoadProducts()
+    {
+        if (!hasActiveTenant)
+            return;
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await ProductService.GetProductsAsync();
+
+            if (result.Success)
+            {
+                products = result.Data ?? [];
+            }
+            else
+            {
+                products = [];
+                errorMessage = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                    ? "Unable to load products."
+                    : result.ErrorMessage;
+            }
+        }
+        catch (Exception)
+        {
+            products = [];
+            errorMessage = "Something went wrong while loading products.";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartCreate()
+    {
+        editingProduct = new Product();
+
+        isEditing = false;
+        isCreateDialogOpen = true;
+    }
+
+    private void StartEdit(Product product)
+    {
+        editingProductId = product.Id;
+
+        editProductModel = new Product
+        {
+            Name = product.Name,
+            Price = product.Price
+        };
+
+        editErrorMessage = null;
+
+        isEditDialogOpen = true;
+    }
+
+    private void GoToTenantSelection()
+    {
+        Navigation.NavigateTo("/select-tenant");
+    }
+
+    private void CancelEdit()
+    {
+        if (isUpdating)
+            return;
+
+        isEditDialogOpen = false;
+
+        editingProductId = 0;
+
+        editProductModel = new Product();
+
+        editErrorMessage = null;
+    }
+
+    private void CancelCreate()
+    {
+        if (isCreating)
+            return;
+
+        isCreateDialogOpen = false;
+
+        createProductModel = new Product();
+
+        createErrorMessage = null;
+    }
+    private async Task CreateProductAsync()
+    {
+        if (isCreating)
+            return;
+
+        isCreating = true;
+        createErrorMessage = null;
+
+        try
+        {
+            var result =
+                await ProductService.CreateProductAsync(
+                    createProductModel);
+
+            if (!result.Success)
+            {
+                createErrorMessage =
+                    string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Unable to create product."
+                        : result.ErrorMessage;
+
+                return;
+            }
+
+            isCreateDialogOpen = false;
+
+            createProductModel = new Product();
+
+            await LoadProducts();
+        }
+        catch (Exception)
+        {
+            createErrorMessage =
+                "Something went wrong while creating the product.";
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private async Task UpdateProductAsync()
+    {
+        if (isUpdating)
+            return;
+
+        isUpdating = true;
+        editErrorMessage = null;
+
+        try
+        {
+            editProductModel.Id = editingProductId;
+            var result =
+            await ProductService.UpdateProductAsync(
+                editProductModel);
+
+            if (!result.Success)
+            {
+                editErrorMessage =
+                    string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Unable to update product."
+                        : result.ErrorMessage;
+
+                return;
+            }
+
+            isEditDialogOpen = false;
+
+            editingProductId = 0;
+
+            editProductModel = new Product();
+
+            await LoadProducts();
+        }
+        catch (Exception)
+        {
+            editErrorMessage =
+                "Something went wrong while updating the product.";
+        }
+        finally
+        {
+            isUpdating = false;
+        }
+    }
+    private void RequestDelete(Product product)
+    {
+        if (isDeleting)
+            return;
+
+        productPendingDeletion = product;
+
+        deleteErrorMessage = null;
+
+        isDeleteDialogOpen = true;
+    }
+    private void CancelDelete()
+    {
+        if (isDeleting)
+            return;
+
+        isDeleteDialogOpen = false;
+
+        productPendingDeletion = null;
+
+        deleteErrorMessage = null;
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (isDeleting)
+            return;
+
+        if (productPendingDeletion is null)
+            return;
+
+        isDeleting = true;
+        deleteErrorMessage = null;
+
+        try
+        {
+            var result =
+                await ProductService.DeleteProductAsync(
+                    productPendingDeletion.Id);
+
+            if (!result.Success)
+            {
+                deleteErrorMessage =
+                    string.IsNullOrWhiteSpace(result.ErrorMessage)
+                        ? "Unable to delete the product."
+                        : result.ErrorMessage;
+
+                return;
+            }
+
+            isDeleteDialogOpen = false;
+
+            productPendingDeletion = null;
+
+            await LoadProducts();
+        }
+        catch (Exception)
+        {
+            deleteErrorMessage =
+                "Something went wrong while deleting the product.";
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+}

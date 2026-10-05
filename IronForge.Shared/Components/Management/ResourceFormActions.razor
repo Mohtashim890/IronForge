@@ -1,0 +1,21 @@
+<div class="management-form-actions">
+    <button type="button" class="btn btn-outline-secondary" @onclick="OnCancel" disabled="@IsSubmitting">
+        @CancelText
+    </button>
+
+    <button type="submit" class="btn btn-primary" disabled="@IsSubmitting">
+        @if (IsSubmitting)
+        {
+            <span class="management-form-actions__spinner" aria-hidden="true"></span>
+        }
+        @(IsSubmitting ? BusyText : SubmitText)
+    </button>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCancel { get; set; }
+    [Parameter] public bool IsSubmitting { get; set; }
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    [Parameter] public string SubmitText { get; set; } = "Save";
+    [Parameter] public string BusyText { get; set; } = "Saving...";
+}

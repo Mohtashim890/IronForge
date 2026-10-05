@@ -1,0 +1,142 @@
+﻿@using IronForge.Shared.Models.Agents.Workflows
+@if (Workflow is null)
+{
+    return;
+}
+
+<div class="agent-workflow">
+    <div class="agent-workflow-header">
+        <div>
+            <div class="agent-workflow-title">
+                @GetWorkflowTitle()
+            </div>
+
+            <div class="agent-workflow-status">
+                @GetStatusText()
+            </div>
+        </div>
+
+        <span class="agent-workflow-badge
+            @GetWorkflowStatusCss()">
+            @GetStatusText()
+        </span>
+    </div>
+
+    <div class="agent-workflow-steps">
+
+        @foreach (var step in Workflow.Steps
+            .OrderBy(x => x.Sequence))
+        {
+            <div class="agent-workflow-step
+                @GetStepCssClass(step)">
+
+                <div class="agent-workflow-step-marker">
+                    @GetStepIcon(step)
+                </div>
+
+                <div class="agent-workflow-step-content">
+
+                    <div class="agent-workflow-step-title">
+                        @GetStepTitle(step)
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(step.ErrorMessage))
+                    {
+                        <div class="agent-workflow-step-error">
+                            @step.ErrorMessage
+                        </div>
+                    }
+
+                    @if (step.CompletedAtUtc.HasValue)
+                    {
+                        <div class="agent-workflow-step-time">
+                            @step.CompletedAtUtc.Value.ToLocalTime().ToString("g")
+                        </div>
+                    }
+
+                </div>
+            </div>
+        }
+
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public AgentWorkflowDto? Workflow { get; set; }
+
+    private string GetWorkflowTitle()
+    {
+        return Workflow?.WorkflowType switch
+        {
+            "ProductUpdate" => "Product Update",
+            _ => Workflow?.WorkflowType ?? "Agent Workflow"
+        };
+    }
+
+    private string GetStatusText()
+    {
+        return Workflow?.Status switch
+        {
+            "Created" => "Created",
+            "Running" => "Running",
+            "WaitingForApproval" => "Waiting for approval",
+            "Completed" => "Completed",
+            "Failed" => "Failed",
+            "Cancelled" => "Cancelled",
+            _ => Workflow?.Status ?? "Unknown"
+        };
+    }
+
+    private string GetStepTitle(AgentWorkflowStepDto step)
+    {
+        return step.StepType switch
+        {
+            "LoadProduct" => "Load product",
+            "ValidateUpdate" => "Validate update",
+            "RequestApproval" => "Request approval",
+            "ExecuteUpdate" => "Execute update",
+            "VerifyUpdate" => "Verify update",
+            "Complete" => "Complete",
+            _ => step.StepType
+        };
+    }
+
+    private string GetStepIcon(AgentWorkflowStepDto step)
+    {
+        return step.Status switch
+        {
+            "Completed" => "✓",
+            "Failed" => "!",
+            "Running" => "●",
+            "WaitingForApproval" => "!",
+            "Skipped" => "–",
+            _ => "○"
+        };
+    }
+
+    private string GetStepCssClass(AgentWorkflowStepDto step)
+    {
+        return step.Status switch
+        {
+            "Completed" => "completed",
+            "Running" => "running",
+            "Failed" => "failed",
+            "WaitingForApproval" => "waiting",
+            _ => "pending"
+        };
+    }
+
+    private string GetWorkflowStatusCss()
+    {
+        return Workflow?.Status switch
+        {
+            "Completed" => "completed",
+            "Failed" => "failed",
+            "Cancelled" => "cancelled",
+            "WaitingForApproval" => "waiting",
+            "Running" => "running",
+            _ => "pending"
+        };
+    }
+}

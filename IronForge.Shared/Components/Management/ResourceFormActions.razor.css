@@ -1,0 +1,4 @@
+.management-form-actions { display:flex; justify-content:flex-end; align-items:center; gap:.75rem; padding-top:1rem; margin-top:1rem; border-top:1px solid #e5e7eb; }
+.management-form-actions__spinner { display:inline-block; width:.85rem; height:.85rem; margin-right:.4rem; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-.1rem; animation:management-form-actions-spin .7s linear infinite; }
+@keyframes management-form-actions-spin { to { transform:rotate(360deg); } }
+@media (max-width:576px) { .management-form-actions { flex-direction:column-reverse; align-items:stretch; } .management-form-actions .btn { width:100%; } }

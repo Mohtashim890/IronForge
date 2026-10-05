@@ -1,0 +1,44 @@
+﻿<div class="ui-state ui-empty-state">
+
+    @if (!string.IsNullOrWhiteSpace(Icon))
+    {
+        <div class="ui-empty-icon"
+             aria-hidden="true">
+            @Icon
+        </div>
+    }
+
+    <h3>
+        @Title
+    </h3>
+
+    @if (!string.IsNullOrWhiteSpace(Message))
+    {
+        <p>
+            @Message
+        </p>
+    }
+
+    @if (Actions is not null)
+    {
+        <div class="ui-empty-actions">
+            @Actions
+        </div>
+    }
+
+</div>
+
+@code
+{
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    [Parameter]
+    public string? Message { get; set; }
+
+    [Parameter]
+    public string? Icon { get; set; }
+
+    [Parameter]
+    public RenderFragment? Actions { get; set; }
+}

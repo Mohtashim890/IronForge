@@ -1,0 +1,15 @@
+https://localhost {
+    reverse_proxy ironforge-web:8080
+}
+
+https://api.localhost {
+    reverse_proxy ironforge-api:8080
+}
+
+https://mcp.localhost {
+    reverse_proxy ironforge-mcp:8080
+}
+
+https://mcp-client.localhost {
+    reverse_proxy ironforge-mcp-client:8080
+}

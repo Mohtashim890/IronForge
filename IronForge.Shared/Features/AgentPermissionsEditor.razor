@@ -1,0 +1,141 @@
+@using IronForge.Shared.Authorization
+@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.Agents.Manage
+
+<div class="agent-permissions-editor">
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @ErrorMessage
+        </div>
+    }
+
+    <p class="agent-permissions-intro">
+        Select the application capabilities this agent is allowed to request
+        through the existing agent authorization pipeline.
+    </p>
+
+    <div class="agent-permission-groups">
+        @foreach (var group in PermissionGroups)
+        {
+            <section class="agent-permission-group">
+                <div class="agent-permission-group-heading">
+                    <div>
+                        <h3>@group.Name</h3>
+                        <p>@group.Description</p>
+                    </div>
+                </div>
+
+                <div class="agent-permission-list">
+                    @foreach (var permission in group.Permissions)
+                    {
+                        <label class="agent-permission-option">
+                            <input type="checkbox"
+                                   checked="@selectedPermissions.Contains(permission.Value)"
+                                   @onchange="e => SetPermission(permission.Value, e.Value is true)"
+                                   disabled="@IsSubmitting" />
+
+                            <span>
+                                <strong>@permission.Name</strong>
+                                <small>@permission.Value</small>
+                            </span>
+                        </label>
+                    }
+                </div>
+            </section>
+        }
+    </div>
+
+    <div class="agent-permissions-summary">
+        <strong>@selectedPermissions.Count</strong>
+        <span>permission@(selectedPermissions.Count == 1 ? "" : "s") selected</span>
+    </div>
+
+    <div class="agent-permissions-actions">
+        <button type="button"
+                class="btn btn-outline-secondary"
+                @onclick="OnCancel"
+                disabled="@IsSubmitting">
+            Cancel
+        </button>
+
+        <button type="button"
+                class="btn btn-primary"
+                @onclick="SaveAsync"
+                disabled="@IsSubmitting">
+            @(IsSubmitting ? "Saving..." : "Save Permissions")
+        </button>
+    </div>
+</div>
+
+@code {
+    private HashSet<string> selectedPermissions =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    protected override void OnParametersSet()
+    {
+        selectedPermissions =
+            Agent.Permissions.ToHashSet(
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Parameter, EditorRequired]
+    public AgentDto Agent { get; set; } = null!;
+
+    [Parameter]
+    public bool IsSubmitting { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyCollection<string>> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private static readonly PermissionGroup[] PermissionGroups =
+    [
+        new(
+            "Products",
+            "Capabilities currently used by the Product Agent.",
+            [
+                new("Read products", Permissions.ProductsRead),
+                new("Create products", Permissions.ProductsCreate),
+                new("Update products", Permissions.ProductsUpdate),
+                new("Delete products", Permissions.ProductsDelete)
+            ]),
+
+        new(
+            "Memory",
+            "Memory capabilities available to agents.",
+            [
+                new("Read memory", Permissions.MemoryRead),
+                new("Create memory", Permissions.MemoryCreate),
+                new("Delete memory", Permissions.MemoryDelete)
+            ])
+    ];
+
+    private void SetPermission(string permission, bool enabled)
+    {
+        if (enabled)
+            selectedPermissions.Add(permission);
+        else
+            selectedPermissions.Remove(permission);
+    }
+
+    private Task SaveAsync() =>
+        OnSave.InvokeAsync(
+            selectedPermissions
+                .OrderBy(x => x)
+                .ToArray());
+
+    private sealed record PermissionGroup(
+        string Name,
+        string Description,
+        PermissionOption[] Permissions);
+
+    private sealed record PermissionOption(
+        string Name,
+        string Value);
+}

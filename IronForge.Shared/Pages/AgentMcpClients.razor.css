@@ -1,0 +1,133 @@
+.agent-mcp-clients-page {
+    width: 100%;
+}
+
+.agent-mcp-clients-header {
+    margin-bottom: 1.5rem;
+}
+
+.agent-mcp-clients-header h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 600;
+}
+
+.agent-mcp-clients-header p {
+    margin: 0.35rem 0 0;
+    color: #6c757d;
+}
+
+.agent-mcp-clients-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+    gap: 1.25rem;
+}
+
+.agent-mcp-clients-card {
+    min-width: 0;
+    padding: 1.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.agent-mcp-clients-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.agent-mcp-clients-card-header h2 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.agent-mcp-clients-card-header p {
+    margin: 0.3rem 0 0;
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.agent-mcp-client-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.agent-mcp-client-row__identity,
+.agent-mcp-client-option__name {
+    font-weight: 600;
+}
+
+.agent-mcp-client-row__id,
+.agent-mcp-client-option__id,
+.agent-mcp-client-option__meta {
+    margin-top: 0.25rem;
+    color: #667085;
+    font-size: 0.8rem;
+}
+
+.agent-mcp-client-row__meta {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.agent-mcp-client-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.agent-mcp-client-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.65rem;
+}
+
+.agent-mcp-client-option.is-linked {
+    background: #f8fafc;
+}
+
+.agent-mcp-client-option__action {
+    flex-shrink: 0;
+}
+
+.agent-mcp-clients-inline-state {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    border: 1px dashed #d0d5dd;
+    border-radius: 0.65rem;
+    color: #667085;
+}
+
+@media (max-width: 900px) {
+    .agent-mcp-clients-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .agent-mcp-client-row,
+    .agent-mcp-client-option {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .agent-mcp-client-row__meta {
+        justify-content: flex-start;
+    }
+}

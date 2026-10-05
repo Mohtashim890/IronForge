@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="../IronForge.Api/IronForge.Api.csproj" Id="d2cb4e7b-feef-4133-984e-866cd6c3dd16" />
+  <Project Path="../IronForge.Application/IronForge.Application.csproj" Id="8d69c205-b59c-4401-a9a2-8b8d7c1fa7b6" />
+  <Project Path="../IronForge.Infrastructure/IronForge.Infrastructure.csproj" Id="2c5aa293-b60d-4f06-9add-f4c6e118c3bc" />
+  <Project Path="../IronForge.Mcp.Client/IronForge.Mcp.Client.csproj" Id="d7644565-3bc6-4777-b472-969634902ced" />
+  <Project Path="../IronForge.Mcp/IronForge.Mcp.csproj" Id="bc0a8890-ab91-448a-a960-0199fd204022" />
+  <Project Path="../IronForge.Migrator/IronForge.Migrator.csproj" Id="ef2ef0ca-60a2-472e-b336-9bb4bd307abe" />
+  <Project Path="../IronForge.Shared/IronForge.Shared.csproj" Id="64515fe4-d5c7-4140-90a2-371ed3a888c2" />
+  <Project Path="../IronForge.Web/IronForge.Web.csproj" Id="8fde4644-c920-4e59-8167-32daab6abf8d" />
+  <Project Path="IronForge.csproj">
+    <Deploy Solution="Debug|*" />
+  </Project>
+</Solution>

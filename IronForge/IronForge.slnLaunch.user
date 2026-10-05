@@ -1,0 +1,23 @@
+[
+  {
+    "Name": "New Profile",
+    "Projects": [
+      {
+        "Path": "..\\IronForge.Api\\IronForge.Api.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\IronForge.Web\\IronForge.Web.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\IronForge.Mcp.Client\\IronForge.Mcp.Client.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "..\\IronForge.Mcp\\IronForge.Mcp.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

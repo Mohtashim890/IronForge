@@ -1,0 +1,6 @@
+@IronForge.Api_HostAddress = http://localhost:5022
+
+GET {{IronForge.Api_HostAddress}}/api/products
+Accept: application/json
+
+###

@@ -1,0 +1,732 @@
+@page "/delegations"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.Agents.Manage
+@using IronForge.Shared.Models.Delegations
+@using IronForge.Shared.Models.McpClients
+@using IronForge.Shared.Services
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@using System.Net.Http.Json
+
+@inject IAgentDelegationManagementService DelegationService
+@inject IAgentManagementService AgentManagementService
+@inject IMcpClientManagementService McpClientManagementService
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IAuthService AuthService
+@inject IJSRuntime JS
+@inject ITokenStore TokenStore
+
+<PageTitle>Delegations</PageTitle>
+
+<div class="delegation-page">
+    <div class="delegation-header">
+        <div>
+            <h1>Delegations</h1>
+            <p>
+                Manage client-bound permissions delegated to external MCP agents.
+            </p>
+        </div>
+
+        <button type="button"
+                class="btn btn-primary"
+                @onclick="BeginCreate"
+                disabled="@isLoading">
+            + New Delegation
+        </button>
+    </div>
+
+    @if (showCreate)
+    {
+        <section class="delegation-create-panel">
+            <div class="delegation-panel-header">
+                <div>
+                    <h2>Create Delegation</h2>
+                    <p>
+                        Bind an agent, an authorized MCP client, selected scopes,
+                        and a short lifetime.
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="CloseCreate"
+                        disabled="@isCreating">
+                    Close
+                </button>
+            </div>
+
+            <EditForm Model="@createModel"
+                      OnValidSubmit="CreateAsync">
+                <DataAnnotationsValidator />
+
+                @if (!string.IsNullOrWhiteSpace(createError))
+                {
+                    <div class="alert alert-danger" role="alert">
+                        @createError
+                    </div>
+                }
+
+                <div class="delegation-form-grid">
+                    <div>
+                        <label class="form-label">Agent</label>
+                        <InputSelect class="form-select"
+                                     @bind-Value="createModel.AgentId"
+                                     @bind-Value:after="AgentChangedAsync">
+                            <option value="">Select an agent</option>
+
+                            @foreach (var agent in activeAgents)
+                            {
+                                <option value="@agent.AgentId">
+                                    @agent.Name (@agent.AgentId)
+                                </option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => createModel.AgentId)" />
+                    </div>
+
+                    <div>
+                        <label class="form-label">MCP Client</label>
+                        <InputSelect class="form-select"
+                                     @bind-Value="createModel.ClientId">
+                            <option value="">Select a client</option>
+
+                            @foreach (var client in AvailableClients)
+                            {
+                                <option value="@client.ClientId">
+                                    @client.Name (@client.ClientId)
+                                </option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => createModel.ClientId)" />
+
+                        <div class="form-text">
+                            The client must already be linked to the selected agent
+                            in Agent → MCP Clients. The API verifies this relationship
+                            when the delegation is created.
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="form-label">Lifetime</label>
+                        <InputNumber class="form-control"
+                                     @bind-Value="createModel.LifetimeMinutes" />
+                        <div class="form-text">
+                            1–60 minutes.
+                        </div>
+                        <ValidationMessage For="@(() => createModel.LifetimeMinutes)" />
+                    </div>
+                </div>
+
+                <div class="delegation-scope-section">
+                    <div class="delegation-scope-header">
+                        <div>
+                            <h3>Delegated Scopes</h3>
+                            <p>
+                                Only permissions currently assigned to the selected
+                                agent are offered.
+                            </p>
+                        </div>
+                    </div>
+
+                    @if (selectedAgent is null)
+                    {
+                        <div class="delegation-inline-state">
+                            Select an agent to load its available scopes.
+                        </div>
+                    }
+                    else if (AvailableDelegationScopes.Count == 0)
+                    {
+                        <div class="delegation-inline-state">
+                            This agent has no permissions available for delegation.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="delegation-scope-grid">
+                            @foreach (var permission in AvailableDelegationScopes)
+                            {
+                                <label class="delegation-scope-option">
+                                    <input type="checkbox"
+                                           checked="@createModel.Scopes.Contains(permission)"
+                                           @onchange="e => ToggleScope(permission, e)" />
+                                    <span>@permission</span>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="delegation-form-actions">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="CloseCreate"
+                            disabled="@isCreating">
+                        Cancel
+                    </button>
+
+                    <button type="submit"
+                            class="btn btn-primary"
+                            disabled="@isCreating">
+                        @(isCreating ? "Creating..." : "Create Delegation")
+                    </button>
+                </div>
+            </EditForm>
+        </section>
+    }
+
+    <section class="delegation-list-panel">
+        <div class="delegation-list-toolbar">
+            <div>
+                <strong>
+                    @delegations.Count delegation@(delegations.Count == 1 ? "" : "s")
+                </strong>
+
+                @if (delegations.Count > 0)
+                {
+                    <span class="delegation-list-muted">
+                        @ActiveCount active
+                    </span>
+                }
+            </div>
+
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    @onclick="LoadAsync"
+                    disabled="@isLoading">
+                @(isLoading ? "Refreshing..." : "Refresh")
+            </button>
+        </div>
+
+        @if (isLoading && delegations.Count == 0)
+        {
+            <div class="delegation-state">
+                Loading delegations...
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger" role="alert">
+                <div>@errorMessage</div>
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger mt-2"
+                        @onclick="LoadAsync">
+                    Retry
+                </button>
+            </div>
+        }
+        else if (delegations.Count == 0)
+        {
+            <div class="delegation-empty-state">
+                <h2>No delegations</h2>
+                <p>
+                    Create a client-bound delegation when an external MCP client
+                    needs scoped access to an agent.
+                </p>
+
+                <button type="button"
+                        class="btn btn-primary"
+                        @onclick="BeginCreate">
+                    Create Delegation
+                </button>
+            </div>
+        }
+        else
+        {
+            <div class="delegation-list">
+                @foreach (var delegation in delegations)
+                {
+                    <article class="delegation-row">
+                        <div class="delegation-main">
+                            <div class="delegation-title-line">
+                                <strong>@delegation.AgentId</strong>
+
+                                <span class="delegation-status @GetStatusClass(delegation)">
+                                    @GetStatusText(delegation)
+                                </span>
+                            </div>
+
+                            <div class="delegation-identities">
+                                <span>
+                                    <small>Client</small>
+                                    <code>@delegation.ClientId</code>
+                                </span>
+
+                                <span>
+                                    <small>Delegation</small>
+                                    <code>@delegation.DelegationId</code>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="delegation-scopes">
+                            <small>Scopes</small>
+
+                            <div class="delegation-scope-tags">
+                                @foreach (var scope in delegation.Scopes)
+                                {
+                                    <span class="delegation-scope-tag">
+                                        @scope
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="delegation-metadata">
+                            <div>
+                                <span>Created</span>
+                                <strong>
+                                    @delegation.CreatedAtUtc.ToLocalTime().ToString("g")
+                                </strong>
+                            </div>
+
+                            <div>
+                                <span>Expires</span>
+                                <strong>
+                                    @delegation.ExpiresAtUtc.ToLocalTime().ToString("g")
+                                </strong>
+                            </div>
+                        </div>
+
+                        <div class="delegation-actions">
+                            @if (!delegation.Revoked && !IsExpired(delegation))
+                            {
+                                @if (HasGeneratedCredential(delegation))
+                                {
+                                    <button type="button"
+                                            class="m-1 btn btn-sm btn-outline-primary"
+                                            @onclick="() => CopyCredentialAsync(delegation)"
+                                            disabled="@IsCopyingCredential(delegation)">
+                                        @(IsCopyingCredential(delegation)
+                                            ? "Copying..."
+                                            : "Copy Credential")
+                                    </button>
+                                }
+
+                                <button type="button"
+                                        class="m-1 btn btn-sm btn-primary"
+                                        @onclick="() => GenerateCredentialAsync(delegation)"
+                                        disabled="@IsGeneratingCredential(delegation)">
+                                    @(IsGeneratingCredential(delegation)
+                                        ? "Generating..."
+                                        : "Generate Credential")
+                                </button>
+
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => BeginRevoke(delegation)"
+                                        disabled="@isRevoking">
+                                    Revoke
+                                </button>
+                            }
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    @if (delegationToRevoke is not null)
+    {
+        <div class="delegation-confirm-backdrop">
+            <div class="delegation-confirm-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="revoke-title">
+                <h2 id="revoke-title">Revoke delegation?</h2>
+
+                <p>
+                    This will revoke the delegation for
+                    <strong>@delegationToRevoke.AgentId</strong>
+                    through client
+                    <strong>@delegationToRevoke.ClientId</strong>.
+                </p>
+
+                <div class="delegation-form-actions">
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="CancelRevoke"
+                            disabled="@isRevoking">
+                        Cancel
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-danger"
+                            @onclick="RevokeAsync"
+                            disabled="@isRevoking">
+                        @(isRevoking ? "Revoking..." : "Revoke Delegation")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private readonly CreateAgentDelegationRequest createModel = new();
+
+    private List<AgentDelegationDto> delegations = [];
+    private List<AgentDto> agents = [];
+    private List<McpClientDto> mcpClients = [];
+    private HashSet<string> currentUserPermissions = new(StringComparer.OrdinalIgnoreCase);
+
+    private AgentDto? selectedAgent;
+    private AgentDelegationDto? delegationToRevoke;
+    private AgentDelegationDto? credentialDelegation;
+    private string? generatedCredential;
+    private string? credentialError;
+    private Guid? generatingCredentialId;
+    private Guid? copyingCredentialId;
+    private bool isCopyingCredential;
+
+    private bool isLoading;
+    private bool isCreating;
+    private bool isRevoking;
+    private bool showCreate;
+
+    private string? errorMessage;
+    private string? createError;
+
+    private List<AgentDto> activeAgents =>
+        agents
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Name)
+            .ToList();
+
+    private List<McpClientDto> AvailableClients =>
+        mcpClients
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Name)
+            .ToList();
+
+    private IReadOnlyList<string> AvailableDelegationScopes =>
+        selectedAgent?.Permissions
+            .Where(currentUserPermissions.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(x => x)
+            .ToList()
+        ?? [];
+
+    private int ActiveCount =>
+        delegations.Count(x =>
+            !x.Revoked &&
+            !IsExpired(x));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await LoadReferencesAsync();
+        await LoadCurrentUserPermissionsAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await DelegationService.GetMyDelegationsAsync();
+
+            if (result.Success)
+            {
+                delegations = result.Data ?? [];
+            }
+            else
+            {
+                errorMessage =
+                    result.ErrorMessage;
+            }
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadCurrentUserPermissionsAsync()
+    {
+        var authenticationState =
+            await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+        currentUserPermissions = authenticationState.User
+            .FindAll("permission")
+            .Select(x => x.Value.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private async Task LoadReferencesAsync()
+    {
+        var agentResult =
+            await AgentManagementService.GetAgentsAsync();
+
+        var clientResult =
+            await McpClientManagementService.GetClientsAsync();
+
+        if (agentResult.Success)
+        {
+            agents = agentResult.Data ?? [];
+        }
+        else if (string.IsNullOrWhiteSpace(errorMessage))
+        {
+            errorMessage = agentResult.ErrorMessage;
+        }
+
+        if (clientResult.Success)
+        {
+            mcpClients = clientResult.Data ?? [];
+        }
+        else if (string.IsNullOrWhiteSpace(errorMessage))
+        {
+            errorMessage = clientResult.ErrorMessage;
+        }
+    }
+
+    private void BeginCreate()
+    {
+        createModel.AgentId = string.Empty;
+        createModel.ClientId = string.Empty;
+        createModel.Scopes.Clear();
+        createModel.LifetimeMinutes = 60;
+
+        selectedAgent = null;
+        createError = null;
+        showCreate = true;
+    }
+
+    private void CloseCreate()
+    {
+        if (isCreating)
+            return;
+
+        showCreate = false;
+        createError = null;
+    }
+
+    private Task AgentChangedAsync()
+    {
+        selectedAgent =
+            agents.FirstOrDefault(
+                x => string.Equals(
+                    x.AgentId,
+                    createModel.AgentId,
+                    StringComparison.OrdinalIgnoreCase));
+
+        createModel.Scopes.Clear();
+        createModel.ClientId = string.Empty;
+
+        return Task.CompletedTask;
+    }
+
+    private void ToggleScope(
+        string permission,
+        ChangeEventArgs args)
+    {
+        var selected =
+            args.Value is bool value && value;
+
+        if (selected)
+        {
+            if (!createModel.Scopes.Contains(permission))
+                createModel.Scopes.Add(permission);
+        }
+        else
+        {
+            createModel.Scopes.Remove(permission);
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        createError = null;
+        isCreating = true;
+
+        try
+        {
+            var result =
+                await DelegationService.CreateDelegationAsync(
+                    createModel);
+
+            if (!result.Success)
+            {
+                createError =
+                    result.ErrorMessage;
+                return;
+            }
+
+            showCreate = false;
+            createError = null;
+
+            await LoadAsync();
+        }
+        finally
+        {
+            isCreating = false;
+        }
+    }
+
+    private bool HasGeneratedCredential(AgentDelegationDto delegation)
+    {
+        return credentialDelegation?.DelegationId == delegation.DelegationId
+            && !string.IsNullOrWhiteSpace(generatedCredential);
+    }
+
+    private bool IsGeneratingCredential(AgentDelegationDto delegation)
+    {
+        return generatingCredentialId == delegation.DelegationId;
+    }
+
+    private bool IsCopyingCredential(AgentDelegationDto delegation)
+    {
+        return copyingCredentialId == delegation.DelegationId;
+    }
+
+    private async Task GenerateCredentialAsync(
+        AgentDelegationDto delegation)
+    {
+        if (delegation.Revoked || IsExpired(delegation))
+            return;
+
+        generatingCredentialId = delegation.DelegationId;
+        credentialError = null;
+        credentialDelegation = null;
+        generatedCredential = null;
+
+        try
+        {
+            var result =
+                await DelegationService.GetDelegationCredentialsAsync(
+                    delegation.DelegationId);
+
+            if (!result.Success)
+            {
+                credentialError =
+                    result.ErrorMessage;
+                return;
+            }
+
+            generatedCredential = result.Data;
+            credentialDelegation = delegation;
+        }
+        catch (Exception ex)
+        {
+            credentialError =
+                $"Unable to generate the delegation credential: {ex.Message}";
+        }
+        finally
+        {
+            generatingCredentialId = null;
+        }
+    }
+
+    private async Task CopyCredentialAsync(
+        AgentDelegationDto delegation)
+    {
+        if (!HasGeneratedCredential(delegation))
+            return;
+
+        copyingCredentialId = delegation.DelegationId;
+        try
+        {
+            await JS.InvokeVoidAsync(
+                "navigator.clipboard.writeText",
+                generatedCredential);
+
+            credentialError = null;
+        }
+        catch (Exception ex)
+        {
+            credentialError =
+                $"Unable to copy the credential: {ex.Message}";
+        }
+        finally
+        {
+            copyingCredentialId = null;
+        }
+    }
+
+    private void CloseCredentialDialog()
+    {
+        credentialDelegation = null;
+        generatedCredential = null;
+        credentialError = null;
+    }
+
+    private void BeginRevoke(
+        AgentDelegationDto delegation)
+    {
+        delegationToRevoke = delegation;
+    }
+
+    private void CancelRevoke()
+    {
+        if (isRevoking)
+            return;
+
+        delegationToRevoke = null;
+    }
+
+    private async Task RevokeAsync()
+    {
+        if (delegationToRevoke is null)
+            return;
+
+        isRevoking = true;
+        errorMessage = null;
+
+        try
+        {
+            var result =
+                await DelegationService.RevokeDelegationAsync(
+                    delegationToRevoke.DelegationId);
+
+            if (!result.Success)
+            {
+                errorMessage =
+                    result.ErrorMessage;
+                return;
+            }
+
+            delegationToRevoke = null;
+
+            await LoadAsync();
+        }
+        finally
+        {
+            isRevoking = false;
+        }
+    }
+
+    private static bool IsExpired(
+        AgentDelegationDto delegation)
+    {
+        return delegation.ExpiresAtUtc <= DateTime.UtcNow;
+    }
+
+    private static string GetStatusText(
+        AgentDelegationDto delegation)
+    {
+        if (delegation.Revoked)
+            return "Revoked";
+
+        if (IsExpired(delegation))
+            return "Expired";
+
+        return "Active";
+    }
+
+    private static string GetStatusClass(
+        AgentDelegationDto delegation)
+    {
+        if (delegation.Revoked)
+            return "revoked";
+
+        if (IsExpired(delegation))
+            return "expired";
+
+        return "active";
+    }
+}

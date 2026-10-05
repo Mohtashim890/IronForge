@@ -1,0 +1,26 @@
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace IronForge.Shared.Models.Agents.Manage
+{
+    public sealed class CreateAgentRequest
+    {
+        [Required]
+        [StringLength(100)]
+        public string AgentId { get; set; } = string.Empty;
+
+        [Required]
+        [StringLength(200)]
+        public string Name { get; set; } = string.Empty;
+
+        [StringLength(2000)]
+        public string? Description { get; set; }
+
+        [Required]
+        [StringLength(50)]
+        public string Version { get; set; } = "1.0";
+
+        public bool IsActive { get; set; } = true;
+
+        public List<string> Permissions { get; set; } = [];
+    }
+}

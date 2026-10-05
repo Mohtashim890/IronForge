@@ -1,0 +1,158 @@
+﻿@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+@inherits LayoutComponentBase
+
+@attribute [Authorize]
+
+<div class="ironforge-shell @(_mobileMenuOpen ? "mobile-menu-open" : "")">
+
+    <aside class="ironforge-sidebar">
+
+        <NavMenu />
+
+    </aside>
+
+    @if (_mobileMenuOpen)
+    {
+        <button type="button"
+                class="mobile-menu-backdrop"
+                aria-label="Close navigation"
+                @onclick="CloseMobileMenu">
+        </button>
+    }
+
+    <div class="ironforge-main">
+
+        <header class="ironforge-topbar">
+
+            <div class="topbar-mobile-menu">
+
+                <button class="mobile-menu-button"
+                        type="button"
+                        aria-label="Toggle navigation"
+                        aria-expanded="@_mobileMenuOpen"
+                        @onclick="ToggleMobileMenu">
+
+                    <span></span>
+                    <span></span>
+                    <span></span>
+
+                </button>
+
+            </div>
+
+            <div class="topbar-title">
+
+                <span class="topbar-page-title">
+                    @PageTitle
+                </span>
+
+            </div>
+
+            <div class="topbar-actions">
+
+                <button class="icon-button"
+                        type="button"
+                        aria-label="Notifications">
+
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+                        <path d="M10 21h4" />
+                    </svg>
+
+                    <span class="notification-dot"></span>
+
+                </button>
+
+                <AuthorizeView>
+
+                    <Authorized>
+
+                        <div class="user-menu">
+
+                            <div class="user-avatar">
+                                @GetInitials(context.User.Identity?.Name)
+                            </div>
+
+                            <div class="user-info">
+
+                                <span class="user-name">
+                                    @GetDisplayName(context.User.Identity?.Name)
+                                </span>
+
+                                <span class="user-role">
+                                    Account
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </Authorized>
+
+                </AuthorizeView>
+
+            </div>
+
+        </header>
+
+        <main class="ironforge-content">
+
+            @Body
+
+        </main>
+
+    </div>
+
+</div>
+
+@code
+{
+    private bool _mobileMenuOpen;
+
+    private void ToggleMobileMenu()
+    {
+        _mobileMenuOpen = !_mobileMenuOpen;
+    }
+
+    private void CloseMobileMenu()
+    {
+        _mobileMenuOpen = false;
+    }
+
+    private string PageTitle =>
+        GetPageTitle();
+
+    private static string GetPageTitle()
+    {
+        return "IronForge";
+    }
+
+    private static string GetDisplayName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "User";
+
+        return name;
+    }
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "U";
+
+        var parts =
+            name.Split(
+                ' ',
+                StringSplitOptions.RemoveEmptyEntries);
+
+        if (parts.Length == 1)
+            return parts[0][0].ToString().ToUpperInvariant();
+
+        return string.Concat(
+                parts[0][0],
+                parts[^1][0])
+            .ToUpperInvariant();
+    }
+}

@@ -1,0 +1,108 @@
+﻿@if (Visible)
+{
+    <div class="ui-dialog-backdrop">
+
+        <div class="ui-confirm-dialog"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="confirm-dialog-title">
+
+            <div class="ui-confirm-dialog-icon"
+                 aria-hidden="true">
+                !
+            </div>
+
+            <div class="ui-confirm-dialog-content">
+
+                <h2 id="confirm-dialog-title">
+                    @Title
+                </h2>
+
+                @if (ChildContent is not null)
+                {
+                    <div class="ui-confirm-dialog-message">
+                        @ChildContent
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(Message))
+                {
+                    <p>
+                        @Message
+                    </p>
+                }
+
+            </div>
+
+            <div class="ui-confirm-dialog-footer">
+
+                <button type="button"
+                        class="btn btn-outline-secondary"
+                        @onclick="Cancel"
+                        disabled="@Busy">
+
+                    @CancelText
+
+                </button>
+
+                <button type="button"
+                        class="btn btn-danger"
+                        @onclick="Confirm"
+                        disabled="@Busy">
+
+                    @if (Busy)
+                    {
+                        <span class="ui-button-spinner"></span>
+                    }
+
+                    <span>
+                        @(Busy ? BusyText : ConfirmText)
+                    </span>
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+}
+
+@code
+{
+    [Parameter]
+    public bool Visible { get; set; }
+
+    [Parameter]
+    public string Title { get; set; } = "Are you sure?";
+
+    [Parameter]
+    public string? Message { get; set; }
+
+    [Parameter]
+    public string ConfirmText { get; set; } = "Confirm";
+
+    [Parameter]
+    public string CancelText { get; set; } = "Cancel";
+
+    [Parameter]
+    public string BusyText { get; set; } = "Working...";
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public EventCallback OnConfirm { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private Task Confirm()
+        => OnConfirm.InvokeAsync();
+
+    private Task Cancel()
+        => OnCancel.InvokeAsync();
+}
