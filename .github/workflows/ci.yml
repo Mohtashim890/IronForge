@@ -32,7 +32,6 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-          cache: true
 
       - name: Display .NET information
         run: dotnet --info
