@@ -1,0 +1,80 @@
+name: IronForge CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ironforge-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+
+  publish-images:
+    name: Publish Docker images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./IronForge.Api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/ironforge-api:${{ github.sha }}
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./IronForge.Web/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/ironforge-web:${{ github.sha }}
+
+      - name: Build and push MCP image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./IronForge.Mcp/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/ironforge-mcp:${{ github.sha }}
+
+      - name: Build and push MCP Client image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./IronForge.Mcp.Client/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/ironforge-mcp-client:${{ github.sha }}
+
+      - name: Build and push Migrator image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./IronForge.Migrator/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/ironforge-migrator:${{ github.sha }}
