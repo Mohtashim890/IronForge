@@ -37,7 +37,7 @@ jobs:
         run: dotnet --info
 
       - name: Restore
-        run: dotnet restore ./IronForge/IronForge.slnx
+        run: dotnet restore ./IronForge.Server.slnx
 
       - name: Build
-        run: dotnet build ./IronForge/IronForge.slnx --configuration Release --no-restore
+        run: dotnet build ./IronForge.Server.slnx --configuration Release --no-restore
