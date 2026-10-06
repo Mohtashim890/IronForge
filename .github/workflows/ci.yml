@@ -17,12 +17,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-
+  server:
     name: Build IronForge
-
     runs-on: ubuntu-latest
-
     steps:
 
       - name: Checkout repository
@@ -38,6 +35,14 @@ jobs:
 
       - name: Restore
         run: dotnet restore ./IronForge.Server.slnx
+        
+      - name: Check vulnerable dependencies
+        run: >
+            dotnet list
+            ./IronForge.Server.slnx
+            package
+            --vulnerable
+            --include-transitive
 
       - name: Build
         run: dotnet build ./IronForge.Server.slnx --configuration Release --no-restore
@@ -84,6 +89,22 @@ jobs:
             --no-restore
             --output ./artifacts/web
             
+      - name: Publish Web
+        run: >
+            dotnet publish
+            ./IronForge.Mcp/IronForge.Mcp.csproj
+            --configuration Release
+            --no-restore
+            --output ./artifacts/mcp
+            
+      - name: Publish Web
+        run: >
+            dotnet publish
+            ./IronForge.Mcp.Client/IronForge.Mcp.Client.csproj
+            --configuration Release
+            --no-restore
+            --output ./artifacts/mcp-client
+            
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -91,3 +112,89 @@ jobs:
             name: ironforge-build
             path: ./artifacts
             if-no-files-found: warn
+            
+  docker:
+    name: Docker validation
+    needs: server
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      
+      - name: Validate Docker Compose configuration
+        env:
+            CONNECTIONSTRINGS__DEFAULTCONNECTION: Host=ci-placeholder
+            JWTSETTINGS__KEY: ci-placeholder-jwt-key
+            AISETTINGS__APIKEY: ci-placeholder-ai-key
+            OPENTELEMETRY__OTLP__HEADERS: "Authorization asdakdaskdbakdhaskdh"
+        run: docker compose config
+      
+      - name: Build Docker images
+        run: >
+            docker compose build
+            ironforge-api
+            ironforge-web
+            ironforge-mcp
+            ironforge-mcp-client
+            ironforge-migrator
+            
+  maui:
+    name: Build MAUI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Restore MAUI
+        run: >
+          dotnet restore
+          ./IronForge/IronForge.csproj
+          --framework net10.0-android
+
+      - name: Build MAUI Android
+        run: >
+          dotnet build
+          ./IronForge/IronForge.csproj
+          --configuration Release
+          --framework net10.0-android
+          --no-restore
+          
+  # maui-windows:
+    # name: Build MAUI Windows
+    # runs-on: windows-latest
+
+    # steps:
+      # - name: Checkout repository
+        # uses: actions/checkout@v7
+
+      # - name: Setup .NET
+        # uses: actions/setup-dotnet@v6
+        # with:
+          # dotnet-version: '10.0.x'
+
+      # - name: Install MAUI workload
+        # run: dotnet workload install maui
+
+      # - name: Restore MAUI Windows
+        # run: >
+          # dotnet restore
+          # ./IronForge/IronForge.csproj
+          # --framework net10.0-windows10.0.19041.0
+
+      # - name: Build MAUI Windows
+        # run: >
+          # dotnet build
+          # ./IronForge/IronForge.csproj
+          # --configuration Release
+          # --framework net10.0-windows10.0.19041.0
+          # --no-restore
