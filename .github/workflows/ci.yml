@@ -157,9 +157,10 @@ jobs:
 
       - name: Restore MAUI
         run: >
-          dotnet restore
-          ./IronForge/IronForge.csproj
-          --framework net10.0-android
+          dotnet restore 
+          ./IronForge/IronForge.csproj 
+          -p:TargetFramework=net10.0-android
+
 
       - name: Build MAUI Android
         run: >
