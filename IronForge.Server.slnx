@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="IronForge.Api/IronForge.Api.csproj" />
+  <Project Path="tests/IronForge.Application.Tests/IronForge.Application.Tests.csproj" Id="5a28135b-2a66-4275-9f21-98f6dbe84c4b" />
   <Project Path="IronForge.Application/IronForge.Application.csproj" />
   <Project Path="IronForge.Infrastructure/IronForge.Infrastructure.csproj" />
   <Project Path="IronForge.Mcp.Client/IronForge.Mcp.Client.csproj" />
@@ -7,4 +8,5 @@
   <Project Path="IronForge.Migrator/IronForge.Migrator.csproj" />
   <Project Path="IronForge.Shared/IronForge.Shared.csproj" />
   <Project Path="IronForge.Web/IronForge.Web.csproj" />
+  <Project Path="tests/IronForge.Application.IntegrationTests/IronForge.Application.IntegrationTests.csproj" Id="3d4c7d40-5e0c-405e-8a4a-44083787d836" />
 </Solution>

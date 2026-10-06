@@ -41,3 +41,53 @@ jobs:
 
       - name: Build
         run: dotnet build ./IronForge.Server.slnx --configuration Release --no-restore
+        
+      - name: Run unit tests
+        run: >
+          dotnet test
+          ./IronForge.Application.Tests/IronForge.Application.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=unit-tests.trx"
+          --results-directory ./TestResults/Unit
+          
+      - name: Run integration tests
+        run: >
+            dotnet test
+            ./IronForge.Application.IntegrationTests/IronForge.Application.IntegrationTests.csproj
+            --configuration Release
+            --no-build
+            --logger "trx;LogFileName=integration-tests.trx"
+            --results-directory ./TestResults/Integration
+            
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+            name: test-results
+            path: ./TestResults
+            if-no-files-found: warn
+      
+      - name: Publish API
+        run: >
+            dotnet publish
+            ./IronForge.Api/IronForge.Api.csproj
+            --configuration Release
+            --no-restore
+            --output ./artifacts/api
+    
+      - name: Publish Web
+        run: >
+            dotnet publish
+            ./IronForge.Web/IronForge.Web.csproj
+            --configuration Release
+            --no-restore
+            --output ./artifacts/web
+            
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+            name: ironforge-build
+            path: ./artifacts
+            if-no-files-found: warn
