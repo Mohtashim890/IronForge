@@ -45,7 +45,7 @@ jobs:
       - name: Run unit tests
         run: >
           dotnet test
-          ./IronForge.Application.Tests/IronForge.Application.Tests.csproj
+          ./tests/IronForge.Application.Tests/IronForge.Application.Tests.csproj
           --configuration Release
           --no-build
           --logger "trx;LogFileName=unit-tests.trx"
@@ -54,7 +54,7 @@ jobs:
       - name: Run integration tests
         run: >
             dotnet test
-            ./IronForge.Application.IntegrationTests/IronForge.Application.IntegrationTests.csproj
+            ./tests/IronForge.Application.IntegrationTests/IronForge.Application.IntegrationTests.csproj
             --configuration Release
             --no-build
             --logger "trx;LogFileName=integration-tests.trx"
