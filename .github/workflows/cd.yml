@@ -103,6 +103,11 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
+      - name: Validate deployment SSH key
+        run: |
+          ssh-keygen -y -f ~/.ssh/ironforge_deploy > /dev/null
+          echo "Deployment private key parsed successfully."
+        
           ssh \
             -i ~/.ssh/ironforge_deploy \
             -o BatchMode=yes \
