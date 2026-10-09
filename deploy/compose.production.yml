@@ -1,0 +1,121 @@
+services:
+
+  ironforge-api:
+    image: ghcr.io/mohtashim890/ironforge-api:${IRONFORGE_IMAGE_TAG}
+    restart: unless-stopped
+
+    env_file:
+      - ../env/production.env
+
+    networks:
+      - ironforge
+
+    expose:
+      - "8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error http://127.0.0.1:8080/health/live || exit 1"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+
+  ironforge-web:
+    image: ghcr.io/mohtashim890/ironforge-web:${IRONFORGE_IMAGE_TAG}
+    restart: unless-stopped
+
+    env_file:
+      - ../env/production.env
+
+    networks:
+      - ironforge
+
+    expose:
+      - "8080"
+
+    depends_on:
+          ironforge-api:
+            condition: service_healthy
+
+
+  ironforge-mcp:
+    image: ghcr.io/mohtashim890/ironforge-mcp:${IRONFORGE_IMAGE_TAG}
+    restart: unless-stopped
+
+    env_file:
+      - ../env/production.env
+
+    networks:
+      - ironforge
+
+    expose:
+      - "8080"
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error http://127.0.0.1:8080/health/live || exit 1"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+
+  ironforge-mcp-client:
+    image: ghcr.io/mohtashim890/ironforge-mcp-client:${IRONFORGE_IMAGE_TAG}
+    restart: unless-stopped
+
+    env_file:
+      - ../env/production.env
+
+    networks:
+      - ironforge
+
+    expose:
+      - "8080"
+
+    depends_on:
+      ironforge-mcp:
+        condition: service_healthy
+
+  ironforge-migrator:
+    image: ghcr.io/mohtashim890/ironforge-migrator:${IRONFORGE_IMAGE_TAG}
+
+    env_file:
+      - ../env/production.env
+
+    networks:
+      - ironforge
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+    networks:
+      - ironforge
+
+
+networks:
+  ironforge:
+    driver: bridge
+
+
+volumes:
+  caddy_data:
+  caddy_config:
