@@ -88,30 +88,30 @@ jobs:
     needs: publish-images
 
     steps:
-  - name: Prepare SSH credentials
-    env:
-      VPS_SSH_KEY: ${{ secrets.IRONFORGE_VPS_SSH_KEY }}
-      VPS_KNOWN_HOSTS: ${{ secrets.IRONFORGE_VPS_KNOWN_HOSTS }}
-    run: |
-      install -m 700 -d ~/.ssh
-
-      printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/ironforge_deploy
-      chmod 600 ~/.ssh/ironforge_deploy
-
-      printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      chmod 644 ~/.ssh/known_hosts
-
-      ssh-keygen -y -f ~/.ssh/ironforge_deploy > /dev/null
-      echo "Deployment private key parsed successfully."
-
-  - name: Deploy to DigitalOcean VPS
-    env:
-      VPS_HOST: ${{ secrets.IRONFORGE_VPS_HOST }}
-      VPS_USER: ${{ secrets.IRONFORGE_VPS_USER }}
-    run: |
-      ssh \
-        -i ~/.ssh/ironforge_deploy \
-        -o BatchMode=yes \
-        -o StrictHostKeyChecking=yes \
-        "${VPS_USER}@${VPS_HOST}" \
-        "/opt/ironforge/scripts/deploy.sh '${GITHUB_SHA}'"
+        - name: Prepare SSH credentials
+          env:
+              VPS_SSH_KEY: ${{ secrets.IRONFORGE_VPS_SSH_KEY }}
+              VPS_KNOWN_HOSTS: ${{ secrets.IRONFORGE_VPS_KNOWN_HOSTS }}
+          run: |
+              install -m 700 -d ~/.ssh
+          
+              printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/ironforge_deploy
+              chmod 600 ~/.ssh/ironforge_deploy
+          
+              printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+              chmod 644 ~/.ssh/known_hosts
+          
+              ssh-keygen -y -f ~/.ssh/ironforge_deploy > /dev/null
+              echo "Deployment private key parsed successfully."
+        
+        - name: Deploy to DigitalOcean VPS
+          env:
+              VPS_HOST: ${{ secrets.IRONFORGE_VPS_HOST }}
+              VPS_USER: ${{ secrets.IRONFORGE_VPS_USER }}
+          run: |
+              ssh \
+                  -i ~/.ssh/ironforge_deploy \
+                  -o BatchMode=yes \
+                  -o StrictHostKeyChecking=yes \
+                  "${VPS_USER}@${VPS_HOST}" \
+                  "/opt/ironforge/scripts/deploy.sh '${GITHUB_SHA}'"
