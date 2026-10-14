@@ -1,30 +1,43 @@
 name: IronForge CD
 
+# CD runs only after the IronForge CI workflow has completed for main.
+# The publish-images job then checks that CI succeeded and was a push,
+# and deploys exactly the commit CI tested (workflow_run.head_sha).
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows: ["IronForge CI"]
+    types: [completed]
+    branches: [main]
+
+run-name: Deploy ${{ github.event.workflow_run.head_sha }}
 
 permissions:
   contents: read
   packages: write
 
+# Never cancel a running deploy (deploy.sh may be mid-migration).
 concurrency:
-  group: ironforge-cd-${{ github.ref }}
-  cancel-in-progress: true
+  group: ironforge-cd-production
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
+  RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
 
   publish-images:
     name: Publish Docker images
     runs-on: ubuntu-latest
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_SHA }}
         
       - name: Set image prefix
         run: |
@@ -44,7 +57,7 @@ jobs:
           file: ./IronForge.Api/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-api:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/ironforge-api:${{ env.RELEASE_SHA }}
 
       - name: Build and push Web image
         uses: docker/build-push-action@v6
@@ -53,7 +66,7 @@ jobs:
           file: ./IronForge.Web/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-web:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/ironforge-web:${{ env.RELEASE_SHA }}
 
       - name: Build and push MCP image
         uses: docker/build-push-action@v6
@@ -62,7 +75,7 @@ jobs:
           file: ./IronForge.Mcp/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-mcp:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/ironforge-mcp:${{ env.RELEASE_SHA }}
 
       - name: Build and push MCP Client image
         uses: docker/build-push-action@v6
@@ -71,7 +84,7 @@ jobs:
           file: ./IronForge.Mcp.Client/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-mcp-client:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/ironforge-mcp-client:${{ env.RELEASE_SHA }}
 
       - name: Build and push Migrator image
         uses: docker/build-push-action@v6
@@ -80,7 +93,7 @@ jobs:
           file: ./IronForge.Migrator/Dockerfile
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-migrator:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/ironforge-migrator:${{ env.RELEASE_SHA }}
             
   deploy:
     name: Deploy to VPS
@@ -114,4 +127,4 @@ jobs:
                   -o BatchMode=yes \
                   -o StrictHostKeyChecking=yes \
                   "${VPS_USER}@${VPS_HOST}" \
-                  "/opt/ironforge/scripts/deploy.sh '${GITHUB_SHA}'"
+                  "/opt/ironforge/scripts/deploy.sh '${RELEASE_SHA}'"
