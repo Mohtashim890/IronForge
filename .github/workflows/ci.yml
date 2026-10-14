@@ -162,6 +162,7 @@ jobs:
         run: >
           dotnet restore
           ./IronForge/IronForge.csproj
+          -p:Configuration=Release
           -p:IronForgeTargetFramework=net10.0-android
 
       - name: Build MAUI Android Release
@@ -192,10 +193,13 @@ jobs:
 
       # On Windows the project also targets iOS/Mac Catalyst; restricting the
       # target frameworks avoids requiring those workloads on the runner.
+      # Restore must use Release: Release enables ReadyToRun, which needs the
+      # win-x64 runtime pack (NETSDK1112 if restored as Debug).
       - name: Restore MAUI Windows
         run: >
           dotnet restore
           ./IronForge/IronForge.csproj
+          -p:Configuration=Release
           -p:IronForgeTargetFramework=net10.0-windows10.0.19041.0
 
       - name: Build MAUI Windows Release
