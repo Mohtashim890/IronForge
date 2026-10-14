@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Buffers.Text;
 
 namespace IronForge
 {
@@ -26,16 +27,26 @@ namespace IronForge
 
             builder.Services.AddMauiBlazorWebView();
 
-            var apiSettings = new ApiSettings
-            {
-            #if ANDROID
-                BaseUrl = "https://10.0.2.2:7226/"
-            #else
-                BaseUrl = "https://localhost:7226/"
-            #endif
-            };
+            var apiBaseUrl =
+                #if DEBUG
+                #if ANDROID
+                    "https://10.0.2.2:7226/";
+                #else
+                    "https://localhost:7226/";
+                #endif
+                #else
+                    "https://api.mohtashim.dev/";
+                #endif
 
-            builder.Services.AddSingleton(apiSettings);
+            builder.Services.Configure<ApiSettings>(options =>
+            {
+                options.BaseUrl = apiBaseUrl;
+            });
+
+            builder.Services.AddSingleton(serviceProvider =>
+                serviceProvider
+                    .GetRequiredService<IOptions<ApiSettings>>()
+                    .Value);
 
             // Tokens persist in the platform's secure storage (Keychain/Keystore/DPAPI).
             builder.Services.AddSingleton<ITokenStore, SecureTokenStore>();

@@ -32,14 +32,11 @@
         <ApplicationTitle>IronForge</ApplicationTitle>
 
         <!-- App Identifier -->
-        <ApplicationId>com.companyname.ironforge</ApplicationId>
+        <ApplicationId>dev.mohtashim.ironforge</ApplicationId>
 
         <!-- Versions -->
         <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
         <ApplicationVersion>1</ApplicationVersion>
-
-        <!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
-        <WindowsPackageType>None</WindowsPackageType>
 
         <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
         <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
@@ -48,6 +45,35 @@
         <TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
         <UserSecretsId>f08fe628-b362-46e2-81e0-4d3e815f665f</UserSecretsId>
     </PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('-android'))">
+    <AndroidKeyStore>true</AndroidKeyStore>
+
+    <AndroidSigningKeyStore>$(USERPROFILE)\IronForgeSigning\ironforge-release.keystore</AndroidSigningKeyStore>
+    <AndroidSigningKeyAlias>ironforge-release</AndroidSigningKeyAlias>
+
+    <AndroidSigningStorePass>file:$(USERPROFILE)\IronForgeSigning\signing-password.txt</AndroidSigningStorePass>
+    <AndroidSigningKeyPass>file:$(USERPROFILE)\IronForgeSigning\signing-password.txt</AndroidSigningKeyPass>
+    </PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net10.0-android|AnyCPU'">
+	  <AndroidPackageFormat>aab</AndroidPackageFormat>
+	  <AndroidUseAapt2>True</AndroidUseAapt2>
+	  <AndroidCreatePackagePerAbi>False</AndroidCreatePackagePerAbi>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net10.0-android|AnyCPU'">
+	  <EmbedAssembliesIntoApk>False</EmbedAssembliesIntoApk>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(Configuration)' == 'Release'">
+		<AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
+		<PackageCertificateThumbprint>D9CA1CCDE7475039F82BB54BBB2DD09132674ACD</PackageCertificateThumbprint>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(RuntimeIdentifierOverride)' != ''">
+		<RuntimeIdentifier>$(RuntimeIdentifierOverride)</RuntimeIdentifier>
+	</PropertyGroup>
 
     <ItemGroup>
         <!-- App Icon -->

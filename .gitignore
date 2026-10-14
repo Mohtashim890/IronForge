@@ -11,3 +11,12 @@ obj/
 
 .vs/
 .vscode/
+
+# Android release signing material
+*.keystore
+*.jks
+signing-password.txt
+
+*.pfx
+*.p12
+*.cer
