@@ -1,0 +1,17 @@
+{
+  "solution": {
+    "path": "IronForge.slnx",
+    "projects": [
+      "IronForge.Api\\IronForge.Api.csproj",
+      "IronForge.Application\\IronForge.Application.csproj",
+      "IronForge.Infrastructure\\IronForge.Infrastructure.csproj",
+      "IronForge.Mcp.Client\\IronForge.Mcp.Client.csproj",
+      "IronForge.Mcp\\IronForge.Mcp.csproj",
+      "IronForge.Migrator\\IronForge.Migrator.csproj",
+      "IronForge.Shared\\IronForge.Shared.csproj",
+      "IronForge.Web\\IronForge.Web.csproj",
+      "tests\\IronForge.Application.IntegrationTests\\IronForge.Application.IntegrationTests.csproj",
+      "tests\\IronForge.Application.Tests\\IronForge.Application.Tests.csproj"
+    ]
+  }
+}

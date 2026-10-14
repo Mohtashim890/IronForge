@@ -5,6 +5,11 @@
         <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
         <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
 
+        <!-- CI builds a single platform: -p:IronForgeTargetFramework=<tfm> keeps restore from
+             requiring every platform workload. TargetFrameworks itself must not be passed
+             globally, because it would also flow into referenced projects (IronForge.Shared). -->
+        <TargetFrameworks Condition="'$(IronForgeTargetFramework)' != ''">$(IronForgeTargetFramework)</TargetFrameworks>
+
         <!-- Note for MacCatalyst:
             The default runtime is maccatalyst-x64, except in Release config, in which case the default is maccatalyst-x64;maccatalyst-arm64.
             When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular <RuntimeIdentifier>.
@@ -46,14 +51,21 @@
         <UserSecretsId>f08fe628-b362-46e2-81e0-4d3e815f665f</UserSecretsId>
     </PropertyGroup>
 
-	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('-android'))">
+	<!-- Signing material lives outside the repository. Release builds only sign when it
+	     is available, so CI runners (and machines without the keystore/certificate)
+	     produce unsigned Release builds instead of failing. -->
+	<PropertyGroup>
+		<IronForgeSigningDir>$(USERPROFILE)\IronForgeSigning</IronForgeSigningDir>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release' and $(TargetFramework.Contains('-android')) and Exists('$(IronForgeSigningDir)\ironforge-release.keystore')">
     <AndroidKeyStore>true</AndroidKeyStore>
 
-    <AndroidSigningKeyStore>$(USERPROFILE)\IronForgeSigning\ironforge-release.keystore</AndroidSigningKeyStore>
+    <AndroidSigningKeyStore>$(IronForgeSigningDir)\ironforge-release.keystore</AndroidSigningKeyStore>
     <AndroidSigningKeyAlias>ironforge-release</AndroidSigningKeyAlias>
 
-    <AndroidSigningStorePass>file:$(USERPROFILE)\IronForgeSigning\signing-password.txt</AndroidSigningStorePass>
-    <AndroidSigningKeyPass>file:$(USERPROFILE)\IronForgeSigning\signing-password.txt</AndroidSigningKeyPass>
+    <AndroidSigningStorePass>file:$(IronForgeSigningDir)\signing-password.txt</AndroidSigningStorePass>
+    <AndroidSigningKeyPass>file:$(IronForgeSigningDir)\signing-password.txt</AndroidSigningKeyPass>
     </PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|net10.0-android|AnyCPU'">
@@ -66,7 +78,8 @@
 	  <EmbedAssembliesIntoApk>False</EmbedAssembliesIntoApk>
 	</PropertyGroup>
 
-	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(Configuration)' == 'Release'">
+	<!-- GitHub Actions sets CI=true; the signing certificate only exists in the local user store. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(Configuration)' == 'Release' and '$(CI)' != 'true'">
 		<AppxPackageSigningEnabled>true</AppxPackageSigningEnabled>
 		<PackageCertificateThumbprint>D9CA1CCDE7475039F82BB54BBB2DD09132674ACD</PackageCertificateThumbprint>
 	</PropertyGroup>

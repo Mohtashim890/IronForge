@@ -20,3 +20,7 @@ signing-password.txt
 *.pfx
 *.p12
 *.cer
+
+# Per-developer IDE state
+*.user
+*.suo

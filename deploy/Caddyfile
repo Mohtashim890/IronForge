@@ -1,3 +1,19 @@
-:80 {
+mohtashim.dev {
     reverse_proxy ironforge-web:8080
+}
+
+www.mohtashim.dev {
+    redir https://mohtashim.dev{uri} permanent
+}
+
+mcp-client.mohtashim.dev {
+    reverse_proxy ironforge-mcp-client:8080
+}
+
+mcp.mohtashim.dev {
+	reverse_proxy ironforge-mcp:8080
+}
+
+api.mohtashim.dev {
+	reverse_proxy ironforge-api:8080
 }

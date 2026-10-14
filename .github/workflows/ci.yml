@@ -34,18 +34,18 @@ jobs:
         run: dotnet --info
 
       - name: Restore
-        run: dotnet restore ./IronForge.Server.slnx
+        run: dotnet restore ./IronForge.Server.slnf
         
       - name: Check vulnerable dependencies
         run: >
             dotnet list
-            ./IronForge.Server.slnx
+            ./IronForge.Server.slnf
             package
             --vulnerable
             --include-transitive
 
       - name: Build
-        run: dotnet build ./IronForge.Server.slnx --configuration Release --no-restore
+        run: dotnet build ./IronForge.Server.slnf --configuration Release --no-restore
         
       - name: Run unit tests
         run: >
@@ -89,7 +89,7 @@ jobs:
             --no-restore
             --output ./artifacts/web
             
-      - name: Publish Web
+      - name: Publish MCP
         run: >
             dotnet publish
             ./IronForge.Mcp/IronForge.Mcp.csproj
@@ -97,7 +97,7 @@ jobs:
             --no-restore
             --output ./artifacts/mcp
             
-      - name: Publish Web
+      - name: Publish MCP Client
         run: >
             dotnet publish
             ./IronForge.Mcp.Client/IronForge.Mcp.Client.csproj
@@ -139,8 +139,11 @@ jobs:
             ironforge-mcp-client
             ironforge-migrator
             
-  maui:
-    name: Build MAUI
+  # MAUI is built per project and per target framework, never through the
+  # full IronForge.slnx. Signing material is not available on runners, so
+  # Release builds here are unsigned compile validations (see IronForge.csproj).
+  maui-android:
+    name: MAUI Android Release Validation
     runs-on: ubuntu-latest
 
     steps:
@@ -152,48 +155,55 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install MAUI workload
+      - name: Install Android workload
         run: dotnet workload install maui-android
 
-      - name: Restore MAUI
+      - name: Restore MAUI Android
         run: >
-          dotnet restore 
+          dotnet restore
           ./IronForge/IronForge.csproj
+          -p:IronForgeTargetFramework=net10.0-android
 
-
-      - name: Build MAUI Android
+      - name: Build MAUI Android Release
         run: >
           dotnet build
           ./IronForge/IronForge.csproj
           --configuration Release
           --framework net10.0-android
           --no-restore
-          
-  # maui-windows:
-    # name: Build MAUI Windows
-    # runs-on: windows-latest
+          -p:IronForgeTargetFramework=net10.0-android
+          -p:AndroidKeyStore=false
 
-    # steps:
-      # - name: Checkout repository
-        # uses: actions/checkout@v7
+  maui-windows:
+    name: MAUI Windows Release Validation
+    runs-on: windows-latest
 
-      # - name: Setup .NET
-        # uses: actions/setup-dotnet@v6
-        # with:
-          # dotnet-version: '10.0.x'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-      # - name: Install MAUI workload
-        # run: dotnet workload install maui
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
 
-      # - name: Restore MAUI Windows
-        # run: >
-          # dotnet restore
-          # ./IronForge/IronForge.csproj
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
 
-      # - name: Build MAUI Windows
-        # run: >
-          # dotnet build
-          # ./IronForge/IronForge.csproj
-          # --configuration Release
-          # --framework net10.0-windows10.0.19041.0
-          # --no-restore
+      # On Windows the project also targets iOS/Mac Catalyst; restricting the
+      # target frameworks avoids requiring those workloads on the runner.
+      - name: Restore MAUI Windows
+        run: >
+          dotnet restore
+          ./IronForge/IronForge.csproj
+          -p:IronForgeTargetFramework=net10.0-windows10.0.19041.0
+
+      - name: Build MAUI Windows Release
+        run: >
+          dotnet build
+          ./IronForge/IronForge.csproj
+          --configuration Release
+          --framework net10.0-windows10.0.19041.0
+          --no-restore
+          -p:IronForgeTargetFramework=net10.0-windows10.0.19041.0
+          -p:AppxPackageSigningEnabled=false
