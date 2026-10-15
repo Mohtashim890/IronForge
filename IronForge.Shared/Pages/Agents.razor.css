@@ -27,6 +27,68 @@
 }
 
 .agent-editor-panel,
+.agent-usage-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid #e4e7ec;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.agent-usage-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.agent-usage-heading > div:first-child {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.agent-usage-numbers {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    color: #667085;
+}
+
+.agent-usage-numbers strong {
+    font-size: 1.15rem;
+    color: #101828;
+}
+
+.agent-usage-numbers.exceeded strong {
+    color: #b42318;
+}
+
+.agent-usage-bar {
+    height: 0.5rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #f2f4f7;
+}
+
+.agent-usage-bar > div {
+    height: 100%;
+    border-radius: 999px;
+    background: #2e90fa;
+}
+
+.agent-usage-warning {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #fecdca;
+    border-radius: 0.5rem;
+    background: #fef3f2;
+    color: #b42318;
+    font-size: 0.85rem;
+}
+
 .agent-list-panel {
     border: 1px solid #e4e7ec;
     border-radius: 0.75rem;

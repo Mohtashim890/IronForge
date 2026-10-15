@@ -1,4 +1,6 @@
-﻿namespace IronForge.Application.Agents.DTOs
+﻿using IronForge.Shared.Models.Agents.Manage;
+
+namespace IronForge.Application.Agents.DTOs
 {
     public sealed class AgentDto
     {
@@ -19,5 +21,18 @@
         public DateTime UpdatedAtUtc { get; set; }
 
         public List<string> Permissions { get; set; } = [];
+
+        /// <summary>System prompt sent first on every model call.</summary>
+        public string Instructions { get; set; } = string.Empty;
+
+        public int MaximumIterationsPerRequest { get; set; }
+
+        public bool AllowMultipleToolCalls { get; set; }
+
+        public int ApprovalLifetimeMinutes { get; set; }
+
+        public string ModelProfile { get; set; } = string.Empty;
+
+        public List<AgentToolBindingDto> Tools { get; set; } = [];
     }
 }

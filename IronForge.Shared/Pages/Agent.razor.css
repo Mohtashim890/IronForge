@@ -46,6 +46,11 @@
         margin-top: 16px;
     }
 
+    .agent-sidebar-header .agent-picker {
+        margin-top: 8px;
+        font-size: 13px;
+    }
+
 .agent-session-list {
     flex: 1;
     overflow-y: auto;

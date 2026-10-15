@@ -20,9 +20,26 @@
 
         <div class="agent-sidebar-header">
 
-            <div>
+            <div class="agent-sidebar-title">
                 <h2>Sessions</h2>
-                <span>Product Agent</span>
+
+                @if (availableAgents.Count > 1)
+                {
+                    <select class="form-select form-select-sm agent-picker"
+                            aria-label="Agent"
+                            value="@selectedAgentId"
+                            @onchange="OnAgentChangedAsync"
+                            disabled="@IsAgentBusy">
+                        @foreach (var agent in availableAgents)
+                        {
+                            <option value="@agent.AgentId">@agent.Name</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <span>@AgentName</span>
+                }
             </div>
 
             <button type="button"
@@ -124,7 +141,7 @@
                 </div>
 
                 <div>
-                    <h1>Product Agent</h1>
+                    <h1>@AgentName</h1>
 
                     <span class="agent-status">
                         Ready
@@ -195,7 +212,7 @@
                     </h2>
 
                     <p>
-                        Ask the Product Agent something about your products.
+                        @(SelectedAgent?.Description ?? $"Ask the {AgentName} something.")
                     </p>
 
                 </div>
@@ -241,7 +258,8 @@
 
         @if (pendingApproval is not null)
         {
-            <AgentApprovalCard Approval="@pendingApproval"
+            <AgentApprovalCard AgentName="@AgentName"
+                               Approval="@pendingApproval"
                                Busy="@isProcessingApproval"
                                Approve="ApprovePendingAsync"
                                Reject="RejectPendingAsync" />
@@ -282,7 +300,7 @@
                           @bind:event="oninput"
                           placeholder="@(selectedSessionId is null
                                           ? "Select a conversation first..."
-                                          : "Ask the Product Agent...")"
+                                          : $"Ask the {AgentName}...")"
                           disabled="@(selectedSessionId is null || IsAgentBusy)"
                           rows="1">
                 </textarea>
@@ -356,8 +374,64 @@
     private string? composerErrorMessage;
     private string? approvalErrorMessage;
 
+    private List<AvailableAgentDto> availableAgents = [];
+    private string selectedAgentId = AgentIds.ProductAgent;
+
+    private AvailableAgentDto? SelectedAgent =>
+        availableAgents.FirstOrDefault(x => x.AgentId == selectedAgentId);
+
+    private string AgentName => SelectedAgent?.Name ?? "Agent";
+
     protected override async Task OnInitializedAsync()
     {
+        await LoadAgentsAsync();
+        await LoadSessionsAsync();
+    }
+
+    private async Task LoadAgentsAsync()
+    {
+        try
+        {
+            var result = await AgentWorkspaceService.GetAvailableAgentsAsync();
+
+            if (!result.Success)
+            {
+                sessionErrorMessage = result.ErrorMessage ?? "Unable to load agents.";
+                return;
+            }
+
+            availableAgents = result.Data ?? [];
+
+            // Prefer the Product Agent, otherwise the first available agent.
+            if (availableAgents.Count > 0 &&
+                availableAgents.All(x => x.AgentId != selectedAgentId))
+            {
+                selectedAgentId = availableAgents[0].AgentId;
+            }
+        }
+        catch (Exception ex)
+        {
+            sessionErrorMessage = ex.Message;
+        }
+    }
+
+    private async Task OnAgentChangedAsync(ChangeEventArgs e)
+    {
+        var agentId = e.Value as string;
+
+        if (string.IsNullOrWhiteSpace(agentId) || agentId == selectedAgentId || IsAgentBusy)
+            return;
+
+        // Sessions belong to one agent, so switching agents starts from that
+        // agent's own conversations.
+        selectedAgentId = agentId;
+        selectedSessionId = null;
+        messages = [];
+        pendingApproval = null;
+        executionState = AgentExecutionState.Idle;
+        composerErrorMessage = null;
+        approvalErrorMessage = null;
+
         await LoadSessionsAsync();
     }
     protected override async Task OnAfterRenderAsync(
@@ -391,7 +465,7 @@
         try
         {
             var result =
-                await AgentWorkspaceService.GetSessionsAsync();
+                await AgentWorkspaceService.GetSessionsAsync(selectedAgentId);
 
             if (!result.Success)
             {
@@ -434,7 +508,7 @@
         try
         {
             var result =
-                await AgentWorkspaceService.CreateSessionAsync(AgentIds.ProductAgent);
+                await AgentWorkspaceService.CreateSessionAsync(selectedAgentId);
 
             if (!result.Success || result.Data is null)
             {
@@ -531,7 +605,7 @@
         };
     }
 
-    private static string GetMessageRoleLabel(
+    private string GetMessageRoleLabel(
         ConversationMessageDto message)
     {
         return message.Role switch
@@ -540,7 +614,7 @@
                 => "You",
 
             ConversationMessageRole.Assistant
-                => "Product Agent",
+                => AgentName,
 
             ConversationMessageRole.Tool
                 => "Tool",
@@ -576,7 +650,8 @@
             composerText = "";
 
             var result =
-                await AgentWorkspaceService.RunProductAgentAsync(
+                await AgentWorkspaceService.RunAgentAsync(
+                    selectedAgentId,
                     sessionId,
                     message);
 
@@ -586,7 +661,7 @@
 
                 composerErrorMessage =
                     result.ErrorMessage
-                    ?? "Unable to run the Product Agent.";
+                    ?? $"Unable to run the {AgentName}.";
 
                 executionState =
                     AgentExecutionState.Failed;
@@ -648,7 +723,7 @@
                 "Sending your request...",
 
             AgentExecutionState.Processing =>
-                "Product Agent is processing your request...",
+                $"{AgentName} is processing your request...",
 
             AgentExecutionState.AwaitingApproval =>
                 "Waiting for your approval...",
@@ -670,7 +745,7 @@
                 "Sending",
 
             AgentExecutionState.Processing =>
-                "Product Agent",
+                AgentName,
 
             AgentExecutionState.AwaitingApproval =>
                 "Approval required",
@@ -809,7 +884,7 @@
 
             var result =
                 await AgentWorkspaceService
-                    .RespondToApprovalAsync(decision);
+                    .RespondToApprovalAsync(selectedAgentId, decision);
 
             if (!result.Success)
             {
@@ -872,7 +947,7 @@
 
             var result =
                 await AgentWorkspaceService
-                    .RespondToApprovalAsync(decision);
+                    .RespondToApprovalAsync(selectedAgentId, decision);
 
             if (!result.Success)
             {

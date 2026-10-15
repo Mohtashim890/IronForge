@@ -1,5 +1,6 @@
 ﻿using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Memory.Tools;
+using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
@@ -8,14 +9,14 @@ using IronForge.Application.Observablity.Tracing;
 using Microsoft.Extensions.AI;
 using System.Diagnostics;
 using System.Text.Json;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace IronForge.Application.Agents.Approvals;
 
 public class ApprovedToolExecutionService
     : IApprovedToolExecutionService
 {
-    private readonly IAgentToolResolver _toolResolver;
+    private readonly IAgentToolRegistry _toolRegistry;
+    private readonly IAgentDefinitionProvider _agentDefinitions;
     private readonly IExecutionContextAccessor _executionContext;
     private readonly IConversationService _conversationService;
     private readonly IAgentConversationSessionAccessor _sessionAccessor;
@@ -25,7 +26,8 @@ public class ApprovedToolExecutionService
     private readonly ITracingService _tracing;
 
     public ApprovedToolExecutionService(
-        IAgentToolResolver toolResolver,
+        IAgentToolRegistry toolRegistry,
+        IAgentDefinitionProvider agentDefinitions,
         IExecutionContextAccessor executionContext,
         IConversationService conversationService,
         IAgentConversationSessionAccessor sessionAccessor,
@@ -34,7 +36,8 @@ public class ApprovedToolExecutionService
         IAgentApprovalStore approvalStore,
         ITracingService tracingService)
     {
-        _toolResolver = toolResolver;
+        _toolRegistry = toolRegistry;
+        _agentDefinitions = agentDefinitions;
         _executionContext = executionContext;
         _conversationService = conversationService;
         _sessionAccessor = sessionAccessor;
@@ -163,10 +166,16 @@ public class ApprovedToolExecutionService
                 metadataJson: """{"contentType":"functionCall"}""",
                 cancellationToken);
 
+            // Same registry and effective policy as the model's call, but in
+            // approved-execution mode so the ApprovalRequired decision passes
+            // while Deny rules (permission, amount) are re-checked now.
             var tool =
-              _toolResolver.Resolve(
-                  approval.ToolName,
-                  agent);
+                _toolRegistry.CreateApprovedExecutionTool(
+                    await _agentDefinitions.GetRequiredAsync(
+                        approval.AgentId,
+                        cancellationToken),
+                    agent,
+                    approval.ToolName);
 
             var arguments = new AIFunctionArguments(
                 argumentDictionary);

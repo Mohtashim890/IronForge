@@ -77,6 +77,19 @@ namespace IronForge.Application.Observablity.Metrics
                 "ironforge.approval.expired",
                 description: "Number of expired requests.");
 
+        // Bounded dimensions only: agent.id, model.profile, token.type.
+        public static readonly Counter<long> AgentTokens =
+            IronForgeMeter.Meter.CreateCounter<long>(
+                "ironforge.agent.tokens",
+                unit: "{token}",
+                description: "LLM tokens used by internal agents.");
+
+        public static KeyValuePair<string, object?> ModelProfileTag(string profile)
+            => new("model.profile", profile);
+
+        public static KeyValuePair<string, object?> TokenTypeTag(string tokenType)
+            => new("token.type", tokenType);
+
         public static KeyValuePair<string, object?> AgentTag(string agentId)
         {
             return new(

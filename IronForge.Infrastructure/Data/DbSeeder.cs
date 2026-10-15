@@ -1,4 +1,5 @@
 ﻿using IronForge.Application.Agents.Models;
+using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Entities;
 using IronForge.Shared.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -82,67 +83,120 @@ namespace IronForge.Infrastructure.Data
 
             if (!await dbContext.Agents.IgnoreQueryFilters().AnyAsync())
             {
-                var agent = await dbContext.Agents
-              .IgnoreQueryFilters()
-              .SingleOrDefaultAsync(
-                  x =>
-                      x.TenantId == tenantId &&
-                      x.AgentId == AgentIds.ProductAgent);
-
-                if (agent is null)
-                {
-                    agent = new Agent
-                    {
-                        TenantId = tenantId,
-                        AgentId = AgentIds.ProductAgent,
-                        Name = "Product Agent",
-                        Description =
-                            "Agent for product management operations.",
-                        Version = "1.0",
-                        IsActive = true,
-                        CreatedAtUtc = DateTime.UtcNow,
-                        UpdatedAtUtc = DateTime.UtcNow
-                    };
-
-                    dbContext.Agents.Add(agent);
-
-                    await dbContext.SaveChangesAsync();
-                }
-
-                var permissions =
-                    new[]
-                    {
+                await SeedAgentAsync(
+                    dbContext,
+                    tenantId,
+                    AgentDefinitions.ProductAgent,
+                    "Product Agent",
+                    "Agent for product management operations.",
+                    [
                         Permissions.ProductsRead,
                         Permissions.ProductsCreate,
                         Permissions.ProductsUpdate,
                         Permissions.ProductsDelete
-                    };
+                    ]);
 
-                var existingPermissions =
-                    await dbContext.AgentPermissions
-                        .Where(x => x.AgentId == agent.Id)
-                        .Select(x => x.Permission)
-                        .ToListAsync();
+                await SeedAgentAsync(
+                    dbContext,
+                    tenantId,
+                    AgentDefinitions.InsightsAgent,
+                    "Insights Agent",
+                    "Read-only analyst for the product catalogue and recent activity.",
+                    [
+                        Permissions.ProductsRead,
+                        Permissions.AuditRead
+                    ]);
+            }
+        }
 
-                foreach (var permission in permissions)
+        /// <summary>
+        /// Creates a tenant's agent from a code template: configuration,
+        /// permissions and tool bindings. Idempotent per tenant and agent.
+        /// </summary>
+        private static async Task SeedAgentAsync(
+            IronForgeDbContext dbContext,
+            int tenantId,
+            AgentDefinition template,
+            string name,
+            string description,
+            string[] permissions)
+        {
+            var agent = await dbContext.Agents
+                .IgnoreQueryFilters()
+                .SingleOrDefaultAsync(
+                    x =>
+                        x.TenantId == tenantId &&
+                        x.AgentId == template.AgentId);
+
+            if (agent is null)
+            {
+                agent = new Agent
                 {
-                    if (existingPermissions.Contains(permission))
-                    {
-                        continue;
-                    }
+                    TenantId = tenantId,
+                    AgentId = template.AgentId,
+                    Name = name,
+                    Description = description,
+                    Version = template.Version,
+                    IsActive = true,
+                    Instructions = template.Instructions,
+                    MaximumIterationsPerRequest = template.MaximumIterationsPerRequest,
+                    AllowMultipleToolCalls = template.AllowMultipleToolCalls,
+                    ApprovalLifetimeMinutes = (int)template.ApprovalLifetime.TotalMinutes,
+                    ModelProfile = template.ModelProfile,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                };
 
-                    dbContext.AgentPermissions.Add(
-                        new AgentPermission
-                        {
-                            AgentId = agent.Id,
-                            Permission = permission
-                        });
-                }
-
-                agent.UpdatedAtUtc = DateTime.UtcNow;
+                dbContext.Agents.Add(agent);
 
                 await dbContext.SaveChangesAsync();
             }
+
+            var existingPermissions =
+                await dbContext.AgentPermissions
+                    .Where(x => x.AgentId == agent.Id)
+                    .Select(x => x.Permission)
+                    .ToListAsync();
+
+            foreach (var permission in permissions)
+            {
+                if (existingPermissions.Contains(permission))
+                {
+                    continue;
+                }
+
+                dbContext.AgentPermissions.Add(
+                    new AgentPermission
+                    {
+                        AgentId = agent.Id,
+                        Permission = permission
+                    });
+            }
+
+            var hasToolBindings =
+                await dbContext.AgentToolBindings
+                    .IgnoreQueryFilters()
+                    .AnyAsync(x => x.AgentId == agent.Id);
+
+            if (!hasToolBindings)
+            {
+                foreach (var tool in template.Tools)
+                {
+                    dbContext.AgentToolBindings.Add(
+                        new AgentToolBindingEntity
+                        {
+                            AgentId = agent.Id,
+                            ToolName = tool.ToolName,
+                            RequiresApproval = tool.RequiresApproval,
+                            RiskLevel = tool.RiskLevel?.ToString(),
+                            MaximumAmount = tool.MaximumAmount
+                        });
+                }
+            }
+
+            agent.UpdatedAtUtc = DateTime.UtcNow;
+
+            await dbContext.SaveChangesAsync();
         }
     }
 }

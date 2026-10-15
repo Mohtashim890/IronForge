@@ -25,11 +25,17 @@ namespace IronForge.Shared.Services
         Task<ServiceResult<bool>> ArchiveSessionAsync(
             Guid sessionId);
 
-        Task<ServiceResult<AgentRunResultDto>> RunProductAgentAsync(Guid sessionId,
+        /// <summary>Active agents the current user can chat with.</summary>
+        Task<ServiceResult<List<AvailableAgentDto>>> GetAvailableAgentsAsync();
+
+        Task<ServiceResult<AgentRunResultDto>> RunAgentAsync(
+            string agentId,
+            Guid sessionId,
             string message);
 
-        Task<ServiceResult<AgentApprovalDecisionResultDto>>RespondToApprovalAsync(
-        AgentApprovalDecisionDto decision);
+        Task<ServiceResult<AgentApprovalDecisionResultDto>> RespondToApprovalAsync(
+            string agentId,
+            AgentApprovalDecisionDto decision);
 
         Task<ServiceResult<AgentWorkflowDto?>>GetWorkflowAsync(Guid sessionId);
 

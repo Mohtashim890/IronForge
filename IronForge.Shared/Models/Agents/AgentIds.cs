@@ -7,5 +7,6 @@ namespace IronForge.Shared.Models.Agents
     public static class AgentIds
     {
         public const string ProductAgent = "product-agent";
+        public const string InsightsAgent = "insights-agent";
     }
 }

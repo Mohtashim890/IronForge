@@ -22,5 +22,24 @@ namespace IronForge.Shared.Models.Agents.Manage
         public bool IsActive { get; set; } = true;
 
         public List<string> Permissions { get; set; } = [];
+
+        [StringLength(AgentConfigurationLimits.MaximumInstructionsLength)]
+        public string? Instructions { get; set; }
+
+        [Range(
+            AgentConfigurationLimits.MinimumIterationsPerRequest,
+            AgentConfigurationLimits.MaximumIterationsPerRequest)]
+        public int? MaximumIterationsPerRequest { get; set; }
+
+        public bool? AllowMultipleToolCalls { get; set; }
+
+        [Range(
+            AgentConfigurationLimits.MinimumApprovalLifetimeMinutes,
+            AgentConfigurationLimits.MaximumApprovalLifetimeMinutes)]
+        public int? ApprovalLifetimeMinutes { get; set; }
+
+        /// <summary>Platform model profile name; null keeps the current/default profile.</summary>
+        [StringLength(100)]
+        public string? ModelProfile { get; set; }
     }
 }

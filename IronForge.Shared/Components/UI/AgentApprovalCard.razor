@@ -12,7 +12,7 @@
             <h3>Approval required</h3>
 
             <span>
-                The Product Agent wants to perform an action.
+                @AgentName wants to perform an action.
             </span>
 
         </div>
@@ -112,6 +112,9 @@
 </div>
 
 @code {
+
+    [Parameter]
+    public string AgentName { get; set; } = "The agent";
 
     [Parameter, EditorRequired]
     public AgentApprovalRequestDto Approval { get; set; } = new();

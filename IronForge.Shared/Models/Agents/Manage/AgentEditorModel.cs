@@ -22,6 +22,28 @@ public sealed class AgentEditorModel
 
     public bool IsActive { get; set; } = true;
 
+    [Required(ErrorMessage = "Instructions are required. They define the agent's role and rules.")]
+    [StringLength(AgentConfigurationLimits.MaximumInstructionsLength)]
+    public string Instructions { get; set; } = string.Empty;
+
+    [Range(
+        AgentConfigurationLimits.MinimumIterationsPerRequest,
+        AgentConfigurationLimits.MaximumIterationsPerRequest)]
+    public int MaximumIterationsPerRequest { get; set; } =
+        AgentConfigurationLimits.DefaultIterationsPerRequest;
+
+    public bool AllowMultipleToolCalls { get; set; }
+
+    [Range(
+        AgentConfigurationLimits.MinimumApprovalLifetimeMinutes,
+        AgentConfigurationLimits.MaximumApprovalLifetimeMinutes)]
+    public int ApprovalLifetimeMinutes { get; set; } =
+        AgentConfigurationLimits.DefaultApprovalLifetimeMinutes;
+
+    [Required]
+    [StringLength(100)]
+    public string ModelProfile { get; set; } = "standard";
+
     public CreateAgentRequest ToCreateRequest() =>
         new()
         {
@@ -30,7 +52,12 @@ public sealed class AgentEditorModel
             Description = Description,
             Version = Version,
             IsActive = IsActive,
-            Permissions = []
+            Permissions = [],
+            Instructions = Instructions,
+            MaximumIterationsPerRequest = MaximumIterationsPerRequest,
+            AllowMultipleToolCalls = AllowMultipleToolCalls,
+            ApprovalLifetimeMinutes = ApprovalLifetimeMinutes,
+            ModelProfile = ModelProfile
         };
 
     public UpdateAgentRequest ToUpdateRequest() =>
@@ -39,7 +66,12 @@ public sealed class AgentEditorModel
             Name = Name,
             Description = Description,
             Version = Version,
-            IsActive = IsActive
+            IsActive = IsActive,
+            Instructions = Instructions,
+            MaximumIterationsPerRequest = MaximumIterationsPerRequest,
+            AllowMultipleToolCalls = AllowMultipleToolCalls,
+            ApprovalLifetimeMinutes = ApprovalLifetimeMinutes,
+            ModelProfile = ModelProfile
         };
 
     public static AgentEditorModel From(AgentDto agent) =>
@@ -49,6 +81,13 @@ public sealed class AgentEditorModel
             Name = agent.Name,
             Description = agent.Description,
             Version = agent.Version,
-            IsActive = agent.IsActive
+            IsActive = agent.IsActive,
+            Instructions = agent.Instructions,
+            MaximumIterationsPerRequest = agent.MaximumIterationsPerRequest,
+            AllowMultipleToolCalls = agent.AllowMultipleToolCalls,
+            ApprovalLifetimeMinutes = agent.ApprovalLifetimeMinutes,
+            ModelProfile = string.IsNullOrWhiteSpace(agent.ModelProfile)
+                ? "standard"
+                : agent.ModelProfile
         };
 }

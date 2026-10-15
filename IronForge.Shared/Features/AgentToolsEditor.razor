@@ -1,0 +1,239 @@
+@using System.Globalization
+@using IronForge.Shared.Models.Agents.Manage
+
+<div class="agent-tools-editor">
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+    {
+        <div class="alert alert-danger" role="alert">
+            @ErrorMessage
+        </div>
+    }
+
+    <p class="agent-tools-intro">
+        Choose which catalogue tools this agent may use. Each tool has default
+        governance set by the platform; overrides here can only make it stricter.
+    </p>
+
+    @if (Catalogue.Count == 0)
+    {
+        <div class="agent-tools-empty">No tools are available in the catalogue.</div>
+    }
+
+    <div class="agent-tool-list">
+        @foreach (var row in rows)
+        {
+            var tool = row.Tool;
+
+            <section class="agent-tool @(row.Enabled ? "enabled" : null)">
+                <label class="agent-tool-header">
+                    <input type="checkbox"
+                           checked="@row.Enabled"
+                           @onchange="e => row.Enabled = e.Value is true"
+                           disabled="@IsSubmitting" />
+
+                    <span class="agent-tool-title">
+                        <code>@tool.Name</code>
+                        <small>@tool.Description</small>
+                    </span>
+                </label>
+
+                <div class="agent-tool-defaults">
+                    <span class="agent-tool-badge">Needs <code>@tool.RequiredPermission</code></span>
+                    <span class="agent-tool-badge risk-@tool.RiskLevel.ToLowerInvariant()">@tool.RiskLevel risk</span>
+                    @if (tool.RequiresApproval)
+                    {
+                        <span class="agent-tool-badge approval">Approval required</span>
+                    }
+                    @if (tool.MaximumAmount is { } defaultMax)
+                    {
+                        <span class="agent-tool-badge">Max @defaultMax.ToString("0.##", CultureInfo.InvariantCulture)</span>
+                    }
+                </div>
+
+                @if (row.Enabled && !Agent.Permissions.Contains(tool.RequiredPermission, StringComparer.OrdinalIgnoreCase))
+                {
+                    <div class="agent-tool-warning" role="status">
+                        This agent does not have the <code>@tool.RequiredPermission</code>
+                        permission, so calls to this tool will be denied. Grant it under
+                        Permissions.
+                    </div>
+                }
+
+                @if (row.Enabled)
+                {
+                    <div class="agent-tool-overrides">
+                        <label class="form-check">
+                            <input type="checkbox"
+                                   class="form-check-input"
+                                   checked="@(tool.RequiresApproval || row.RequireApproval)"
+                                   disabled="@(tool.RequiresApproval || IsSubmitting)"
+                                   @onchange="e => row.RequireApproval = e.Value is true" />
+                            <span class="form-check-label">
+                                Require human approval
+                                @if (tool.RequiresApproval)
+                                {
+                                    <small>(always, set by the platform)</small>
+                                }
+                            </span>
+                        </label>
+
+                        <div class="agent-tool-field">
+                            <label for="@($"risk-{tool.Name}")">Risk level</label>
+                            <select id="@($"risk-{tool.Name}")"
+                                    class="form-select form-select-sm"
+                                    value="@(row.RiskLevel ?? "")"
+                                    @onchange="e => row.RiskLevel = string.IsNullOrEmpty(e.Value as string) ? null : (string)e.Value!"
+                                    disabled="@IsSubmitting">
+                                <option value="">Default (@tool.RiskLevel)</option>
+                                @foreach (var level in HigherRiskLevels(tool.RiskLevel))
+                                {
+                                    <option value="@level">@level</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="agent-tool-field">
+                            <label for="@($"max-{tool.Name}")">Maximum amount</label>
+                            <input id="@($"max-{tool.Name}")"
+                                   type="number"
+                                   min="0.01"
+                                   step="0.01"
+                                   class="form-control form-control-sm"
+                                   placeholder="@(tool.MaximumAmount?.ToString("0.##", CultureInfo.InvariantCulture) ?? "No limit")"
+                                   value="@row.MaximumAmount?.ToString(CultureInfo.InvariantCulture)"
+                                   @onchange="e => row.MaximumAmount = ParseAmount(e.Value as string)"
+                                   disabled="@IsSubmitting" />
+                            <small>Applies to tools with a price argument. Can only lower the default.</small>
+                        </div>
+                    </div>
+                }
+            </section>
+        }
+    </div>
+
+    @if (unavailableTools.Count > 0)
+    {
+        <div class="agent-tool-warning" role="status">
+            This agent is bound to tools that are no longer in the catalogue
+            (@string.Join(", ", unavailableTools)). They are not offered to the
+            model and will be removed when you save.
+        </div>
+    }
+
+    <div class="agent-tools-summary">
+        <strong>@rows.Count(x => x.Enabled)</strong>
+        <span>tool@(rows.Count(x => x.Enabled) == 1 ? "" : "s") enabled</span>
+    </div>
+
+    <div class="agent-tools-actions">
+        <button type="button"
+                class="btn btn-outline-secondary"
+                @onclick="OnCancel"
+                disabled="@IsSubmitting">
+            Cancel
+        </button>
+
+        <button type="button"
+                class="btn btn-primary"
+                @onclick="SaveAsync"
+                disabled="@IsSubmitting">
+            @(IsSubmitting ? "Saving..." : "Save Tools")
+        </button>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] RiskLevels = ["Low", "Medium", "High", "Critical"];
+
+    private List<ToolRow> rows = [];
+    private List<string> unavailableTools = [];
+    private AgentDto? initializedFor;
+
+    [Parameter, EditorRequired]
+    public AgentDto Agent { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<AgentToolCatalogItemDto> Catalogue { get; set; } = [];
+
+    [Parameter]
+    public bool IsSubmitting { get; set; }
+
+    [Parameter]
+    public string? ErrorMessage { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<AgentToolBindingDto>> OnSave { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        // Build the editable rows once per agent, so re-renders (for example
+        // while saving) do not discard the user's unsaved changes.
+        if (ReferenceEquals(initializedFor, Agent))
+            return;
+
+        initializedFor = Agent;
+
+        var bindings = Agent.Tools.ToDictionary(x => x.ToolName, StringComparer.Ordinal);
+
+        rows = Catalogue
+            .Select(tool =>
+            {
+                bindings.TryGetValue(tool.Name, out var binding);
+
+                return new ToolRow
+                {
+                    Tool = tool,
+                    Enabled = binding is not null,
+                    RequireApproval = binding?.RequiresApproval == true,
+                    RiskLevel = binding?.RiskLevel,
+                    MaximumAmount = binding?.MaximumAmount
+                };
+            })
+            .ToList();
+
+        unavailableTools = Agent.Tools
+            .Select(x => x.ToolName)
+            .Where(name => Catalogue.All(tool => tool.Name != name))
+            .ToList();
+    }
+
+    private Task SaveAsync() =>
+        OnSave.InvokeAsync(
+            rows
+                .Where(x => x.Enabled)
+                .Select(x => new AgentToolBindingDto
+                {
+                    ToolName = x.Tool.Name,
+                    RequiresApproval = x.RequireApproval ? true : null,
+                    RiskLevel = x.RiskLevel,
+                    MaximumAmount = x.MaximumAmount
+                })
+                .ToList());
+
+    private static IEnumerable<string> HigherRiskLevels(string defaultLevel)
+    {
+        var index = Array.IndexOf(RiskLevels, defaultLevel);
+        return RiskLevels.Skip(index + 1);
+    }
+
+    private static decimal? ParseAmount(string? value) =>
+        decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) && amount > 0
+            ? amount
+            : null;
+
+    private sealed class ToolRow
+    {
+        public required AgentToolCatalogItemDto Tool { get; init; }
+
+        public bool Enabled { get; set; }
+
+        public bool RequireApproval { get; set; }
+
+        public string? RiskLevel { get; set; }
+
+        public decimal? MaximumAmount { get; set; }
+    }
+}

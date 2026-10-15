@@ -84,8 +84,106 @@
             </div>
         </div>
 
+        <fieldset class="agent-form-section">
+            <legend>Behaviour</legend>
+
+            <div class="agent-form-field">
+                <label for="agent-instructions">Instructions (system prompt)</label>
+
+                <InputTextArea id="agent-instructions"
+                               class="form-control agent-instructions"
+                               @bind-Value="Model.Instructions"
+                               rows="12" />
+
+                <div class="agent-form-hint-row">
+                    <small>
+                        Sent to the model before every conversation. Describe the
+                        agent's role, scope, how to use its tools and what it must
+                        never do. Not shown to users and not stored in conversations.
+                    </small>
+
+                    <small class="@(InstructionsLength > AgentConfigurationLimits.MaximumInstructionsLength ? "text-danger" : null)">
+                        @InstructionsLength / @AgentConfigurationLimits.MaximumInstructionsLength
+                    </small>
+                </div>
+
+                <ValidationMessage For="@(() => Model.Instructions)" />
+            </div>
+
+            <div class="agent-form-field">
+                <label for="agent-model-profile">Model profile</label>
+
+                <InputSelect id="agent-model-profile"
+                             class="form-select"
+                             @bind-Value="Model.ModelProfile">
+                    @if (ModelProfiles.All(x => x.Name != Model.ModelProfile))
+                    {
+                        <option value="@Model.ModelProfile">@Model.ModelProfile (not configured)</option>
+                    }
+                    @foreach (var profile in ModelProfiles)
+                    {
+                        <option value="@profile.Name">@profile.Name — @profile.Model@(profile.MaxOutputTokens is { } max ? $", max {max:N0} output tokens" : "")</option>
+                    }
+                </InputSelect>
+
+                <small>
+                    @(ModelProfiles.FirstOrDefault(x => x.Name == Model.ModelProfile)?.Description
+                        ?? "Platform-defined model configuration. Profiles are set by the platform operator.")
+                </small>
+
+                <ValidationMessage For="@(() => Model.ModelProfile)" />
+            </div>
+
+            <div class="agent-form-limits">
+                <div class="agent-form-field">
+                    <label for="agent-max-steps">Maximum steps per request</label>
+
+                    <InputNumber id="agent-max-steps"
+                                 class="form-control"
+                                 @bind-Value="Model.MaximumIterationsPerRequest"
+                                 min="@AgentConfigurationLimits.MinimumIterationsPerRequest"
+                                 max="@AgentConfigurationLimits.MaximumIterationsPerRequest" />
+
+                    <small>
+                        How many model ↔ tool round trips one message may use
+                        (@AgentConfigurationLimits.MinimumIterationsPerRequest–@AgentConfigurationLimits.MaximumIterationsPerRequest).
+                        Limits cost and runaway loops.
+                    </small>
+
+                    <ValidationMessage For="@(() => Model.MaximumIterationsPerRequest)" />
+                </div>
+
+                <div class="agent-form-field">
+                    <label for="agent-approval-lifetime">Approval expiry (minutes)</label>
+
+                    <InputNumber id="agent-approval-lifetime"
+                                 class="form-control"
+                                 @bind-Value="Model.ApprovalLifetimeMinutes"
+                                 min="@AgentConfigurationLimits.MinimumApprovalLifetimeMinutes"
+                                 max="@AgentConfigurationLimits.MaximumApprovalLifetimeMinutes" />
+
+                    <small>
+                        How long a pending approval stays valid before it expires.
+                    </small>
+
+                    <ValidationMessage For="@(() => Model.ApprovalLifetimeMinutes)" />
+                </div>
+            </div>
+
+            <div class="form-check">
+                <InputCheckbox id="agent-multiple-tool-calls"
+                               class="form-check-input"
+                               @bind-Value="Model.AllowMultipleToolCalls" />
+
+                <label class="form-check-label"
+                       for="agent-multiple-tool-calls">
+                    Allow several tool calls in one model step
+                </label>
+            </div>
+        </fieldset>
+
         <div class="agent-form-note">
-            Permissions are managed separately from identity metadata.
+            Permissions and tools are managed separately from this form.
             This prevents a metadata edit from accidentally changing the
             agent's effective capabilities.
         </div>
@@ -127,4 +225,9 @@
 
     [Parameter]
     public EventCallback OnCancel { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<AgentModelProfileDto> ModelProfiles { get; set; } = [];
+
+    private int InstructionsLength => Model.Instructions?.Length ?? 0;
 }

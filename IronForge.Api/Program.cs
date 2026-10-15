@@ -10,6 +10,10 @@ using IronForge.Application.Agents.Memory.Context;
 using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Memory.Summarization;
 using IronForge.Application.Agents.Memory.Tools;
+using IronForge.Application.Agents.ModelProfiles;
+using IronForge.Application.Agents.Usage;
+using IronForge.Application.Auditing.AgentTools;
+using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Agents.Services;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Auditing.Services;
@@ -22,8 +26,10 @@ using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
 using IronForge.Application.Products.Services;
+using IronForge.Application.Products.AgentTools;
 using IronForge.Application.Products.Tools.Products;
 using IronForge.Application.Tenants.Services;
+using IronForge.Infrastructure.AI;
 using IronForge.Infrastructure.Data;
 using IronForge.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -34,14 +40,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
-using OpenAI;
-using OpenAI.Chat;
 using OpenTelemetry.Exporter;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using System.ClientModel;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -235,7 +238,6 @@ builder.Services.AddScoped<IConversationSummaryTranscriptBuilder, ConversationSu
 builder.Services.AddScoped<IConversationContextUnitBuilder, ConversationContextUnitBuilder>();
 builder.Services.AddScoped<IConversationSummaryPolicy, ConversationSummaryPolicy>();
 builder.Services.AddScoped<IConversationSummaryCoordinator, ConversationSummaryCoordinator>();
-builder.Services.AddScoped<IAgentToolResolver, ProductAgentToolResolver>();
 builder.Services.AddScoped<IApprovedToolExecutionService, ApprovedToolExecutionService>();
 builder.Services.AddScoped<IApprovalExecutionAuthorizationService, ApprovalExecutionAuthorizationService>();
 
@@ -256,6 +258,29 @@ builder.Services.AddScoped<IGetProductTool, GetProductTool>();
 builder.Services.AddScoped<ICreateProductTool, CreateProductTool>();
 builder.Services.AddScoped<IUpdateProductTool, UpdateProductTool>();
 builder.Services.AddScoped<IDeleteProductTool, DeleteProductTool>();
+
+// Agent tool catalogue: each tool declares its name, schema and default governance.
+builder.Services.AddScoped<IAgentTool, GetProductsAgentTool>();
+builder.Services.AddScoped<IAgentTool, GetProductAgentTool>();
+builder.Services.AddScoped<IAgentTool, CreateProductAgentTool>();
+builder.Services.AddScoped<IAgentTool, UpdateProductAgentTool>();
+builder.Services.AddScoped<IAgentTool, DeleteProductAgentTool>();
+builder.Services.AddScoped<IAgentTool, SearchAuditEventsAgentTool>();
+builder.Services.AddScoped<IAgentToolRegistry, AgentToolRegistry>();
+// Generic internal-agent runtime; agents are definitions, not classes.
+builder.Services.AddSingleton(AgentDefinitions.ProductAgent);
+builder.Services.AddScoped<IAgentDefinitionProvider, DatabaseAgentDefinitionProvider>();
+builder.Services.AddScoped<IAgentRuntime, AgentRuntime>();
+
+// Usage tracking and tenant quotas.
+builder.Services
+    .AddOptions<AgentQuotaOptions>()
+    .Bind(builder.Configuration.GetSection(AgentQuotaOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddScoped<IAgentUsageStore, AgentUsageStore>();
+builder.Services.AddScoped<IAgentUsageRecorder, AgentUsageRecorder>();
+builder.Services.AddScoped<IAgentQuotaService, AgentQuotaService>();
 builder.Services.AddScoped<IProductAgent, ProductAgent>();
 
 // Policies
@@ -263,25 +288,16 @@ builder.Services.AddScoped<IAgentPolicy, AgentPermissionPolicy>();
 builder.Services.AddScoped<IAgentPolicy, AgentApprovalPolicy>();
 builder.Services.AddScoped<IAgentPolicy, MaximumAmountPolicy>();
 
-builder.Services.AddChatClient(services =>
-{
-    var settings =
-        services
-            .GetRequiredService<IOptions<AISettings>>()
-            .Value;
+// Model profiles: one shared OpenAI connection, one cached client per profile.
+builder.Services.AddSingleton<IAgentChatClientFactory, OpenAIAgentChatClientFactory>();
 
-    var openAIClient =
-       new OpenAIClient(
-           new ApiKeyCredential(settings.ApiKey));
-#pragma warning disable OPENAI001
-    var responsesClient =
-        openAIClient.GetResponsesClient();
-
-    var chatClient = responsesClient.AsIChatClient(settings.Model);
-#pragma warning restore OPENAI001
-
-    return chatClient;
-});
+// Non-agent LLM callers (conversation summariser, legacy chat endpoints)
+// use the standard profile's client.
+builder.Services.AddSingleton<IChatClient>(services =>
+    services
+        .GetRequiredService<IAgentChatClientFactory>()
+        .GetClient(IAgentChatClientFactory.StandardProfile)
+        .Client);
 
 var corsSettings =
     builder.Configuration

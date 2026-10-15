@@ -13,20 +13,22 @@ public class AgentGovernanceService
     {
         _policies = policies;
     }
-    public AgentGovernanceDecision Evaluate(
-    AgentIdentity agent,
-    AgentToolPolicy toolPolicy,
-    AgentGovernanceContext context)
+    public async Task<AgentGovernanceDecision> EvaluateAsync(
+        AgentIdentity agent,
+        AgentToolPolicy toolPolicy,
+        AgentGovernanceContext context,
+        CancellationToken cancellationToken = default)
     {
         AgentGovernanceDecision? approvalDecision = null;
 
         foreach (var policy in _policies)
         {
             var decision =
-                policy.Evaluate(
+                await policy.EvaluateAsync(
                     agent,
                     toolPolicy,
-                    context);
+                    context,
+                    cancellationToken);
 
             if (decision is null)
             {

@@ -2,8 +2,15 @@
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Memory.Summarization;
+using IronForge.Application.Agents.Runtime;
+using IronForge.Application.Agents.Usage;
 using IronForge.Application.Agents.Services;
 using IronForge.Application.Commons;
+using IronForge.Shared.Models.Agents.Manage;
+using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
+using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
+using UpdateAgentPermissionsRequest = IronForge.Application.Agents.DTOs.UpdateAgentPermissionsRequest;
+using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,19 +26,22 @@ public class AgentController : ControllerBase
     private readonly IConversationSummaryService _conversationSummaryService;
     private readonly IConversationService _conversationService;
     private readonly IAgentManagementService _agentManagementService;
+    private readonly IAgentRuntime _agentRuntime;
 
     public AgentController(
         IAgentService agentService,
         IProductAgent productAgent,
         IConversationSummaryService conversationSummaryService,
         IConversationService conversationService,
-        IAgentManagementService agentManagementService)
+        IAgentManagementService agentManagementService,
+        IAgentRuntime agentRuntime)
     {
         _agentService = agentService;
         _productAgent = productAgent;
         _conversationSummaryService = conversationSummaryService;
         _conversationService = conversationService;
         _agentManagementService = agentManagementService;
+        _agentRuntime = agentRuntime;
     }
 
 
@@ -42,6 +52,64 @@ public class AgentController : ControllerBase
         var result =
             await _agentManagementService.GetAgentsAsync(
                 cancellationToken);
+
+        return Ok(result.Data);
+    }
+
+    // Literal segments (tools, available, model-profiles, usage) take
+    // precedence over the {agentId} route below.
+
+    [HttpGet("available")]
+    public async Task<IActionResult> GetAvailableAgents(
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentManagementService.GetAvailableAgentsAsync(
+                cancellationToken);
+
+        return result.Success
+            ? Ok(result.Data)
+            : ToActionResult(result);
+    }
+
+    [HttpGet("model-profiles")]
+    public async Task<IActionResult> GetModelProfiles(
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentManagementService.GetModelProfilesAsync(
+                cancellationToken);
+
+        return result.Success
+            ? Ok(result.Data)
+            : ToActionResult(result);
+    }
+
+    [HttpGet("usage")]
+    public async Task<IActionResult> GetUsage(
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentManagementService.GetUsageAsync(
+                cancellationToken);
+
+        return result.Success
+            ? Ok(result.Data)
+            : ToActionResult(result);
+    }
+
+    [HttpGet("tools")]
+    public async Task<IActionResult> GetToolCatalog(
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentManagementService.GetToolCatalogAsync(
+                cancellationToken);
+
+        if (!result.Success)
+        {
+            return ToActionResult(result);
+        }
 
         return Ok(result.Data);
     }
@@ -146,6 +214,82 @@ public class AgentController : ControllerBase
         return Ok(result.Data);
     }
 
+    [HttpPut("{agentId}/tools")]
+    public async Task<IActionResult> UpdateTools(
+        string agentId,
+        UpdateAgentToolsRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentManagementService.UpdateToolsAsync(
+                agentId,
+                request,
+                cancellationToken);
+
+        if (!result.Success)
+        {
+            return ToActionResult(result);
+        }
+
+        return Ok(result.Data);
+    }
+
+    // ============================================================
+    // Any internal agent (generic runtime)
+    // ============================================================
+
+    [HttpPost("{agentId}/chat")]
+    public async Task<IActionResult> ChatWithAgent(
+        string agentId,
+        AgentChatRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result =
+                await _agentRuntime.RunAsync(
+                    agentId,
+                    request.SessionId,
+                    request.Message,
+                    cancellationToken);
+
+            return Ok(result);
+        }
+        catch (AgentQuotaExceededException ex)
+        {
+            return QuotaExceeded(ex);
+        }
+    }
+
+    [HttpPost("{agentId}/approvals/{approvalId}/decision")]
+    public async Task<IActionResult> DecideAgentApproval(
+        string agentId,
+        string approvalId,
+        AgentApprovalDecisionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _agentRuntime.RespondToApprovalAsync(
+                agentId,
+                approvalId,
+                request.Approved,
+                request.Reason,
+                cancellationToken);
+
+        return Ok(result);
+    }
+
+    private ObjectResult QuotaExceeded(AgentQuotaExceededException exception)
+    {
+        Response.Headers.RetryAfter =
+            ((int)Math.Ceiling((exception.ResetsAtUtc - DateTime.UtcNow).TotalSeconds))
+                .ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        return StatusCode(
+            StatusCodes.Status429TooManyRequests,
+            exception.Message);
+    }
+
     private IActionResult ToActionResult<T>(
         ServiceResult<T> result)
     {
@@ -205,13 +349,20 @@ public class AgentController : ControllerBase
         AgentChatRequest request,
         CancellationToken cancellationToken)
     {
-        var result =
-            await _productAgent.RunAsync(
-                request.SessionId,
-                request.Message,
-                cancellationToken);
+        try
+        {
+            var result =
+                await _productAgent.RunAsync(
+                    request.SessionId,
+                    request.Message,
+                    cancellationToken);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (AgentQuotaExceededException ex)
+        {
+            return QuotaExceeded(ex);
+        }
     }
 
 

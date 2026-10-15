@@ -32,6 +32,51 @@
         </AuthorizeView>
     </div>
 
+    @if (usage is not null)
+    {
+        <section class="agent-usage-panel" aria-label="Agent usage this month">
+            <div class="agent-usage-heading">
+                <div>
+                    <strong>Agent usage this month</strong>
+                    <span class="agent-list-muted">
+                        Resets @usage.PeriodEndUtc.ToLocalTime().ToString("d MMM yyyy")
+                    </span>
+                </div>
+
+                <div class="agent-usage-numbers @(usage.IsExceeded ? "exceeded" : null)">
+                    <strong>@usage.TokensUsed.ToString("N0")</strong>
+                    @if (usage.MonthlyTokenLimit is { } limit)
+                    {
+                        <span>of @limit.ToString("N0") tokens</span>
+                    }
+                    else
+                    {
+                        <span>tokens (no limit)</span>
+                    }
+                </div>
+            </div>
+
+            @if (usage.MonthlyTokenLimit is { } quota && quota > 0)
+            {
+                <div class="agent-usage-bar"
+                     role="progressbar"
+                     aria-valuemin="0"
+                     aria-valuemax="@quota"
+                     aria-valuenow="@usage.TokensUsed">
+                    <div style="width: @UsagePercent(quota).ToString(System.Globalization.CultureInfo.InvariantCulture)%"></div>
+                </div>
+            }
+
+            @if (usage.IsExceeded)
+            {
+                <div class="agent-usage-warning">
+                    The monthly allowance is used up. Agents will refuse new requests
+                    until it resets.
+                </div>
+            }
+        </section>
+    }
+
     @if (showEditor)
     {
         <section class="agent-editor-panel" aria-label="Agent editor">
@@ -41,7 +86,7 @@
                     <p>
                         @(editingAgentId is null
                             ? "Register a persistent agent identity."
-                            : "Update the agent's metadata and lifecycle state.")
+                            : "Update the agent's metadata, behaviour and lifecycle state.")
                     </p>
                 </div>
 
@@ -54,6 +99,7 @@
             </div>
 
             <AgentEditorForm Model="@editorModel"
+                             ModelProfiles="@modelProfiles"
                              IsEdit="@(editingAgentId is not null)"
                              IsSubmitting="@isSaving"
                              ErrorMessage="@editorError"
@@ -152,6 +198,21 @@
                             </div>
 
                             <div>
+                                <span>Tools</span>
+                                <strong>@agent.Tools.Count</strong>
+                            </div>
+
+                            <div>
+                                <span>Model</span>
+                                <strong>@agent.ModelProfile</strong>
+                            </div>
+
+                            <div>
+                                <span>Tokens (month)</span>
+                                <strong>@TokensFor(agent.AgentId).ToString("N0")</strong>
+                            </div>
+
+                            <div>
                                 <span>Updated</span>
                                 <strong>@agent.UpdatedAtUtc.ToLocalTime().ToString("g")</strong>
                             </div>
@@ -164,6 +225,12 @@
                                             class="btn btn-sm btn-outline-secondary"
                                             @onclick="() => BeginPermissions(agent)">
                                         Permissions
+                                    </button>
+
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            @onclick="() => BeginToolsAsync(agent)">
+                                        Tools
                                     </button>
                                 </Authorized>
                             </AuthorizeView>
@@ -228,6 +295,44 @@
                 ErrorMessage="@permissionsError"
                 OnSave="SavePermissionsAsync"
                 OnCancel="ClosePermissions" />
+        </section>
+    }
+
+    @if (toolsAgent is not null)
+    {
+        <section class="agent-editor-panel" aria-label="Agent tools editor">
+            <div class="agent-editor-heading">
+                <div>
+                    <h2>Tools — @toolsAgent.Name</h2>
+                    <p>
+                        <code>@toolsAgent.AgentId</code>
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="CloseTools"
+                        disabled="@isSavingTools">
+                    Close
+                </button>
+            </div>
+
+            @if (toolCatalogue is null)
+            {
+                <div class="agent-state">
+                    Loading tool catalogue...
+                </div>
+            }
+            else
+            {
+                <AgentToolsEditor
+                    Agent="@toolsAgent"
+                    Catalogue="@toolCatalogue"
+                    IsSubmitting="@isSavingTools"
+                    ErrorMessage="@toolsError"
+                    OnSave="SaveToolsAsync"
+                    OnCancel="CloseTools" />
+            }
         </section>
     }
 
@@ -306,6 +411,14 @@
     private bool isSavingPermissions;
     private string? permissionsError;
 
+    private List<AgentModelProfileDto> modelProfiles = [];
+    private AgentUsageSummaryDto? usage;
+
+    private AgentDto? toolsAgent;
+    private List<AgentToolCatalogItemDto>? toolCatalogue;
+    private bool isSavingTools;
+    private string? toolsError;
+
     private AgentDto? deleteCandidate;
     private bool isDeleting;
     private string? deleteError;
@@ -316,7 +429,32 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAgentsAsync();
+        await LoadModelProfilesAsync();
     }
+
+    private async Task LoadModelProfilesAsync()
+    {
+        // Non-fatal: the editor still works with the agent's current profile.
+        var result = await AgentManagementService.GetModelProfilesAsync();
+
+        if (result.Success)
+        {
+            modelProfiles = result.Data ?? [];
+        }
+    }
+
+    private async Task LoadUsageAsync()
+    {
+        // Non-fatal: the agent list is still useful without usage figures.
+        var result = await AgentManagementService.GetUsageAsync();
+        usage = result.Success ? result.Data : null;
+    }
+
+    private long TokensFor(string agentId) =>
+        usage?.Agents.FirstOrDefault(x => x.AgentId == agentId)?.TotalTokens ?? 0;
+
+    private double UsagePercent(long limit) =>
+        Math.Min(100, Math.Round(usage!.TokensUsed * 100d / limit, 1));
 
     private async Task LoadAgentsAsync()
     {
@@ -338,6 +476,8 @@
             }
 
             agents = result.Data ?? [];
+
+            await LoadUsageAsync();
         }
         catch (Exception ex)
         {
@@ -488,6 +628,92 @@
         }
     }
 
+    private async Task BeginToolsAsync(AgentDto agent)
+    {
+        toolsAgent = CloneAgent(agent);
+        toolsError = null;
+
+        if (toolCatalogue is not null)
+            return;
+
+        try
+        {
+            var result =
+                await AgentManagementService.GetToolCatalogAsync();
+
+            if (!result.Success)
+            {
+                toolsError =
+                    result.ErrorMessage ??
+                    "Unable to load the tool catalogue.";
+
+                toolCatalogue = [];
+                return;
+            }
+
+            toolCatalogue = result.Data ?? [];
+        }
+        catch (Exception ex)
+        {
+            toolsError = ex.Message;
+            toolCatalogue = [];
+        }
+    }
+
+    private void CloseTools()
+    {
+        if (isSavingTools)
+            return;
+
+        toolsAgent = null;
+        toolsError = null;
+
+        // Reload next time, so a failed load can be retried.
+        if (toolCatalogue is { Count: 0 })
+            toolCatalogue = null;
+    }
+
+    private async Task SaveToolsAsync(
+        IReadOnlyList<AgentToolBindingDto> tools)
+    {
+        if (toolsAgent is null || isSavingTools)
+            return;
+
+        isSavingTools = true;
+        toolsError = null;
+
+        try
+        {
+            var result =
+                await AgentManagementService.UpdateToolsAsync(
+                    toolsAgent.AgentId,
+                    new UpdateAgentToolsRequest
+                    {
+                        Tools = tools.ToList()
+                    });
+
+            if (!result.Success)
+            {
+                toolsError =
+                    result.ErrorMessage ??
+                    "Unable to update agent tools.";
+
+                return;
+            }
+
+            toolsAgent = null;
+            await LoadAgentsAsync();
+        }
+        catch (Exception ex)
+        {
+            toolsError = ex.Message;
+        }
+        finally
+        {
+            isSavingTools = false;
+        }
+    }
+
     private void RequestDelete(AgentDto agent)
     {
         deleteCandidate = agent;
@@ -556,6 +782,20 @@
             IsActive = source.IsActive,
             CreatedAtUtc = source.CreatedAtUtc,
             UpdatedAtUtc = source.UpdatedAtUtc,
-            Permissions = [.. source.Permissions]
+            Permissions = [.. source.Permissions],
+            Instructions = source.Instructions,
+            MaximumIterationsPerRequest = source.MaximumIterationsPerRequest,
+            AllowMultipleToolCalls = source.AllowMultipleToolCalls,
+            ApprovalLifetimeMinutes = source.ApprovalLifetimeMinutes,
+            ModelProfile = source.ModelProfile,
+            Tools = source.Tools
+                .Select(x => new AgentToolBindingDto
+                {
+                    ToolName = x.ToolName,
+                    RequiresApproval = x.RequiresApproval,
+                    RiskLevel = x.RiskLevel,
+                    MaximumAmount = x.MaximumAmount
+                })
+                .ToList()
         };
 }

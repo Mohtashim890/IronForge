@@ -18,6 +18,8 @@ namespace IronForge.Infrastructure.Data
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         public DbSet<Agent> Agents => Set<Agent>();
         public DbSet<AgentPermission> AgentPermissions => Set<AgentPermission>();
+        public DbSet<AgentToolBindingEntity> AgentToolBindings => Set<AgentToolBindingEntity>();
+        public DbSet<AgentUsageRecord> AgentUsageRecords => Set<AgentUsageRecord>();
         public DbSet<AgentDelegationEntity> AgentDelegations => Set<AgentDelegationEntity>();
         public DbSet<AgentDelegationScopeEntity> AgentDelegationScopes => Set<AgentDelegationScopeEntity>();
         public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -179,6 +181,28 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.UpdatedAtUtc)
                     .IsRequired();
 
+                entity.Property(x => x.Instructions)
+                    .IsRequired()
+                    .HasColumnType("text")
+                    .HasDefaultValue("");
+
+                entity.Property(x => x.MaximumIterationsPerRequest)
+                    .IsRequired()
+                    .HasDefaultValue(5);
+
+                entity.Property(x => x.AllowMultipleToolCalls)
+                    .IsRequired()
+                    .HasDefaultValue(false);
+
+                entity.Property(x => x.ApprovalLifetimeMinutes)
+                    .IsRequired()
+                    .HasDefaultValue(10);
+
+                entity.Property(x => x.ModelProfile)
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasDefaultValue("standard");
+
                 entity.HasOne<Tenant>()
                     .WithMany()
                     .HasForeignKey(x => x.TenantId)
@@ -192,6 +216,79 @@ namespace IronForge.Infrastructure.Data
                 {
                     x.TenantId,
                     x.AgentId
+                })
+                .IsUnique();
+            });
+
+            modelBuilder.Entity<AgentUsageRecord>(entity =>
+            {
+                entity.ToTable("AgentUsageRecords");
+
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.AgentId)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.Property(x => x.Operation)
+                    .IsRequired()
+                    .HasMaxLength(20);
+
+                entity.Property(x => x.ModelProfile)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.Model)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.HasOne<Tenant>()
+                    .WithMany()
+                    .HasForeignKey(x => x.TenantId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.TenantId == CurrentTenantId.Value);
+
+                // Quota checks sum one tenant's rows for the current month.
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.CreatedAtUtc
+                });
+            });
+
+            modelBuilder.Entity<AgentToolBindingEntity>(entity =>
+            {
+                entity.ToTable("AgentToolBindings");
+
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.ToolName)
+                    .IsRequired()
+                    .HasMaxLength(200);
+
+                entity.Property(x => x.RiskLevel)
+                    .HasMaxLength(20);
+
+                entity.Property(x => x.MaximumAmount)
+                    .HasPrecision(18, 2);
+
+                entity.HasOne(x => x.Agent)
+                    .WithMany(x => x.ToolBindings)
+                    .HasForeignKey(x => x.AgentId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                // Tenant isolation through the owning agent.
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.Agent.TenantId == CurrentTenantId.Value);
+
+                entity.HasIndex(x => new
+                {
+                    x.AgentId,
+                    x.ToolName
                 })
                 .IsUnique();
             });

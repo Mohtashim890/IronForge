@@ -164,7 +164,34 @@ namespace IronForge.Shared.Services
                     ex.Message);
             }
         }
-        public async Task<ServiceResult<AgentRunResultDto>> RunProductAgentAsync(
+        public async Task<ServiceResult<List<AvailableAgentDto>>> GetAvailableAgentsAsync()
+        {
+            try
+            {
+                var response =
+                    await _httpClient.GetAsync("api/agent/available");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return ServiceResult<List<AvailableAgentDto>>.Fail(
+                        "Unable to load agents.",
+                        (int)response.StatusCode);
+                }
+
+                var agents =
+                    await response.Content
+                        .ReadFromJsonAsync<List<AvailableAgentDto>>();
+
+                return ServiceResult<List<AvailableAgentDto>>.Ok(agents ?? []);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<List<AvailableAgentDto>>.Fail(ex.Message);
+            }
+        }
+
+        public async Task<ServiceResult<AgentRunResultDto>> RunAgentAsync(
+            string agentId,
         Guid sessionId,
         string message)
         {
@@ -177,7 +204,7 @@ namespace IronForge.Shared.Services
                 };
 
                 var response = await _httpClient.PostAsJsonAsync(
-                    "api/agent/product",
+                    $"api/agent/{Uri.EscapeDataString(agentId)}/chat",
                     request);
 
                 if (!response.IsSuccessStatusCode)
@@ -187,7 +214,7 @@ namespace IronForge.Shared.Services
 
                     return ServiceResult<AgentRunResultDto>.Fail(
                         string.IsNullOrWhiteSpace(error)
-                            ? "Unable to run the Product Agent."
+                            ? "Unable to run the agent."
                             : error,
                         (int)response.StatusCode);
                 }
@@ -199,7 +226,7 @@ namespace IronForge.Shared.Services
                 if (result is null)
                 {
                     return ServiceResult<AgentRunResultDto>.Fail(
-                        "The Product Agent returned an invalid response.");
+                        "The agent returned an invalid response.");
                 }
 
                 return ServiceResult<AgentRunResultDto>.Ok(result);
@@ -211,14 +238,15 @@ namespace IronForge.Shared.Services
             }
         }
 
-        public async Task<ServiceResult<AgentApprovalDecisionResultDto>>RespondToApprovalAsync(
-        AgentApprovalDecisionDto decision)
+        public async Task<ServiceResult<AgentApprovalDecisionResultDto>> RespondToApprovalAsync(
+            string agentId,
+            AgentApprovalDecisionDto decision)
         {
             try
             {
                 var response =
                     await _httpClient.PostAsJsonAsync(
-                        $"api/agent/product/approvals/{decision.ApprovalId}/decision",
+                        $"api/agent/{Uri.EscapeDataString(agentId)}/approvals/{decision.ApprovalId}/decision",
                         decision);
 
                 if (!response.IsSuccessStatusCode)

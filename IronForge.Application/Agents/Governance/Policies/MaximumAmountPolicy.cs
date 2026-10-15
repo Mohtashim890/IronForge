@@ -6,8 +6,16 @@ namespace IronForge.Application.Agents.Governance.Policies;
 
 public class MaximumAmountPolicy : IAgentPolicy
 {
-    public AgentGovernanceDecision? Evaluate(
+    public ValueTask<AgentGovernanceDecision?> EvaluateAsync(
         AgentIdentity agent,
+        AgentToolPolicy toolPolicy,
+        AgentGovernanceContext context,
+        CancellationToken cancellationToken = default)
+    {
+        return ValueTask.FromResult(Evaluate(toolPolicy, context));
+    }
+
+    private static AgentGovernanceDecision? Evaluate(
         AgentToolPolicy toolPolicy,
         AgentGovernanceContext context)
     {

@@ -11,15 +11,17 @@ public class AgentPermissionPolicy : IAgentPolicy
     {
         _agentAuthorizationService = agentAuthorizationService;
     }
-    public AgentGovernanceDecision? Evaluate(
+    public async ValueTask<AgentGovernanceDecision?> EvaluateAsync(
         AgentIdentity agent,
         AgentToolPolicy toolPolicy,
-        AgentGovernanceContext context)
+        AgentGovernanceContext context,
+        CancellationToken cancellationToken = default)
     {
-        var allowed = _agentAuthorizationService
-            .HasPermissionAsync(agent, toolPolicy.RequiredPermission, default)
-            .GetAwaiter()
-            .GetResult();
+        var allowed =
+            await _agentAuthorizationService.HasPermissionAsync(
+                agent,
+                toolPolicy.RequiredPermission,
+                cancellationToken);
 
         if (!allowed)
         {

@@ -35,6 +35,16 @@ namespace IronForge.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("AllowMultipleToolCalls")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("ApprovalLifetimeMinutes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(10);
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -42,8 +52,26 @@ namespace IronForge.Api.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("MaximumIterationsPerRequest")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(5);
+
+                    b.Property<string>("ModelProfile")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasDefaultValue("standard");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -353,6 +381,97 @@ namespace IronForge.Api.Migrations
                     b.ToTable("AgentSessions");
                 });
 
+            modelBuilder.Entity("IronForge.Application.Entities.AgentToolBindingEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AgentId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("MaximumAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool?>("RequiresApproval")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RiskLevel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ToolName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId", "ToolName")
+                        .IsUnique();
+
+                    b.ToTable("AgentToolBindings", (string)null);
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.AgentUsageRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ModelProfile")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("TotalTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.ToTable("AgentUsageRecords", (string)null);
+                });
+
             modelBuilder.Entity("IronForge.Application.Entities.AuditEvent", b =>
                 {
                     b.Property<long>("Id")
@@ -660,6 +779,9 @@ namespace IronForge.Api.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<long?>("MonthlyAgentTokenLimit")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -833,6 +955,26 @@ namespace IronForge.Api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("IronForge.Application.Entities.AgentToolBindingEntity", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.Agent", "Agent")
+                        .WithMany("ToolBindings")
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.AgentUsageRecord", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("IronForge.Application.Entities.ConversationMessage", b =>
                 {
                     b.HasOne("IronForge.Application.Entities.AgentSession", null)
@@ -921,6 +1063,8 @@ namespace IronForge.Api.Migrations
             modelBuilder.Entity("IronForge.Application.Entities.Agent", b =>
                 {
                     b.Navigation("Permissions");
+
+                    b.Navigation("ToolBindings");
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationEntity", b =>

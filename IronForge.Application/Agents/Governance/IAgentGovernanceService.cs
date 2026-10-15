@@ -4,9 +4,10 @@ namespace IronForge.Application.Agents.Governance
 {
     public interface IAgentGovernanceService
     {
-        AgentGovernanceDecision Evaluate(
-       AgentIdentity agent,
-       AgentToolPolicy policy,
-       AgentGovernanceContext context);
+        Task<AgentGovernanceDecision> EvaluateAsync(
+            AgentIdentity agent,
+            AgentToolPolicy policy,
+            AgentGovernanceContext context,
+            CancellationToken cancellationToken = default);
     }
 }
