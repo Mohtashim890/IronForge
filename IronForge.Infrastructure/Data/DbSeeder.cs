@@ -54,7 +54,8 @@ namespace IronForge.Infrastructure.Data
                 {
                     Username = "admin",
                     Email = "admin@ironforge.local",
-                    Role = "Admin",
+                    // Platform operator; tenant access comes from the membership below.
+                    Role = PlatformRoles.PlatformAdmin,
                     IsActive = true,
                     CreatedAtUtc = DateTime.UtcNow,
                 };
@@ -72,7 +73,7 @@ namespace IronForge.Infrastructure.Data
                 {
                     UserId = usertId,
                     TenantId = tenantId,
-                    Role = "Admin",
+                    Role = TenantRoles.Admin,
                     IsActive = true,
                     CreatedAtUtc = DateTime.UtcNow
                 };
@@ -83,118 +84,37 @@ namespace IronForge.Infrastructure.Data
 
             if (!await dbContext.Agents.IgnoreQueryFilters().AnyAsync())
             {
-                await SeedAgentAsync(
-                    dbContext,
-                    tenantId,
-                    AgentDefinitions.ProductAgent,
-                    "Product Agent",
-                    "Agent for product management operations.",
-                    [
-                        Permissions.ProductsRead,
-                        Permissions.ProductsCreate,
-                        Permissions.ProductsUpdate,
-                        Permissions.ProductsDelete
-                    ]);
-
-                await SeedAgentAsync(
-                    dbContext,
-                    tenantId,
-                    AgentDefinitions.InsightsAgent,
-                    "Insights Agent",
-                    "Read-only analyst for the product catalogue and recent activity.",
-                    [
-                        Permissions.ProductsRead,
-                        Permissions.AuditRead
-                    ]);
+                foreach (var template in AgentTemplates.Default)
+                {
+                    await SeedAgentAsync(
+                        dbContext,
+                        tenantId,
+                        template);
+                }
             }
         }
 
         /// <summary>
-        /// Creates a tenant's agent from a code template: configuration,
-        /// permissions and tool bindings. Idempotent per tenant and agent.
+        /// Installs a template agent (managed, with its tool bindings) unless
+        /// the tenant already has an agent with that id. Idempotent.
         /// </summary>
         private static async Task SeedAgentAsync(
             IronForgeDbContext dbContext,
             int tenantId,
-            AgentDefinition template,
-            string name,
-            string description,
-            string[] permissions)
+            AgentTemplate template)
         {
-            var agent = await dbContext.Agents
+            var exists = await dbContext.Agents
                 .IgnoreQueryFilters()
-                .SingleOrDefaultAsync(
-                    x =>
-                        x.TenantId == tenantId &&
-                        x.AgentId == template.AgentId);
+                .AnyAsync(x =>
+                    x.TenantId == tenantId &&
+                    x.AgentId == template.TemplateId);
 
-            if (agent is null)
+            if (exists)
             {
-                agent = new Agent
-                {
-                    TenantId = tenantId,
-                    AgentId = template.AgentId,
-                    Name = name,
-                    Description = description,
-                    Version = template.Version,
-                    IsActive = true,
-                    Instructions = template.Instructions,
-                    MaximumIterationsPerRequest = template.MaximumIterationsPerRequest,
-                    AllowMultipleToolCalls = template.AllowMultipleToolCalls,
-                    ApprovalLifetimeMinutes = (int)template.ApprovalLifetime.TotalMinutes,
-                    ModelProfile = template.ModelProfile,
-                    CreatedAtUtc = DateTime.UtcNow,
-                    UpdatedAtUtc = DateTime.UtcNow
-                };
-
-                dbContext.Agents.Add(agent);
-
-                await dbContext.SaveChangesAsync();
+                return;
             }
 
-            var existingPermissions =
-                await dbContext.AgentPermissions
-                    .Where(x => x.AgentId == agent.Id)
-                    .Select(x => x.Permission)
-                    .ToListAsync();
-
-            foreach (var permission in permissions)
-            {
-                if (existingPermissions.Contains(permission))
-                {
-                    continue;
-                }
-
-                dbContext.AgentPermissions.Add(
-                    new AgentPermission
-                    {
-                        AgentId = agent.Id,
-                        Permission = permission
-                    });
-            }
-
-            var hasToolBindings =
-                await dbContext.AgentToolBindings
-                    .IgnoreQueryFilters()
-                    .AnyAsync(x => x.AgentId == agent.Id);
-
-            if (!hasToolBindings)
-            {
-                foreach (var tool in template.Tools)
-                {
-                    dbContext.AgentToolBindings.Add(
-                        new AgentToolBindingEntity
-                        {
-                            AgentId = agent.Id,
-                            ToolName = tool.ToolName,
-                            RequiresApproval = tool.RequiresApproval,
-                            RiskLevel = tool.RiskLevel?.ToString(),
-                            MaximumAmount = tool.MaximumAmount
-                        });
-                }
-            }
-
-            agent.UpdatedAtUtc = DateTime.UtcNow;
+            dbContext.Agents.Add(template.CreateAgent(tenantId, DateTime.UtcNow));
 
             await dbContext.SaveChangesAsync();
         }

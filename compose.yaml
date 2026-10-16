@@ -11,6 +11,8 @@ services:
       JwtSettings__Key: ${JWTSETTINGS__KEY}
       AISettings__ApiKey: ${AISETTINGS__APIKEY}
       OpenTelemetry__Otlp__Headers: ${OPENTELEMETRY__OTLP__HEADERS}
+      # Public web page that accepts tenant invitations.
+      Invitations__AcceptUrl: ${INVITATIONS__ACCEPTURL:-https://localhost/accept-invite}
 
     networks:
       - ironforge-network

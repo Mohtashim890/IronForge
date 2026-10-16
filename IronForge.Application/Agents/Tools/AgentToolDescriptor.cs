@@ -18,6 +18,12 @@ public sealed class AgentToolDescriptor
     /// <summary>Permission the agent must hold to use the tool.</summary>
     public required string RequiredPermission { get; init; }
 
+    /// <summary>
+    /// <see cref="Shared.Subscriptions.PlatformModules"/> id. The tool is only
+    /// available to tenants whose subscription enables this module.
+    /// </summary>
+    public required string Module { get; init; }
+
     public AgentRiskLevel RiskLevel { get; init; } = AgentRiskLevel.Low;
 
     public bool RequiresApproval { get; init; }

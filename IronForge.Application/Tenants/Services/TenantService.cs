@@ -52,10 +52,15 @@ namespace IronForge.Application.Tenants.Services
                 .ToList();
 
             var tenants = await _tenants.ListAsync(
-                x => tenantIds.Contains(x.Id) && x.IsActive,
+                x => tenantIds.Contains(x.Id),
                 cancellationToken);
 
-            var tenantById = tenants.ToDictionary(x => x.Id);
+            // Suspended, canceled and expired-trial tenants cannot be selected.
+            var now = DateTime.UtcNow;
+
+            var tenantById = tenants
+                .Where(x => x.HasAccess(now))
+                .ToDictionary(x => x.Id);
 
             var results = memberships
                 .Where(x => tenantById.ContainsKey(x.TenantId))
@@ -69,7 +74,7 @@ namespace IronForge.Application.Tenants.Services
                         TenantName = tenant.Name,
                         Slug = tenant.Slug,
                         Role = x.Role,
-                        IsActive = tenant.IsActive
+                        IsActive = true
                     };
                 })
                 .ToList();
@@ -116,8 +121,12 @@ namespace IronForge.Application.Tenants.Services
                     "Tenant was not found.");
             }
 
-            if (!tenant.IsActive)
+            var now = DateTime.UtcNow;
+
+            if (!tenant.HasAccess(now))
             {
+                var reason = tenant.DescribeNoAccess(now);
+
                 await _auditService.RecordAsync(
                    AuditCategory.Tenant,
                    "TenantSelectionDenied",
@@ -125,10 +134,9 @@ namespace IronForge.Application.Tenants.Services
                    actorType: AuditActorType.User,
                    resourceType: "Tenant",
                    resourceId: tenantId.ToString(),
-                   reason: "Tenant is inactive.");
+                   reason: reason);
 
-                return TenantSelectionResult.Failure(
-                    "Tenant is inactive.");
+                return TenantSelectionResult.Failure(reason);
             }
 
             var membership = await _memberships.FirstOrDefaultAsync(

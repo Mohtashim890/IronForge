@@ -4,7 +4,6 @@ using IronForge.Shared.Models.Agents;
 using IronForge.Shared.Models.Agents.Manage;
 using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
 using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentPermissionsRequest = IronForge.Application.Agents.DTOs.UpdateAgentPermissionsRequest;
 using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 
 namespace IronForge.Application.Agents.Services
@@ -31,12 +30,16 @@ namespace IronForge.Application.Agents.Services
             string agentId,
             CancellationToken cancellationToken = default);
 
-        Task<ServiceResult<AgentDto>> UpdatePermissionsAsync(
-            string agentId,
-            UpdateAgentPermissionsRequest request,
-            CancellationToken cancellationToken = default);
 
         Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
+            CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Turns a managed (template) agent into the tenant's own copy: it can
+        /// be edited freely and no longer receives template updates.
+        /// </summary>
+        Task<ServiceResult<AgentDto>> DetachAsync(
+            string agentId,
             CancellationToken cancellationToken = default);
 
         Task<ServiceResult<AgentDto>> UpdateToolsAsync(

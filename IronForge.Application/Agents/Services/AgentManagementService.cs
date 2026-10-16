@@ -1,3 +1,7 @@
+using IronForge.Shared.Authorization;
+using IronForge.Application.Tenants.Subscriptions;
+using IronForge.Shared.Subscriptions;
+using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.ModelProfiles;
@@ -12,7 +16,6 @@ using IronForge.Shared.Models.Agents.Manage;
 using System.Net;
 using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
 using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentPermissionsRequest = IronForge.Application.Agents.DTOs.UpdateAgentPermissionsRequest;
 using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 
 namespace IronForge.Application.Agents.Services
@@ -21,32 +24,32 @@ namespace IronForge.Application.Agents.Services
         : IAgentManagementService
     {
         private readonly IRepository<Agent> _agents;
-        private readonly IRepository<AgentPermission> _permissions;
         private readonly IRepository<AgentToolBindingEntity> _toolBindings;
         private readonly IAgentToolRegistry _toolRegistry;
         private readonly IAgentChatClientFactory _modelProfiles;
         private readonly IAgentQuotaService _quota;
         private readonly IExecutionContextAccessor _executionContextAccessor;
         private readonly IAgentManagementAuthorizationService _authorization;
+        private readonly ITenantEntitlementService _entitlements;
 
         public AgentManagementService(
             IRepository<Agent> agents,
-            IRepository<AgentPermission> permissions,
             IRepository<AgentToolBindingEntity> toolBindings,
             IAgentToolRegistry toolRegistry,
             IAgentChatClientFactory modelProfiles,
             IAgentQuotaService quota,
             IExecutionContextAccessor executionContextAccessor,
-            IAgentManagementAuthorizationService agentManagementAuthorizationService)
+            IAgentManagementAuthorizationService agentManagementAuthorizationService,
+            ITenantEntitlementService entitlements)
         {
             _agents = agents;
-            _permissions = permissions;
             _toolBindings = toolBindings;
             _toolRegistry = toolRegistry;
             _modelProfiles = modelProfiles;
             _quota = quota;
             _executionContextAccessor = executionContextAccessor;
             _authorization = agentManagementAuthorizationService;
+            _entitlements = entitlements;
         }
 
         public async Task<ServiceResult<List<AgentDto>>> GetAgentsAsync(
@@ -72,21 +75,6 @@ namespace IronForge.Application.Agents.Services
                 .Select(x => x.Id)
                 .ToList();
 
-            var permissions = agentIds.Count == 0
-                ? new List<AgentPermission>()
-                : await _permissions.ListAsync(
-                    x => agentIds.Contains(x.AgentId),
-                    cancellationToken);
-
-            var permissionsByAgent = permissions
-                .GroupBy(x => x.AgentId)
-                .ToDictionary(
-                    x => x.Key,
-                    x => x
-                        .Select(p => p.Permission)
-                        .OrderBy(p => p)
-                        .ToList());
-
             var toolBindings = agentIds.Count == 0
                 ? new List<AgentToolBindingEntity>()
                 : await _toolBindings.ListAsync(
@@ -97,22 +85,21 @@ namespace IronForge.Application.Agents.Services
                 .GroupBy(x => x.AgentId)
                 .ToDictionary(x => x.Key, x => x.ToList());
 
+            var enabledModules =
+                await _entitlements.GetEnabledModulesAsync(cancellationToken);
+
             var result =
                 agents
                     .OrderBy(x => x.Name)
                     .Select(agent =>
                         Map(
                             agent,
-                            permissionsByAgent.TryGetValue(
-                                agent.Id,
-                                out var agentPermissions)
-                                ? agentPermissions
-                                : [],
                             toolsByAgent.TryGetValue(
                                 agent.Id,
                                 out var agentTools)
                                 ? agentTools
-                                : []))
+                                : [],
+                            enabledModules))
                     .ToList();
 
             return ServiceResult<List<AgentDto>>.Ok(result);
@@ -154,15 +141,9 @@ namespace IronForge.Application.Agents.Services
                     404);
             }
 
-            var permissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
             return ServiceResult<AgentDto>.Ok(
                 await MapAsync(
                     agent,
-                    permissions,
                     cancellationToken));
         }
 
@@ -205,22 +186,32 @@ namespace IronForge.Application.Agents.Services
                     409);
             }
 
+            // Default: the subscription's first profile.
             var modelProfile =
                 string.IsNullOrWhiteSpace(request.ModelProfile)
-                    ? IAgentChatClientFactory.StandardProfile
+                    ? (await _entitlements.GetAllowedModelProfilesAsync(cancellationToken))
+                        .FirstOrDefault(_modelProfiles.HasProfile)
+                        ?? IAgentChatClientFactory.StandardProfile
                     : request.ModelProfile.Trim();
 
-            if (!_modelProfiles.HasProfile(modelProfile))
+            if (await ValidateModelProfileAsync(modelProfile, cancellationToken) is { } profileError)
             {
-                return ServiceResult<AgentDto>.Fail(
-                    $"Model profile '{modelProfile}' does not exist.",
-                    400);
+                return ServiceResult<AgentDto>.Fail(profileError, 400);
             }
 
+            var (allowedRoles, rolesError) = NormalizeRoles(request.AllowedRoles);
+
+            if (rolesError != null)
+            {
+                return ServiceResult<AgentDto>.Fail(rolesError, 400);
+            }
+
+            // Tenant-built: not managed by a template.
             var agent = new Agent
             {
                 TenantId = ResolveTenantId(),
                 AgentId = normalizedAgentId,
+                AllowedRoles = allowedRoles,
                 Name = request.Name.Trim(),
                 Description = request.Description?.Trim(),
                 Version = request.Version.Trim(),
@@ -243,20 +234,9 @@ namespace IronForge.Application.Agents.Services
             await _agents.SaveChangesAsync(
                 cancellationToken);
 
-            await ReplacePermissionsAsync(
-                agent,
-                request.Permissions,
-                cancellationToken);
-
-            var permissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
             return ServiceResult<AgentDto>.Ok(
                 await MapAsync(
                     agent,
-                    permissions,
                     cancellationToken));
         }
 
@@ -288,6 +268,35 @@ namespace IronForge.Application.Agents.Services
                 return ServiceResult<AgentDto>.Fail(
                     "Agent not found.",
                     404);
+            }
+
+            // Null keeps the current roles.
+            if (request.AllowedRoles is not null)
+            {
+                var (allowedRoles, rolesError) = NormalizeRoles(request.AllowedRoles);
+
+                if (rolesError != null)
+                {
+                    return ServiceResult<AgentDto>.Fail(rolesError, 400);
+                }
+
+                agent.AllowedRoles = allowedRoles;
+            }
+
+            // A managed agent follows its platform template; the tenant only
+            // decides whether it is active and who may use it. Other fields are
+            // not applied. Detach the agent to edit it freely.
+            if (agent.IsManaged)
+            {
+                agent.IsActive = request.IsActive;
+                agent.UpdatedAtUtc = DateTime.UtcNow;
+
+                await _agents.SaveChangesAsync(cancellationToken);
+
+                return ServiceResult<AgentDto>.Ok(
+                    await MapAsync(
+                        agent,
+                        cancellationToken));
             }
 
             agent.Name =
@@ -328,11 +337,9 @@ namespace IronForge.Application.Agents.Services
             {
                 var modelProfile = request.ModelProfile.Trim();
 
-                if (!_modelProfiles.HasProfile(modelProfile))
+                if (await ValidateModelProfileAsync(modelProfile, cancellationToken) is { } profileError)
                 {
-                    return ServiceResult<AgentDto>.Fail(
-                        $"Model profile '{modelProfile}' does not exist.",
-                        400);
+                    return ServiceResult<AgentDto>.Fail(profileError, 400);
                 }
 
                 agent.ModelProfile = modelProfile;
@@ -346,15 +353,9 @@ namespace IronForge.Application.Agents.Services
             await _agents.SaveChangesAsync(
                 cancellationToken);
 
-            var permissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
             return ServiceResult<AgentDto>.Ok(
                 await MapAsync(
                     agent,
-                    permissions,
                     cancellationToken));
         }
 
@@ -387,100 +388,20 @@ namespace IronForge.Application.Agents.Services
                     404);
             }
 
+            if (agent.IsManaged)
+            {
+                // Template rollouts would reinstall it; deactivate it instead.
+                return ServiceResult<bool>.Fail(
+                    "This agent is managed by a platform template. Deactivate it, or detach it first to delete it.",
+                    409);
+            }
+
             _agents.Remove(agent);
 
             await _agents.SaveChangesAsync(
                 cancellationToken);
 
             return ServiceResult<bool>.Ok(true);
-        }
-
-        public async Task<ServiceResult<AgentDto>> UpdatePermissionsAsync(
-            string agentId,
-            UpdateAgentPermissionsRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            var authorization =
-                await _authorization.AuthorizeAsync(
-                    Permissions.AgentsPermissionsManage,
-                    cancellationToken);
-
-            if (!authorization.Allowed)
-            {
-                return ServiceResult<AgentDto>.Fail(
-                    authorization.Reason ??
-                    "You are not authorized to manage agent permissions.",
-                    403);
-            }
-
-            var agent =
-                await _agents.FirstOrDefaultAsync(
-                    x => x.AgentId == agentId,
-                    cancellationToken);
-
-            if (agent is null)
-            {
-                return ServiceResult<AgentDto>.Fail(
-                    "Agent not found.",
-                    404);
-            }
-
-            await ReplacePermissionsAsync(
-                agent,
-                request.Permissions,
-                cancellationToken);
-
-            var permissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
-            return ServiceResult<AgentDto>.Ok(
-                await MapAsync(
-                    agent,
-                    permissions,
-                    cancellationToken));
-        }
-
-        private async Task ReplacePermissionsAsync(
-            Agent agent,
-            IEnumerable<string> permissions,
-            CancellationToken cancellationToken)
-        {
-            var normalizedPermissions =
-                permissions
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-            var existingPermissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
-            foreach (var permission in existingPermissions)
-            {
-                _permissions.Remove(permission);
-            }
-
-            foreach (var permission in normalizedPermissions)
-            {
-                _permissions.Add(
-                    new AgentPermission
-                    {
-                        AgentId = agent.Id,
-                        Permission = permission
-                    });
-            }
-
-            agent.UpdatedAtUtc =
-                DateTime.UtcNow;
-
-            //_agents.Update(agent);
-
-            await _agents.SaveChangesAsync(
-                cancellationToken);
         }
 
         public async Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
@@ -499,14 +420,23 @@ namespace IronForge.Application.Agents.Services
                     403);
             }
 
+            // Only the tools the tenant's subscription enables.
+            var enabledModules =
+                await _entitlements.GetEnabledModulesAsync(cancellationToken);
+
             var catalogue =
                 _toolRegistry
                     .GetCatalogue()
+                    .Where(descriptor => enabledModules.Contains(descriptor.Module))
                     .Select(descriptor => new AgentToolCatalogItemDto
                     {
                         Name = descriptor.Name,
                         Description = descriptor.Description,
                         RequiredPermission = descriptor.RequiredPermission,
+                        Module = descriptor.Module,
+                        ModuleName =
+                            PlatformModules.Find(descriptor.Module)?.Name
+                            ?? descriptor.Module,
                         RiskLevel = descriptor.RiskLevel.ToString(),
                         RequiresApproval = descriptor.RequiresApproval,
                         MaximumAmount = descriptor.MaximumAmount
@@ -548,6 +478,13 @@ namespace IronForge.Application.Agents.Services
                     404);
             }
 
+            if (agent.IsManaged)
+            {
+                return ServiceResult<AgentDto>.Fail(
+                    "This agent's tools come from its platform template. Detach it to change them.",
+                    409);
+            }
+
             var normalized = new List<AgentToolBindingEntity>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
 
@@ -561,6 +498,15 @@ namespace IronForge.Application.Agents.Services
                 {
                     return ServiceResult<AgentDto>.Fail(
                         $"Tool '{toolName}' is not in the tool catalogue.",
+                        400);
+                }
+
+                if (!await _entitlements.IsModuleEnabledAsync(
+                        descriptor.Module,
+                        cancellationToken))
+                {
+                    return ServiceResult<AgentDto>.Fail(
+                        $"Tool '{toolName}' is not included in this workspace's subscription.",
                         400);
                 }
 
@@ -637,15 +583,9 @@ namespace IronForge.Application.Agents.Services
 
             await _agents.SaveChangesAsync(cancellationToken);
 
-            var permissions =
-                await _permissions.ListAsync(
-                    x => x.AgentId == agent.Id,
-                    cancellationToken);
-
             return ServiceResult<AgentDto>.Ok(
                 await MapAsync(
                     agent,
-                    permissions,
                     cancellationToken));
         }
 
@@ -665,9 +605,13 @@ namespace IronForge.Application.Agents.Services
                     403);
             }
 
+            var allowed =
+                await _entitlements.GetAllowedModelProfilesAsync(cancellationToken);
+
             return ServiceResult<List<AgentModelProfileDto>>.Ok(
                 _modelProfiles
                     .GetProfiles()
+                    .Where(profile => allowed.Contains(profile.Name))
                     .Select(profile => new AgentModelProfileDto
                     {
                         Name = profile.Name,
@@ -713,8 +657,13 @@ namespace IronForge.Application.Agents.Services
                     x => x.IsActive,
                     cancellationToken);
 
+            var role = _executionContextAccessor.Current?.Actor.Role ?? "";
+
             return ServiceResult<List<AvailableAgentDto>>.Ok(
                 agents
+                    .Where(x =>
+                        x.AllowedRoles.Count == 0 ||
+                        x.AllowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
                     .OrderBy(x => x.Name)
                     .Select(x => new AvailableAgentDto
                     {
@@ -727,7 +676,6 @@ namespace IronForge.Application.Agents.Services
 
         private async Task<AgentDto> MapAsync(
             Agent agent,
-            IEnumerable<AgentPermission> permissions,
             CancellationToken cancellationToken)
         {
             var toolBindings =
@@ -737,8 +685,103 @@ namespace IronForge.Application.Agents.Services
 
             return Map(
                 agent,
-                permissions.Select(x => x.Permission),
-                toolBindings);
+                toolBindings,
+                await _entitlements.GetEnabledModulesAsync(cancellationToken));
+        }
+
+        /// <summary>
+        /// Null when the profile exists and the tenant's subscription allows it,
+        /// otherwise the reason it cannot be used.
+        /// </summary>
+        private async Task<string?> ValidateModelProfileAsync(
+            string modelProfile,
+            CancellationToken cancellationToken)
+        {
+            if (!_modelProfiles.HasProfile(modelProfile))
+                return $"Model profile '{modelProfile}' does not exist.";
+
+            var allowed =
+                await _entitlements.GetAllowedModelProfilesAsync(cancellationToken);
+
+            return allowed.Contains(modelProfile)
+                ? null
+                : $"Model profile '{modelProfile}' is not included in this workspace's subscription.";
+        }
+
+        public async Task<ServiceResult<AgentDto>> DetachAsync(
+            string agentId,
+            CancellationToken cancellationToken = default)
+        {
+            var authorization =
+                await _authorization.AuthorizeAsync(
+                    Permissions.AgentsUpdate,
+                    cancellationToken);
+
+            if (!authorization.Allowed)
+            {
+                return ServiceResult<AgentDto>.Fail(
+                    authorization.Reason ??
+                    "You are not authorized to update agents.",
+                    403);
+            }
+
+            var agent =
+                await _agents.FirstOrDefaultTrackedAsync(
+                    x => x.AgentId == agentId,
+                    cancellationToken);
+
+            if (agent is null)
+            {
+                return ServiceResult<AgentDto>.Fail(
+                    "Agent not found.",
+                    404);
+            }
+
+            if (!agent.IsManaged)
+            {
+                return ServiceResult<AgentDto>.Fail(
+                    "This agent is not managed by a template.",
+                    409);
+            }
+
+            // From now on this is the tenant's own copy: editable, and skipped
+            // by template rollouts.
+            agent.TemplateId = null;
+            agent.TemplateVersion = null;
+            agent.UpdatedAtUtc = DateTime.UtcNow;
+
+            await _agents.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<AgentDto>.Ok(
+                await MapAsync(
+                    agent,
+                    cancellationToken));
+        }
+
+        private static (List<string> Roles, string? Error) NormalizeRoles(
+            IEnumerable<string>? roles)
+        {
+            var normalized = new List<string>();
+
+            foreach (var role in roles ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(role))
+                    continue;
+
+                var canonical = TenantRoles.Normalize(role);
+
+                if (canonical is null)
+                {
+                    return ([], $"Role must be one of: {string.Join(", ", TenantRoles.All)}.");
+                }
+
+                if (!normalized.Contains(canonical))
+                {
+                    normalized.Add(canonical);
+                }
+            }
+
+            return (normalized, null);
         }
 
         private int ResolveTenantId()
@@ -748,10 +791,10 @@ namespace IronForge.Application.Agents.Services
                 "Agent creation requires an established tenant execution context.");
         }
 
-        private static AgentDto Map(
+        private AgentDto Map(
             Agent agent,
-            IEnumerable<string> permissions,
-            IEnumerable<AgentToolBindingEntity> toolBindings)
+            IReadOnlyList<AgentToolBindingEntity> toolBindings,
+            IReadOnlySet<string> enabledModules)
         {
             return new AgentDto
             {
@@ -763,15 +806,22 @@ namespace IronForge.Application.Agents.Services
                 IsActive = agent.IsActive,
                 CreatedAtUtc = agent.CreatedAtUtc,
                 UpdatedAtUtc = agent.UpdatedAtUtc,
+                // Derived, read-only: the permissions of the agent's tools.
                 Permissions =
-                    permissions
-                        .OrderBy(x => x)
+                    AgentCapabilities.FromTools(
+                            _toolRegistry,
+                            toolBindings.Select(x => x.ToolName),
+                            enabledModules)
+                        .Order(StringComparer.Ordinal)
                         .ToList(),
                 Instructions = agent.Instructions,
                 MaximumIterationsPerRequest = agent.MaximumIterationsPerRequest,
                 AllowMultipleToolCalls = agent.AllowMultipleToolCalls,
                 ApprovalLifetimeMinutes = agent.ApprovalLifetimeMinutes,
                 ModelProfile = agent.ModelProfile,
+                AllowedRoles = agent.AllowedRoles.ToList(),
+                IsManaged = agent.IsManaged,
+                TemplateVersion = agent.TemplateVersion,
                 Tools =
                     toolBindings
                         .OrderBy(x => x.Id)

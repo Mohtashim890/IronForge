@@ -5,7 +5,6 @@ using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Governance.Policies;
-using IronForge.Application.Agents.Memory.AgentMemory;
 using IronForge.Application.Agents.Memory.Context;
 using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Memory.Summarization;
@@ -29,6 +28,8 @@ using IronForge.Application.Products.Services;
 using IronForge.Application.Products.AgentTools;
 using IronForge.Application.Products.Tools.Products;
 using IronForge.Application.Tenants.Services;
+using IronForge.Application.Tenants.Subscriptions;
+using IronForge.Application.Tenants.Invitations;
 using IronForge.Infrastructure.AI;
 using IronForge.Infrastructure.Data;
 using IronForge.Infrastructure.Persistence;
@@ -161,6 +162,14 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<InvitationOptions>()
+    .Bind(
+        builder.Configuration.GetSection(
+            InvitationOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
     .AddOptions<ConversationContextOptions>()
     .Bind(
         builder.Configuration.GetSection(
@@ -198,15 +207,21 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<IValidateOptions<ConversationContextOptions>,ConversationContextOptionsValidator>();
 builder.Services.AddScoped<ITenantService, TenantService>();
+builder.Services.AddScoped<ITenantEntitlementService, TenantEntitlementService>();
+builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
+builder.Services.AddScoped<IAgentTemplateRolloutService, AgentTemplateRolloutService>();
+builder.Services.AddScoped<ITemplateAgentStore, TemplateAgentStore>();
+builder.Services.AddScoped<ITenantMemberService, TenantMemberService>();
+builder.Services.AddScoped<ITenantInvitationService, TenantInvitationService>();
+builder.Services.AddScoped<ITenantInvitationStore, TenantInvitationStore>();
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IAgentManagementService,AgentManagementService>();
 builder.Services.AddScoped<IMcpClientManagementService,McpClientManagementService>();
 builder.Services.AddScoped<IAgentMcpClientManagementService,AgentMcpClientManagementService>();
 builder.Services.AddScoped<IAgentDelegationService,AgentDelegationService>();
-builder.Services.AddScoped<IMemoryService, MemoryService>();
 
 
-builder.Services.AddScoped<IMemoryAuthorizationService, MemoryAuthorizationService>();
 builder.Services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
 builder.Services.AddScoped<IUserAuthorizationService, UserAuthorizationService>();
 builder.Services.AddScoped<IAgentManagementAuthorizationService, AgentManagementAuthorizationService>();
@@ -215,7 +230,11 @@ builder.Services.AddScoped<IProductAuthorizationService, ProductAuthorizationSer
 builder.Services.AddScoped<IAgentAuthorizationService, AgentAuthorizationService>();
 builder.Services.AddScoped<IEffectiveAgentAuthorizationService, EffectiveAgentAuthorizationService>();
 builder.Services.AddScoped<IAgentDelegationCredentialService, AgentDelegationCredentialService>();
-builder.Services.AddScoped<IAgentPermissionRegistry, DatabaseAgentPermissionRegistry>();
+// Derived from tool bindings; resolved lazily to avoid a cycle through the tools.
+builder.Services.AddScoped<IAgentPermissionRegistry>(services =>
+    new DatabaseAgentPermissionRegistry(
+        () => services.GetRequiredService<IAgentDefinitionProvider>(),
+        () => services.GetRequiredService<IAgentToolRegistry>()));
 builder.Services.AddScoped<IExecutionContextAccessor, ExecutionContextAccessor>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -240,6 +259,7 @@ builder.Services.AddScoped<IConversationSummaryPolicy, ConversationSummaryPolicy
 builder.Services.AddScoped<IConversationSummaryCoordinator, ConversationSummaryCoordinator>();
 builder.Services.AddScoped<IApprovedToolExecutionService, ApprovedToolExecutionService>();
 builder.Services.AddScoped<IApprovalExecutionAuthorizationService, ApprovalExecutionAuthorizationService>();
+builder.Services.AddScoped<IApprovalQueueService, ApprovalQueueService>();
 
 builder.Services.AddScoped<TelemetryContext>();
 builder.Services.AddSingleton(IronForgeActivitySource.Source);
@@ -251,7 +271,6 @@ builder.Services.AddScoped<IAuditQueryService, AuditQueryService>();
 builder.Services.AddScoped<IAgentApprovalStore, DBAgentApprovalStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 /* AI LLM Agents */
-builder.Services.AddScoped<IAgentService, AgentService>();
 builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
 builder.Services.AddScoped<IGetProductsTool, GetProductsTool>();
 builder.Services.AddScoped<IGetProductTool, GetProductTool>();
@@ -281,18 +300,18 @@ builder.Services
 builder.Services.AddScoped<IAgentUsageStore, AgentUsageStore>();
 builder.Services.AddScoped<IAgentUsageRecorder, AgentUsageRecorder>();
 builder.Services.AddScoped<IAgentQuotaService, AgentQuotaService>();
-builder.Services.AddScoped<IProductAgent, ProductAgent>();
 
 // Policies
-builder.Services.AddScoped<IAgentPolicy, AgentPermissionPolicy>();
+// User first: when both fail, the user's missing permission is the clearer reason.
+builder.Services.AddScoped<IAgentPolicy, UserPermissionPolicy>();
 builder.Services.AddScoped<IAgentPolicy, AgentApprovalPolicy>();
 builder.Services.AddScoped<IAgentPolicy, MaximumAmountPolicy>();
 
 // Model profiles: one shared OpenAI connection, one cached client per profile.
 builder.Services.AddSingleton<IAgentChatClientFactory, OpenAIAgentChatClientFactory>();
 
-// Non-agent LLM callers (conversation summariser, legacy chat endpoints)
-// use the standard profile's client.
+// Non-agent LLM callers (the conversation summariser) use the standard
+// profile's client.
 builder.Services.AddSingleton<IChatClient>(services =>
     services
         .GetRequiredService<IAgentChatClientFactory>()

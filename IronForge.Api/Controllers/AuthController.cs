@@ -53,26 +53,7 @@ namespace IronForge.Api.Controllers
             return Ok(result);
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(RegisterRequest request)
-        {
-            var registered =
-                await _authService.RegisterAsync(request);
-
-            if (!registered)
-            {
-                return Conflict(
-                    new ApiErrorResponse
-                    {
-                        Status = 409,
-                        Message =
-                            "Username or email is already registered."
-                    });
-            }
-
-            return StatusCode(
-                StatusCodes.Status201Created);
-        }
-
+        // There is no public registration: accounts are created by accepting
+        // a tenant invitation (InvitationsController).
     }
 }

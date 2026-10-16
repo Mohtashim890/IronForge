@@ -1,0 +1,27 @@
+@using IronForge.Shared.Models.Agents
+
+@* One queued approval: what, by whom, with which arguments, until when. *@
+
+<div class="approval-summary">
+    <div class="approval-summary-title">
+        <strong>@Item.ToolName.Replace("_", " ")</strong>
+        <span class="approval-risk">@Item.RiskLevel risk</span>
+        @if (Item.Status == "Approved")
+        {
+            <span class="approval-approved">Approved by @Item.DecidedBy</span>
+        }
+    </div>
+
+    <div class="approval-summary-meta">
+        @Item.AgentName · requested by @Item.RequestedBy ·
+        @Item.CreatedAtUtc.ToLocalTime().ToString("g") ·
+        expires @Item.ExpiresAtUtc.ToLocalTime().ToString("g")
+    </div>
+
+    <code class="approval-arguments">@Item.ArgumentsJson</code>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public ApprovalQueueItemDto Item { get; set; } = new();
+}

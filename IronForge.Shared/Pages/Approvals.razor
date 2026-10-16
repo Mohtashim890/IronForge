@@ -1,0 +1,211 @@
+@page "/approvals"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using Microsoft.AspNetCore.Components.Authorization
+@using IronForge.Shared.Authorization
+@using IronForge.Shared.Components.UI
+@using IronForge.Shared.Models.Agents
+
+@inject IApprovalQueueClient ApprovalQueue
+@inject IAgentWorkspaceService AgentWorkspace
+
+<PageTitle>Approvals</PageTitle>
+
+<div class="approvals-page">
+    <PageHeader Title="Approvals"
+                Subtitle="High-risk agent actions need a second person: an approver decides here, then the requester runs it." />
+
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="alert @(messageIsError ? "alert-danger" : "alert-success")" role="status">@message</div>
+    }
+
+    @if (isLoading)
+    {
+        <p class="approvals-muted">Loading approvals...</p>
+    }
+    else
+    {
+        @if (canDecide)
+        {
+            <section class="approvals-section" aria-label="Waiting for your decision">
+                <h2>Waiting for your decision</h2>
+
+                @if (queue.AwaitingYourDecision.Count == 0)
+                {
+                    <p class="approvals-muted">Nothing is waiting for you.</p>
+                }
+
+                @foreach (var item in queue.AwaitingYourDecision)
+                {
+                    <article class="approval-item">
+                        <ApprovalSummary Item="item" />
+
+                        <div class="approval-actions">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-danger"
+                                    disabled="@(busyId == item.ApprovalId)"
+                                    @onclick="() => DecideAsync(item, approved: false)">
+                                Reject
+                            </button>
+
+                            <button type="button"
+                                    class="btn btn-sm btn-primary"
+                                    disabled="@(busyId == item.ApprovalId)"
+                                    @onclick="() => DecideAsync(item, approved: true)">
+                                Approve
+                            </button>
+                        </div>
+                    </article>
+                }
+            </section>
+        }
+
+        <section class="approvals-section" aria-label="Your requests">
+            <h2>Your requests</h2>
+
+            @if (queue.YourRequests.Count == 0)
+            {
+                <p class="approvals-muted">You have no high-risk requests waiting.</p>
+            }
+
+            @foreach (var item in queue.YourRequests)
+            {
+                <article class="approval-item">
+                    <ApprovalSummary Item="item" />
+
+                    <div class="approval-actions">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                disabled="@(busyId == item.ApprovalId)"
+                                @onclick="() => RespondAsync(item, run: false)">
+                            Cancel request
+                        </button>
+
+                        @if (item.CanRun)
+                        {
+                            <button type="button"
+                                    class="btn btn-sm btn-primary"
+                                    disabled="@(busyId == item.ApprovalId)"
+                                    @onclick="() => RespondAsync(item, run: true)">
+                                Run approved action
+                            </button>
+                        }
+                        else
+                        {
+                            <span class="approvals-muted">Waiting for an approver</span>
+                        }
+                    </div>
+                </article>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private ApprovalQueueDto queue = new();
+    private bool isLoading = true;
+    private bool canDecide;
+    private string? busyId;
+    private string? message;
+    private bool messageIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthenticationState is not null)
+        {
+            canDecide = (await AuthenticationState).User.HasClaim(
+                "permission",
+                Permissions.ApprovalsDecide);
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+
+        try
+        {
+            var result = await ApprovalQueue.GetAsync();
+
+            if (!result.Success)
+            {
+                Show(result.ErrorMessage, error: true);
+                return;
+            }
+
+            queue = result.Data ?? new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task DecideAsync(ApprovalQueueItemDto item, bool approved)
+    {
+        busyId = item.ApprovalId;
+
+        try
+        {
+            var result = await ApprovalQueue.DecideAsync(item.ApprovalId, approved, reason: null);
+
+            Show(
+                result.Success
+                    ? approved
+                        ? $"Approved. {item.RequestedBy} can now run it."
+                        : "Rejected."
+                    : result.ErrorMessage,
+                error: !result.Success);
+
+            await LoadAsync();
+        }
+        finally
+        {
+            busyId = null;
+        }
+    }
+
+    /// <summary>
+    /// The requester runs (or cancels) the action through the agent, so it
+    /// executes under their own authority and is recorded in their conversation.
+    /// </summary>
+    private async Task RespondAsync(ApprovalQueueItemDto item, bool run)
+    {
+        busyId = item.ApprovalId;
+
+        try
+        {
+            var result = await AgentWorkspace.RespondToApprovalAsync(
+                item.AgentId,
+                new AgentApprovalDecisionDto
+                {
+                    ApprovalId = item.ApprovalId,
+                    Approved = run
+                });
+
+            Show(
+                result.Success
+                    ? result.Data?.Message ?? (run ? "The action ran." : "The request was cancelled.")
+                    : result.ErrorMessage,
+                error: !result.Success);
+
+            await LoadAsync();
+        }
+        finally
+        {
+            busyId = null;
+        }
+    }
+
+    private void Show(string? text, bool error)
+    {
+        message = text;
+        messageIsError = error;
+    }
+}

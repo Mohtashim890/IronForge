@@ -1,4 +1,5 @@
-﻿using IronForge.Application.Agents.Authorization;
+﻿using IronForge.Shared.Authorization;
+using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Models;
 using IronForge.Application.Auth.Models;
 using IronForge.Application.Auth.Services;
@@ -65,10 +66,14 @@ public class ProductAuthorizationService
                     requiredPermission,
                     cancellationToken);
 
-            return allowed
-                ? ResourceAuthorizationResult.Allow()
-                : ResourceAuthorizationResult.Deny(
+            if (!allowed)
+            {
+                return ResourceAuthorizationResult.Deny(
                     "Internal agent does not have the required permission.");
+            }
+
+            // Falls through: an internal agent acts for the signed-in user
+            // and never with more authority than that user.
         }
 
         if (!actor.UserId.HasValue)
@@ -164,10 +169,8 @@ public class ProductAuthorizationService
                 "User does not have the required permission.");
         }
 
-        if (string.Equals(
-            actor.Role,
-            "Admin",
-            StringComparison.OrdinalIgnoreCase))
+        // Ownership exception by permission, not role name.
+        if (_userAuthorization.HasPermission(Permissions.ProductsManageAll))
         {
             return ResourceAuthorizationResult.Allow();
         }

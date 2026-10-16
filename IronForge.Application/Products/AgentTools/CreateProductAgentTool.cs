@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Products.DTOs;
@@ -21,6 +22,7 @@ public sealed class CreateProductAgentTool : AgentTool
             Name = "create_product",
             Description = "Creates a new product in IronForge.",
             RequiredPermission = Permissions.ProductsCreate,
+            Module = PlatformModules.Products,
             RiskLevel = AgentRiskLevel.Medium,
             RequiresApproval = true
         };

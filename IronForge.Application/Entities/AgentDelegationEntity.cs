@@ -4,6 +4,8 @@
     {
         public Guid DelegationId { get; set; }
 
+        public int TenantId { get; set; }
+
         public int UserId { get; set; }
 
         public string AgentId { get; set; } = "";

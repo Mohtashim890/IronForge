@@ -343,3 +343,13 @@
         width: 100%;
     }
 }
+
+.agent-status.managed {
+    background: #eff8ff;
+    color: #175cd3;
+}
+
+.agent-status.roles {
+    background: #f9f5ff;
+    color: #6941c6;
+}

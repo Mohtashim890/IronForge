@@ -256,3 +256,19 @@
         font-size: 23px;
     }
 }
+
+.tenant-selection-platform-link {
+    display: block;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e4e7ec;
+    color: #3538cd;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+}
+
+.tenant-selection-platform-link:hover {
+    text-decoration: underline;
+}

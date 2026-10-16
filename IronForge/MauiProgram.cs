@@ -262,6 +262,23 @@ namespace IronForge
                 return new AgentDelegationManagementService(httpClient);
             });
 
+            // Tenant onboarding and member management.
+            builder.Services.AddScoped<IPlatformTenantService>(serviceProvider =>
+                new PlatformTenantService(CreateAuthorizedApiClient(serviceProvider)));
+
+            builder.Services.AddScoped<ITenantMembersService>(serviceProvider =>
+                new TenantMembersService(CreateAuthorizedApiClient(serviceProvider)));
+
+            builder.Services.AddScoped<IApprovalQueueClient>(serviceProvider =>
+                new ApprovalQueueClient(CreateAuthorizedApiClient(serviceProvider)));
+
+            // The invitee is not signed in: plain client without the JWT handler.
+            builder.Services.AddScoped<IInvitationService>(serviceProvider =>
+                new InvitationService(
+                    serviceProvider
+                        .GetRequiredService<IHttpClientFactory>()
+                        .CreateClient(ApiClientName)));
+
             builder.Services.AddIronForgeMAUIAuthorization();
             builder.Services.AddCascadingAuthenticationState();
             builder.Services.AddScoped<AuthenticationStateProvider, JwtAuthenticationStateProvider>();
@@ -272,6 +289,31 @@ namespace IronForge
 #endif
 
             return builder.Build();
+        }
+
+        // Same construction as the services above: the JWT handler lives in the
+        // BlazorWebView scope on top of the factory-managed primary handler.
+        private static HttpClient CreateAuthorizedApiClient(
+            IServiceProvider serviceProvider)
+        {
+            var settings =
+                serviceProvider.GetRequiredService<ApiSettings>();
+
+            var authorizationHandler =
+                new JwtAuthorizationHandler(
+                    serviceProvider.GetRequiredService<ITokenStore>(),
+                    serviceProvider.GetRequiredService<IAuthService>())
+                {
+                    InnerHandler =
+                        serviceProvider
+                            .GetRequiredService<IHttpMessageHandlerFactory>()
+                            .CreateHandler(ApiClientName)
+                };
+
+            return new HttpClient(authorizationHandler, disposeHandler: false)
+            {
+                BaseAddress = new Uri(settings.BaseUrl)
+            };
         }
     }
 }

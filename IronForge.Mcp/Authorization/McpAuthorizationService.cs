@@ -1,4 +1,5 @@
 using IronForge.Application.Agents.Authorization;
+using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.Models;
 using IronForge.Application.Execution;
@@ -12,20 +13,20 @@ public sealed class McpAuthorizationService
     private readonly IAgentDelegationService _delegationService;
     private readonly IAgentMcpClientAuthorizationService _agentMcpClientAuthorization;
     private readonly IEffectiveAgentAuthorizationService _effectiveAgentAuthorization;
-    private readonly IMcpToolPermissionRegistry _toolPermissionRegistry;
+    private readonly IExternalAgentToolService _tools;
 
     public McpAuthorizationService(
         IExecutionContextAccessor executionContext,
         IAgentDelegationService delegationService,
         IAgentMcpClientAuthorizationService agentMcpClientAuthorization,
         IEffectiveAgentAuthorizationService effectiveAgentAuthorization,
-        IMcpToolPermissionRegistry toolPermissionRegistry)
+        IExternalAgentToolService tools)
     {
         _executionContext = executionContext;
         _delegationService = delegationService;
         _agentMcpClientAuthorization = agentMcpClientAuthorization;
         _effectiveAgentAuthorization = effectiveAgentAuthorization;
-        _toolPermissionRegistry = toolPermissionRegistry;
+        _tools = tools;
     }
 
     public async Task<(bool Allowed, string Reason)> AuthorizeConnectionAsync(
@@ -57,6 +58,15 @@ public sealed class McpAuthorizationService
             await _delegationService.ValidateAsync(
                 actor.DelegationId.Value,
                 cancellationToken);
+
+        // The tenant-filtered lookup already hides other tenants' delegations;
+        // this keeps the guarantee for stores without that filter.
+        if (delegation.TenantId != context.TenantId)
+        {
+            return (
+                false,
+                "Tenant identity does not match the delegation.");
+        }
 
         if (delegation.UserId != actor.UserId.Value)
         {
@@ -103,6 +113,7 @@ public sealed class McpAuthorizationService
 
     public async Task<(bool Allowed, string Reason)> AuthorizeToolAsync(
         string toolName,
+        IDictionary<string, object?> arguments,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(toolName))
@@ -110,13 +121,14 @@ public sealed class McpAuthorizationService
             return (false, "MCP tool identity is missing.");
         }
 
-        if (!_toolPermissionRegistry.TryGetRequiredPermission(
-                toolName,
-                out var requiredPermission))
+        // MCP tools are the catalogue tools: same name, permission and module.
+        var descriptor = _tools.FindTool(toolName);
+
+        if (descriptor is null)
         {
             return (
                 false,
-                $"MCP tool '{toolName}' is not authorized because no permission mapping exists.");
+                $"MCP tool '{toolName}' is not authorized because it is not in the tool catalogue.");
         }
 
         // D9 connection authorization is enforced by McpIdentityMiddleware
@@ -131,9 +143,10 @@ public sealed class McpAuthorizationService
                 "External MCP execution context is not established.");
         }
 
+        // User ∩ agent ∩ delegation scopes.
         var capabilityAuthorization =
             await _effectiveAgentAuthorization.AuthorizeAsync(
-                requiredPermission,
+                descriptor.RequiredPermission,
                 cancellationToken);
 
         if (!capabilityAuthorization.Allowed)
@@ -141,9 +154,13 @@ public sealed class McpAuthorizationService
             return (
                 false,
                 capabilityAuthorization.Reason ??
-                $"The MCP client is not authorized for permission '{requiredPermission}'.");
+                $"The MCP client is not authorized for permission '{descriptor.RequiredPermission}'.");
         }
 
-        return (true, string.Empty);
+        // Same governance as the in-app agents.
+        return await _tools.AuthorizeAsync(
+            toolName,
+            arguments,
+            cancellationToken);
     }
 }

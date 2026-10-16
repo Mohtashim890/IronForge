@@ -34,5 +34,11 @@ public class AgentApproval
 
     public DateTime? DecidedAtUtc { get; set; }
 
+    /// <summary>
+    /// Who approved or rejected. For High/Critical risk an approval only counts
+    /// when this is a different user than the requester (four-eyes).
+    /// </summary>
+    public int? DecidedByUserId { get; set; }
+
     public DateTime? ExecutedAtUtc { get; set; }
 }

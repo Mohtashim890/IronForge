@@ -135,3 +135,12 @@
             width: 100%;
         }
 }
+
+.agent-approval-four-eyes {
+    margin: 0.75rem 0;
+    padding: 0.65rem 0.8rem;
+    border-radius: 0.5rem;
+    background: #fffaeb;
+    color: #b54708;
+    font-size: 0.875rem;
+}

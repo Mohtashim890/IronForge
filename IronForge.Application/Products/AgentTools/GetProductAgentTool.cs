@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Products.DTOs;
@@ -21,6 +22,7 @@ public sealed class GetProductAgentTool : AgentTool
             Name = "get_product",
             Description = "Gets a specific product by its ID if the current user is authorized to view it.",
             RequiredPermission = Permissions.ProductsRead,
+            Module = PlatformModules.Products,
             RiskLevel = AgentRiskLevel.Low
         };
 

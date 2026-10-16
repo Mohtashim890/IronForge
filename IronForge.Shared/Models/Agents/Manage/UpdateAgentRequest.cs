@@ -37,5 +37,8 @@ namespace IronForge.Shared.Models.Agents.Manage
         /// <summary>Platform model profile name; null keeps the current/default profile.</summary>
         [StringLength(100)]
         public string? ModelProfile { get; set; }
+
+        /// <summary>Null keeps the current roles; empty means everyone.</summary>
+        public List<string>? AllowedRoles { get; set; }
     }
 }

@@ -1,0 +1,45 @@
+.invitation-link-box {
+    padding: 1rem;
+    border: 1px solid #abefc6;
+    border-radius: 0.75rem;
+    background: #f6fef9;
+}
+
+.invitation-link-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.75rem;
+}
+
+.invitation-link-heading span {
+    color: #667085;
+    font-size: 0.85rem;
+}
+
+.invitation-link-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.invitation-link-row input {
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+}
+
+.invitation-link-row button {
+    white-space: nowrap;
+}
+
+.invitation-link-warning {
+    margin: 0.75rem 0 0;
+    color: #b54708;
+    font-size: 0.82rem;
+}
+
+@media (max-width: 600px) {
+    .invitation-link-row {
+        flex-direction: column;
+    }
+}

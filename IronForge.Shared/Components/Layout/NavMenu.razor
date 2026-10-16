@@ -67,6 +67,38 @@
                 </NavLink>
             </div>
 
+            <div class="nav-item">
+                <NavLink class="nav-link"
+                         href="/approvals">
+                    <span class="nav-icon">✔</span>
+                    <span>Approvals</span>
+                </NavLink>
+            </div>
+
+            <Microsoft.AspNetCore.Components.Authorization.AuthorizeView
+                Policy="@IronForge.Shared.Authorization.Permissions.MembersRead"
+                Context="membersAuth">
+                <div class="nav-item">
+                    <NavLink class="nav-link"
+                             href="/members">
+                        <span class="nav-icon">👥</span>
+                        <span>Members</span>
+                    </NavLink>
+                </div>
+            </Microsoft.AspNetCore.Components.Authorization.AuthorizeView>
+
+            <Microsoft.AspNetCore.Components.Authorization.AuthorizeView
+                Policy="@IronForge.Shared.Authorization.Permissions.PlatformTenantsManage"
+                Context="platformAuth">
+                <div class="nav-item">
+                    <NavLink class="nav-link"
+                             href="/platform/tenants">
+                        <span class="nav-icon">🏢</span>
+                        <span>Tenants</span>
+                    </NavLink>
+                </div>
+            </Microsoft.AspNetCore.Components.Authorization.AuthorizeView>
+
             <div class="nav-item nav-logout">
 
                 <button type="button"

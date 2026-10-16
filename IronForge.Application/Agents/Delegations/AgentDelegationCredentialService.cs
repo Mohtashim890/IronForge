@@ -46,7 +46,6 @@ public class AgentDelegationCredentialService
         Guid delegationId,
         CancellationToken cancellationToken = default)
     {
-        var context = _executionContextAccessor.Current;
         var delegation =
             await _delegationService.GetForCurrentUserAsync(
                 delegationId,
@@ -130,8 +129,10 @@ public class AgentDelegationCredentialService
                 CustomClaimTypes.DelegationId,
                 delegation.DelegationId.ToString()),
 
+            // The credential is bound to the delegation's tenant. The lookup
+            // above is tenant-filtered, so this is also the current tenant.
             new(CustomClaimTypes.TenantId,
-                context?.TenantId?.ToString() ?? ""),
+                delegation.TenantId.ToString()),
 
             new(
                 CustomClaimTypes.Scope,

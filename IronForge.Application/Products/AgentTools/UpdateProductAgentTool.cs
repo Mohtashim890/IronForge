@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Products.DTOs;
@@ -21,6 +22,7 @@ public sealed class UpdateProductAgentTool : AgentTool
             Name = "update_product",
             Description = "Updates an existing IronForge product.",
             RequiredPermission = Permissions.ProductsUpdate,
+            Module = PlatformModules.Products,
             RiskLevel = AgentRiskLevel.Medium,
             RequiresApproval = true
         };

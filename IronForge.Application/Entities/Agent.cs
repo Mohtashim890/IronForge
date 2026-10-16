@@ -32,10 +32,25 @@
         /// <summary>Platform model profile name (AISettings:ModelProfiles).</summary>
         public string ModelProfile { get; set; } = "standard";
 
+        /// <summary>
+        /// Tenant roles whose members may chat with the agent. Empty: every member.
+        /// </summary>
+        public List<string> AllowedRoles { get; set; } = [];
+
+        /// <summary>
+        /// The platform template this agent was installed from. Set: the agent is
+        /// managed (updated by template rollouts, not editable by the tenant
+        /// beyond active state and allowed roles). Null: tenant-built or detached.
+        /// </summary>
+        public string? TemplateId { get; set; }
+
+        /// <summary>Template version currently installed.</summary>
+        public int? TemplateVersion { get; set; }
+
+        public bool IsManaged => TemplateId != null;
+
         public ICollection<AgentToolBindingEntity> ToolBindings { get; set; }
             = new List<AgentToolBindingEntity>();
 
-        public ICollection<AgentPermission> Permissions { get; set; }
-            = new List<AgentPermission>();
     }
 }

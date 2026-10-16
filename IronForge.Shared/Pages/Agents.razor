@@ -176,6 +176,21 @@
                                 <span class="agent-status @(agent.IsActive ? "active" : "inactive")">
                                     @(agent.IsActive ? "Active" : "Inactive")
                                 </span>
+
+                                @if (agent.IsManaged)
+                                {
+                                    <span class="agent-status managed"
+                                          title="Installed from a platform template and kept up to date by the platform">
+                                        Managed · v@(agent.TemplateVersion)
+                                    </span>
+                                }
+
+                                @if (agent.AllowedRoles.Count > 0)
+                                {
+                                    <span class="agent-status roles">
+                                        @string.Join(", ", agent.AllowedRoles) only
+                                    </span>
+                                }
                             </div>
 
                             <code class="agent-id">@agent.AgentId</code>
@@ -192,9 +207,9 @@
                                 <strong>@agent.Version</strong>
                             </div>
 
-                            <div>
-                                <span>Permissions</span>
-                                <strong>@agent.Permissions.Count</strong>
+                            <div title="Derived from the agent's tools">
+                                <span>Can use</span>
+                                <strong>@(agent.Permissions.Count == 0 ? "—" : string.Join(", ", agent.Permissions))</strong>
                             </div>
 
                             <div>
@@ -219,21 +234,18 @@
                         </div>
 
                         <div class="agent-actions">
-                            <AuthorizeView Policy="@Permissions.AgentsPermissionsManage">
-                                <Authorized>
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-secondary"
-                                            @onclick="() => BeginPermissions(agent)">
-                                        Permissions
-                                    </button>
-
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-secondary"
-                                            @onclick="() => BeginToolsAsync(agent)">
-                                        Tools
-                                    </button>
-                                </Authorized>
-                            </AuthorizeView>
+                            @if (!agent.IsManaged)
+                            {
+                                <AuthorizeView Policy="@Permissions.AgentsPermissionsManage">
+                                    <Authorized>
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                @onclick="() => BeginToolsAsync(agent)">
+                                            Tools
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
+                            }
 
                             <AuthorizeView Policy="@Permissions.AgentsUpdate">
                                 <Authorized>
@@ -245,15 +257,30 @@
                                 </Authorized>
                             </AuthorizeView>
 
-                            <AuthorizeView Policy="@Permissions.AgentsDelete">
-                                <Authorized>
-                                    <button type="button"
-                                            class="btn btn-sm btn-outline-danger"
-                                            @onclick="() => RequestDelete(agent)">
-                                        Delete
-                                    </button>
-                                </Authorized>
-                            </AuthorizeView>
+                            @if (agent.IsManaged)
+                            {
+                                <AuthorizeView Policy="@Permissions.AgentsUpdate">
+                                    <Authorized>
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                @onclick="() => detachCandidate = agent">
+                                            Detach
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
+                            }
+                            else
+                            {
+                                <AuthorizeView Policy="@Permissions.AgentsDelete">
+                                    <Authorized>
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => RequestDelete(agent)">
+                                            Delete
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
+                            }
                             <AuthorizeView Policy="@Permissions.AgentsMcpClientsManage">
                                 <Authorized>
                                     <button type="button"
@@ -270,33 +297,6 @@
         }
     </section>
 
-    @if (permissionsAgent is not null)
-    {
-        <section class="agent-editor-panel" aria-label="Agent permissions editor">
-            <div class="agent-editor-heading">
-                <div>
-                    <h2>Permissions — @permissionsAgent.Name</h2>
-                    <p>
-                        <code>@permissionsAgent.AgentId</code>
-                    </p>
-                </div>
-
-                <button type="button"
-                        class="btn btn-sm btn-outline-secondary"
-                        @onclick="ClosePermissions"
-                        disabled="@isSavingPermissions">
-                    Close
-                </button>
-            </div>
-
-            <AgentPermissionsEditor
-                Agent="@permissionsAgent"
-                IsSubmitting="@isSavingPermissions"
-                ErrorMessage="@permissionsError"
-                OnSave="SavePermissionsAsync"
-                OnCancel="ClosePermissions" />
-        </section>
-    }
 
     @if (toolsAgent is not null)
     {
@@ -364,8 +364,8 @@
                     <span>Agent ID</span>
                     <code>@deleteCandidate.AgentId</code>
 
-                    <span>Permissions</span>
-                    <strong>@deleteCandidate.Permissions.Count</strong>
+                    <span>Tools</span>
+                    <strong>@deleteCandidate.Tools.Count</strong>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(deleteError))
@@ -395,6 +395,16 @@
     }
 </div>
 
+<IronForge.Shared.Components.Dialogs.ConfirmDialog
+    Visible="@(detachCandidate is not null)"
+    Title="@($"Detach {detachCandidate?.Name} from its template?")"
+    Message="It becomes your workspace's own agent: you can edit its instructions and tools, and the platform no longer updates it. This cannot be undone."
+    ConfirmText="Detach"
+    BusyText="Detaching..."
+    Busy="@isDetaching"
+    OnConfirm="DetachAsync"
+    OnCancel="() => detachCandidate = null" />
+
 @code {
     private List<AgentDto> agents = [];
 
@@ -406,10 +416,6 @@
     private AgentEditorModel editorModel = new();
     private bool isSaving;
     private string? editorError;
-
-    private AgentDto? permissionsAgent;
-    private bool isSavingPermissions;
-    private string? permissionsError;
 
     private List<AgentModelProfileDto> modelProfiles = [];
     private AgentUsageSummaryDto? usage;
@@ -572,62 +578,6 @@
         }
     }
 
-    private void BeginPermissions(AgentDto agent)
-    {
-        permissionsAgent = CloneAgent(agent);
-        permissionsError = null;
-    }
-
-    private void ClosePermissions()
-    {
-        if (isSavingPermissions)
-            return;
-
-        permissionsAgent = null;
-        permissionsError = null;
-    }
-
-    private async Task SavePermissionsAsync(
-        IReadOnlyCollection<string> permissions)
-    {
-        if (permissionsAgent is null || isSavingPermissions)
-            return;
-
-        isSavingPermissions = true;
-        permissionsError = null;
-
-        try
-        {
-            var result =
-                await AgentManagementService.UpdatePermissionsAsync(
-                    permissionsAgent.AgentId,
-                    new UpdateAgentPermissionsRequest
-                    {
-                        Permissions = permissions.ToList()
-                    });
-
-            if (!result.Success)
-            {
-                permissionsError =
-                    result.ErrorMessage ??
-                    "Unable to update agent permissions.";
-
-                return;
-            }
-
-            permissionsAgent = null;
-            await LoadAgentsAsync();
-        }
-        catch (Exception ex)
-        {
-            permissionsError = ex.Message;
-        }
-        finally
-        {
-            isSavingPermissions = false;
-        }
-    }
-
     private async Task BeginToolsAsync(AgentDto agent)
     {
         toolsAgent = CloneAgent(agent);
@@ -783,6 +733,9 @@
             CreatedAtUtc = source.CreatedAtUtc,
             UpdatedAtUtc = source.UpdatedAtUtc,
             Permissions = [.. source.Permissions],
+            AllowedRoles = [.. source.AllowedRoles],
+            IsManaged = source.IsManaged,
+            TemplateVersion = source.TemplateVersion,
             Instructions = source.Instructions,
             MaximumIterationsPerRequest = source.MaximumIterationsPerRequest,
             AllowMultipleToolCalls = source.AllowMultipleToolCalls,
@@ -798,4 +751,32 @@
                 })
                 .ToList()
         };
+
+    private AgentDto? detachCandidate;
+    private bool isDetaching;
+
+    private async Task DetachAsync()
+    {
+        if (detachCandidate is null)
+            return;
+
+        isDetaching = true;
+
+        try
+        {
+            var result = await AgentManagementService.DetachAsync(detachCandidate.AgentId);
+
+            if (!result.Success)
+            {
+                errorMessage = result.ErrorMessage;
+            }
+
+            detachCandidate = null;
+            await LoadAgentsAsync();
+        }
+        finally
+        {
+            isDetaching = false;
+        }
+    }
 }

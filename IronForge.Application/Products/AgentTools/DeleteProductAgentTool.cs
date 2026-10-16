@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Products.Tools.Products;
@@ -20,6 +21,7 @@ public sealed class DeleteProductAgentTool : AgentTool
             Name = "delete_product",
             Description = "Permanently deletes an existing IronForge product.",
             RequiredPermission = Permissions.ProductsDelete,
+            Module = PlatformModules.Products,
             RiskLevel = AgentRiskLevel.High,
             RequiresApproval = true
         };

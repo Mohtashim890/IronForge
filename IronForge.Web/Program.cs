@@ -241,6 +241,23 @@ builder.Services.AddScoped<IAgentDelegationManagementService>(
             httpClient);
     });
 
+// Tenant onboarding and member management.
+builder.Services.AddScoped<IPlatformTenantService>(serviceProvider =>
+    new PlatformTenantService(CreateAuthorizedApiClient(serviceProvider)));
+
+builder.Services.AddScoped<ITenantMembersService>(serviceProvider =>
+    new TenantMembersService(CreateAuthorizedApiClient(serviceProvider)));
+
+builder.Services.AddScoped<IApprovalQueueClient>(serviceProvider =>
+    new ApprovalQueueClient(CreateAuthorizedApiClient(serviceProvider)));
+
+// The invitee is not signed in: plain client without the JWT handler.
+builder.Services.AddScoped<IInvitationService>(serviceProvider =>
+    new InvitationService(
+        serviceProvider
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(ApiClientName)));
+
 builder.Services.AddIronForgeWebAuthorization();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<JwtAuthenticationStateProvider>();
@@ -286,3 +303,31 @@ app.MapRazorComponents<App>()
     .AllowAnonymous();
 
 app.Run();
+
+// Same construction as the services above: the JWT handler is created in the
+// circuit scope on top of the factory-managed primary handler.
+HttpClient CreateAuthorizedApiClient(IServiceProvider serviceProvider)
+{
+    var settings =
+        serviceProvider
+            .GetRequiredService<IOptions<ApiSettings>>()
+            .Value;
+
+    var authorizationHandler =
+        new JwtAuthorizationHandler(
+            serviceProvider.GetRequiredService<ITokenStore>(),
+            serviceProvider.GetRequiredService<IAuthService>())
+        {
+            InnerHandler =
+                serviceProvider
+                    .GetRequiredService<IHttpMessageHandlerFactory>()
+                    .CreateHandler(ApiClientName)
+        };
+
+    return new HttpClient(
+        authorizationHandler,
+        disposeHandler: false)
+    {
+        BaseAddress = new Uri(settings.BaseUrl)
+    };
+}

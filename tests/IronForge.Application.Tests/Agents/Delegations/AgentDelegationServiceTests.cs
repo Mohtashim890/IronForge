@@ -141,6 +141,72 @@ namespace IronForge.Application.Tests.Agents.Delegations
                 exception.Message);
         }
 
+        [Fact]
+        public async Task CreateAsync_RecordsCurrentTenantOnDelegation()
+        {
+            // Arrange
+            var store = new Mock<IAgentDelegationStore>();
+            AgentDelegation? saved = null;
+
+            store
+                .Setup(x => x.SaveAsync(
+                    It.IsAny<AgentDelegation>(),
+                    It.IsAny<CancellationToken>()))
+                .Callback<AgentDelegation, CancellationToken>(
+                    (delegation, _) => saved = delegation)
+                .Returns(Task.CompletedTask);
+
+            var service = CreateServiceForAuthenticatedUser(store: store);
+
+            // Act
+            var result = await service.CreateAsync(
+                "product-agent",
+                "mcp-client",
+                new[] { "product.read" },
+                TimeSpan.FromMinutes(30));
+
+            // Assert
+            Assert.Equal(ApplicationTestContext.DefaultTenantId, result.TenantId);
+            Assert.NotNull(saved);
+            Assert.Equal(ApplicationTestContext.DefaultTenantId, saved!.TenantId);
+        }
+
+        [Fact]
+        public async Task CreateAsync_WithoutSelectedTenant_ThrowsUnauthorizedAccessException()
+        {
+            // Arrange
+            var executionContext = new Mock<IExecutionContextAccessor>();
+            var store = new Mock<IAgentDelegationStore>();
+
+            var service = CreateServiceForAuthenticatedUser(
+                executionContext: executionContext,
+                store: store);
+
+            // Signed in, but no tenant selected yet.
+            ApplicationTestContext.Set(
+                executionContext,
+                ApplicationTestContext.Create(tenantId: null));
+
+            // Act
+            var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(
+                () => service.CreateAsync(
+                    "product-agent",
+                    "mcp-client",
+                    new[] { "product.read" },
+                    TimeSpan.FromMinutes(30)));
+
+            // Assert
+            Assert.Equal(
+                "A tenant must be selected to create a delegation.",
+                exception.Message);
+
+            store.Verify(
+                x => x.SaveAsync(
+                    It.IsAny<AgentDelegation>(),
+                    It.IsAny<CancellationToken>()),
+                Times.Never);
+        }
+
         private static AgentDelegationService CreateServiceForAuthenticatedUser(
             Mock<IExecutionContextAccessor>? executionContext = null,
             Mock<IUserAuthorizationService>? userAuthorization = null,

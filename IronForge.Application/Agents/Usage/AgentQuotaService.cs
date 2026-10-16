@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
@@ -21,8 +22,8 @@ public interface IAgentQuotaService
 /// <summary>
 /// Monthly (calendar month, UTC) token quota per tenant.
 ///
-/// The limit is the tenant's MonthlyAgentTokenLimit, or the platform default
-/// from <see cref="AgentQuotaOptions"/>. It is a soft limit: it is checked
+/// The limit is the tenant's MonthlyAgentTokenLimit, else its plan's limit,
+/// else the platform default from <see cref="AgentQuotaOptions"/>. It is a soft limit: it is checked
 /// before a run starts, so the run that crosses it is allowed to finish.
 /// </summary>
 public sealed class AgentQuotaService : IAgentQuotaService
@@ -121,7 +122,9 @@ public sealed class AgentQuotaService : IAgentQuotaService
                 x => x.Id == tenantId,
                 cancellationToken);
 
+        // Tenant override, then the plan's limit, then the platform default.
         return tenant?.MonthlyAgentTokenLimit
+            ?? SubscriptionPlans.Find(tenant?.Plan)?.MonthlyAgentTokenLimit
             ?? _options.DefaultMonthlyTokenLimit;
     }
 

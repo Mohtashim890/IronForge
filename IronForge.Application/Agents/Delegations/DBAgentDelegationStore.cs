@@ -48,6 +48,7 @@ namespace IronForge.Application.Agents.Delegations
                 .Select(entity => new AgentDelegation
                 {
                     DelegationId = entity.DelegationId,
+                    TenantId = entity.TenantId,
                     UserId = entity.UserId,
                     AgentId = entity.AgentId,
                     ClientId = entity.ClientId,
@@ -85,6 +86,7 @@ namespace IronForge.Application.Agents.Delegations
             return new AgentDelegation
             {
                 DelegationId = entity.DelegationId,
+                TenantId = entity.TenantId,
                 UserId = entity.UserId,
                 AgentId = entity.AgentId,
                 ClientId = entity.ClientId,
@@ -111,6 +113,7 @@ namespace IronForge.Application.Agents.Delegations
                 var entity = new AgentDelegationEntity
                 {
                     DelegationId = delegation.DelegationId,
+                    TenantId = delegation.TenantId,
                     UserId = delegation.UserId,
                     AgentId = delegation.AgentId,
                     ClientId = delegation.ClientId,

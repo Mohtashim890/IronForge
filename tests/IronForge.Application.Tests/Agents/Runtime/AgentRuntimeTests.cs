@@ -35,7 +35,8 @@ public class AgentRuntimeTests
     private readonly Mock<IConversationSummaryCoordinator> _summaryCoordinator = new();
     private readonly Mock<IApprovedToolExecutionService> _approvedExecution = new();
     private readonly Mock<ITracingService> _tracing = new();
-    private readonly ExecutionContextAccessor _executionContext = new();
+    // Not readonly: a test may replace it with a context for another role.
+    private ExecutionContextAccessor _executionContext = new();
 
     private IEnumerable<ChatMessage>? _sentMessages;
     private ChatOptions? _sentOptions;
@@ -93,10 +94,10 @@ public class AgentRuntimeTests
             });
     }
 
-    private AgentRuntime CreateRuntime()
+    private AgentRuntime CreateRuntime(IAgentDefinitionProvider? definitions = null)
     {
         return new AgentRuntime(
-            new CodeAgentDefinitionProvider(),
+            definitions ?? new CodeAgentDefinitionProvider(),
             _chatClients.Object,
             _quota.Object,
             _usage.Object,
@@ -308,5 +309,188 @@ public class AgentRuntimeTests
         _usage.Verify(x => x.RecordAsync(
             It.IsAny<AgentDefinition>(), It.IsAny<AgentModelProfile>(), It.IsAny<string>(),
             It.IsAny<Guid?>(), It.IsAny<UsageDetails?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ---- Four-eyes approvals ----------------------------------------------
+
+    private AgentApproval PendingApproval(AgentRiskLevel risk, string toolName)
+    {
+        var session = Session(AgentIds.ProductAgent);
+
+        _conversationService
+            .Setup(x => x.GetSessionAsync(session.Id, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+
+        var approval = new AgentApproval
+        {
+            ApprovalId = Guid.NewGuid().ToString("N"),
+            SessionId = session.Id,
+            TenantId = ApplicationTestContext.DefaultTenantId,
+            UserId = ApplicationTestContext.DefaultUserId,
+            AgentId = AgentIds.ProductAgent,
+            ToolName = toolName,
+            ArgumentsJson = "{}",
+            RiskLevel = risk,
+            Status = AgentApprovalStatus.Pending,
+            CreatedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(10)
+        };
+
+        _approvalStore
+            .Setup(x => x.GetAsync(approval.ApprovalId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(approval);
+
+        return approval;
+    }
+
+    [Theory]
+    [InlineData(AgentRiskLevel.High)]
+    [InlineData(AgentRiskLevel.Critical)]
+    public async Task HighRiskAction_CannotBeApprovedByTheRequester(AgentRiskLevel risk)
+    {
+        var approval = PendingApproval(risk, "delete_product");
+
+        var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            CreateRuntime().RespondToApprovalAsync(
+                AgentIds.ProductAgent,
+                approval.ApprovalId,
+                approved: true));
+
+        Assert.Contains("needs approval by another approver", exception.Message);
+        Assert.Equal(AgentApprovalStatus.Pending, approval.Status);
+
+        _approvedExecution.Verify(
+            x => x.ExecuteAsync(It.IsAny<AgentApproval>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task HighRiskAction_ApprovedByAnotherApprover_IsRunByTheRequester()
+    {
+        var approval = PendingApproval(AgentRiskLevel.High, "delete_product");
+
+        approval.Status = AgentApprovalStatus.Approved;
+        approval.DecidedByUserId = ApplicationTestContext.DefaultUserId + 1;
+
+        var result = await CreateRuntime().RespondToApprovalAsync(
+            AgentIds.ProductAgent,
+            approval.ApprovalId,
+            approved: true);
+
+        Assert.Equal(AgentRunStatus.Completed, result.Status);
+
+        // The second approver's decision is kept, not overwritten by the requester.
+        Assert.Equal(ApplicationTestContext.DefaultUserId + 1, approval.DecidedByUserId);
+
+        _approvedExecution.Verify(
+            x => x.ExecuteAsync(approval, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task HighRiskAction_CanBeCancelledByTheRequester()
+    {
+        var approval = PendingApproval(AgentRiskLevel.High, "delete_product");
+
+        await CreateRuntime().RespondToApprovalAsync(
+            AgentIds.ProductAgent,
+            approval.ApprovalId,
+            approved: false);
+
+        Assert.Equal(AgentApprovalStatus.Rejected, approval.Status);
+        Assert.Equal(ApplicationTestContext.DefaultUserId, approval.DecidedByUserId);
+    }
+
+    [Fact]
+    public async Task MediumRiskAction_IsStillApprovedByTheRequester()
+    {
+        var approval = PendingApproval(AgentRiskLevel.Medium, "create_product");
+
+        await CreateRuntime().RespondToApprovalAsync(
+            AgentIds.ProductAgent,
+            approval.ApprovalId,
+            approved: true);
+
+        Assert.Equal(AgentApprovalStatus.Approved, approval.Status);
+        Assert.Equal(ApplicationTestContext.DefaultUserId, approval.DecidedByUserId);
+
+        _approvedExecution.Verify(
+            x => x.ExecuteAsync(approval, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // ---- Allowed roles -----------------------------------------------------
+
+    private static CodeAgentDefinitionProvider ProviderWithRoles(params string[] roles)
+    {
+        var template = AgentDefinitions.ProductAgent;
+
+        return new CodeAgentDefinitionProvider(
+        [
+            new AgentDefinition
+            {
+                AgentId = template.AgentId,
+                Name = template.Name,
+                Version = template.Version,
+                Instructions = template.Instructions,
+                Tools = template.Tools,
+                AllowedRoles = roles
+            }
+        ]);
+    }
+
+    private void SignInAs(string role)
+    {
+        // The accessor accepts one context; start from a fresh one.
+        _executionContext = new ExecutionContextAccessor();
+        _executionContext.Set(new IronForge.Application.Execution.ExecutionContext
+        {
+            TenantId = ApplicationTestContext.DefaultTenantId,
+            Actor = new ExecutionActor
+            {
+                UserId = ApplicationTestContext.DefaultUserId,
+                Role = role
+            }
+        });
+    }
+
+    [Fact]
+    public async Task RunAsync_RoleNotAllowedForTheAgent_IsRefusedBeforeAnyModelCall()
+    {
+        SignInAs("Viewer");
+
+        var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            CreateRuntime(ProviderWithRoles("Admin", "Member")).RunAsync(
+                AgentIds.ProductAgent,
+                sessionId: null,
+                "delete everything"));
+
+        Assert.Contains("Your role cannot use agent", exception.Message);
+
+        _chatClient.Verify(
+            x => x.GetResponseAsync(
+                It.IsAny<IEnumerable<ChatMessage>>(),
+                It.IsAny<ChatOptions?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task RunAsync_AllowedRole_Runs()
+    {
+        SignInAs("member");
+
+        var session = Session(AgentIds.ProductAgent);
+
+        _conversationService
+            .Setup(x => x.CreateSessionAsync(AgentIds.ProductAgent, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(session);
+
+        var result = await CreateRuntime(ProviderWithRoles("Member")).RunAsync(
+            AgentIds.ProductAgent,
+            sessionId: null,
+            "list my products");
+
+        Assert.Equal(AgentRunStatus.Completed, result.Status);
     }
 }

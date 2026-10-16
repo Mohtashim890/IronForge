@@ -173,6 +173,11 @@ public class AgentDelegationService
                 "An authenticated user is required to create a delegation.");
         }
 
+        var tenantId =
+            _executionContext.Current.TenantId
+            ?? throw new UnauthorizedAccessException(
+                "A tenant must be selected to create a delegation.");
+
         if (string.IsNullOrWhiteSpace(clientId))
         {
             throw new ArgumentException(
@@ -229,6 +234,7 @@ public class AgentDelegationService
         var delegation = new AgentDelegation
         {
             DelegationId = Guid.NewGuid(),
+            TenantId = tenantId,
             UserId = actor.UserId.Value,
             AgentId = agentId,
             Scopes = requestedScopes,

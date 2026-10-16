@@ -1,0 +1,44 @@
+.approvals-page {
+    width: 100%;
+}
+
+.approvals-section {
+    margin-bottom: 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid #e4e7ec;
+    border-radius: 0.75rem;
+    background: #ffffff;
+}
+
+.approvals-section h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.approvals-muted {
+    color: #667085;
+    font-size: 0.875rem;
+}
+
+.approval-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.9rem 0;
+    border-top: 1px solid #f2f4f7;
+}
+
+.approval-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+}
+
+@media (max-width: 800px) {
+    .approval-item {
+        flex-direction: column;
+    }
+}

@@ -1,4 +1,5 @@
-﻿using IronForge.Application.Auditing.Models;
+﻿using IronForge.Shared.Authorization;
+using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;

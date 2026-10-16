@@ -130,6 +130,14 @@
             </div>
         }
 
+        @* Platform administration does not need a workspace. *@
+        <AuthorizeView Policy="@IronForge.Shared.Authorization.Permissions.PlatformTenantsManage">
+            <a class="tenant-selection-platform-link"
+               href="/platform/tenants">
+                Platform administration →
+            </a>
+        </AuthorizeView>
+
     </div>
 
     <div class="tenant-selection-footer">

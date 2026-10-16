@@ -18,7 +18,19 @@
 
         public DateTime UpdatedAtUtc { get; set; }
 
+        /// <summary>
+        /// Derived from the agent's tool bindings (read-only): the delegation
+        /// scope ceiling for this agent.
+        /// </summary>
         public List<string> Permissions { get; set; } = [];
+
+        /// <summary>Tenant roles that may chat with the agent; empty means everyone.</summary>
+        public List<string> AllowedRoles { get; set; } = [];
+
+        /// <summary>Installed from a platform template and updated by rollouts.</summary>
+        public bool IsManaged { get; set; }
+
+        public int? TemplateVersion { get; set; }
 
         /// <summary>System prompt sent first on every model call.</summary>
         public string Instructions { get; set; } = string.Empty;

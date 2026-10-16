@@ -344,7 +344,16 @@ public sealed class AgentRuntime : IAgentRuntime
                 "This approval does not belong to the current agent.");
         }
 
-        if (approval.Status != AgentApprovalStatus.Pending)
+        var needsSecondApprover =
+            ApprovalRules.RequiresSecondApprover(approval.RiskLevel);
+
+        // High risk: once a second approver has approved, the requester runs
+        // (or cancels) it from here.
+        var awaitingRun =
+            needsSecondApprover &&
+            ApprovalRules.HasSecondApproval(approval);
+
+        if (approval.Status != AgentApprovalStatus.Pending && !awaitingRun)
         {
             throw new InvalidOperationException(
                 $"Approval '{approvalId}' has already been processed. " +
@@ -406,6 +415,7 @@ public sealed class AgentRuntime : IAgentRuntime
             approval.Status = AgentApprovalStatus.Rejected;
             approval.DecisionReason = reason;
             approval.DecidedAtUtc = DateTime.UtcNow;
+            approval.DecidedByUserId = currentUserId;
 
             await _approvalStore.UpdateAsync(
                 approval,
@@ -419,14 +429,28 @@ public sealed class AgentRuntime : IAgentRuntime
             };
         }
 
-        // User approved the operation.
-        approval.Status = AgentApprovalStatus.Approved;
-        approval.DecisionReason = reason;
-        approval.DecidedAtUtc = DateTime.UtcNow;
+        if (needsSecondApprover)
+        {
+            // Never self-approved: only runs after another approver's decision.
+            if (!awaitingRun)
+            {
+                throw new UnauthorizedAccessException(
+                    $"'{approval.ToolName}' is a {approval.RiskLevel}-risk action and needs " +
+                    "approval by another approver. It is waiting in Approvals.");
+            }
+        }
+        else
+        {
+            // User approved the operation.
+            approval.Status = AgentApprovalStatus.Approved;
+            approval.DecisionReason = reason;
+            approval.DecidedAtUtc = DateTime.UtcNow;
+            approval.DecidedByUserId = currentUserId;
 
-        await _approvalStore.UpdateAsync(
-            approval,
-            cancellationToken);
+            await _approvalStore.UpdateAsync(
+                approval,
+                cancellationToken);
+        }
 
         await _approvedToolExecutionService.ExecuteAsync(
             approval,
@@ -480,6 +504,13 @@ public sealed class AgentRuntime : IAgentRuntime
         {
             throw new UnauthorizedAccessException(
                 $"An authenticated user is required to run '{definition.AgentId}'.");
+        }
+
+        // Both chat and approval responses come through here.
+        if (!definition.AllowsRole(currentContext.Actor.Role))
+        {
+            throw new UnauthorizedAccessException(
+                $"Your role cannot use agent '{definition.Name}'.");
         }
 
         _executionContext.SetAgent(

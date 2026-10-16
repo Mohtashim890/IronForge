@@ -1,3 +1,4 @@
+using IronForge.Shared.Authorization;
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;

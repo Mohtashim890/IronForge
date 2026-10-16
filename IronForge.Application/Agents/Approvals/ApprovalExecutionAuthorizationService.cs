@@ -74,6 +74,13 @@ public sealed class ApprovalExecutionAuthorizationService
                     $"{approval.Status}."));
         }
 
+        if (ApprovalRules.RequiresSecondApprover(approval.RiskLevel) &&
+            !ApprovalRules.HasSecondApproval(approval))
+        {
+            return Task.FromResult(
+                Deny("A High-risk action needs approval by another approver."));
+        }
+
         if (approval.ExpiresAtUtc <= DateTime.UtcNow)
         {
             return Task.FromResult(

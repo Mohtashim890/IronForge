@@ -9,7 +9,6 @@ using IronForge.Application.Commons;
 using IronForge.Shared.Models.Agents.Manage;
 using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
 using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentPermissionsRequest = IronForge.Application.Agents.DTOs.UpdateAgentPermissionsRequest;
 using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,23 +20,17 @@ namespace IronForge.Api.Controllers;
 [Authorize]
 public class AgentController : ControllerBase
 {
-    private readonly IAgentService _agentService;
-    private readonly IProductAgent _productAgent;
     private readonly IConversationSummaryService _conversationSummaryService;
     private readonly IConversationService _conversationService;
     private readonly IAgentManagementService _agentManagementService;
     private readonly IAgentRuntime _agentRuntime;
 
     public AgentController(
-        IAgentService agentService,
-        IProductAgent productAgent,
         IConversationSummaryService conversationSummaryService,
         IConversationService conversationService,
         IAgentManagementService agentManagementService,
         IAgentRuntime agentRuntime)
     {
-        _agentService = agentService;
-        _productAgent = productAgent;
         _conversationSummaryService = conversationSummaryService;
         _conversationService = conversationService;
         _agentManagementService = agentManagementService;
@@ -194,24 +187,19 @@ public class AgentController : ControllerBase
         return NoContent();
     }
 
-    [HttpPut("{agentId}/permissions")]
-    public async Task<IActionResult> UpdatePermissions(
+    [HttpPost("{agentId}/detach")]
+    public async Task<IActionResult> Detach(
         string agentId,
-        UpdateAgentPermissionsRequest request,
         CancellationToken cancellationToken)
     {
         var result =
-            await _agentManagementService.UpdatePermissionsAsync(
+            await _agentManagementService.DetachAsync(
                 agentId,
-                request,
                 cancellationToken);
 
-        if (!result.Success)
-        {
-            return ToActionResult<AgentDto>(result);
-        }
-
-        return Ok(result.Data);
+        return result.Success
+            ? Ok(result.Data)
+            : ToActionResult(result);
     }
 
     [HttpPut("{agentId}/tools")]
@@ -268,15 +256,31 @@ public class AgentController : ControllerBase
         AgentApprovalDecisionRequest request,
         CancellationToken cancellationToken)
     {
-        var result =
-            await _agentRuntime.RespondToApprovalAsync(
-                agentId,
-                approvalId,
-                request.Approved,
-                request.Reason,
-                cancellationToken);
+        try
+        {
+            var result =
+                await _agentRuntime.RespondToApprovalAsync(
+                    agentId,
+                    approvalId,
+                    request.Approved,
+                    request.Reason,
+                    cancellationToken);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // E.g. a High-risk action that still needs a second approver.
+            return StatusCode(StatusCodes.Status403Forbidden, ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(ex.Message);
+        }
     }
 
     private ObjectResult QuotaExceeded(AgentQuotaExceededException exception)
@@ -302,84 +306,6 @@ public class AgentController : ControllerBase
             403 => Forbid(),
             _ => BadRequest(result.ErrorMessage)
         };
-    }
-
-
-    // ============================================================
-    // General Agent
-    // ============================================================
-
-    [HttpPost("chat")]
-    public async Task<IActionResult> Chat(
-        AgentChatRequest request,
-        CancellationToken cancellationToken)
-    {
-        var response =
-            await _agentService.ChatAsync(
-                request.Message,
-                cancellationToken);
-
-        return Ok(new
-        {
-            message = response
-        });
-    }
-
-
-    [HttpPost("analyze")]
-    public async Task<IActionResult> Analyze(
-        AgentChatRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentService.AnalyzeIntentAsync(
-                request.Message,
-                cancellationToken);
-
-        return Ok(result);
-    }
-
-
-    // ============================================================
-    // Product Agent
-    // ============================================================
-
-    [HttpPost("product")]
-    public async Task<IActionResult> Product(
-        AgentChatRequest request,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result =
-                await _productAgent.RunAsync(
-                    request.SessionId,
-                    request.Message,
-                    cancellationToken);
-
-            return Ok(result);
-        }
-        catch (AgentQuotaExceededException ex)
-        {
-            return QuotaExceeded(ex);
-        }
-    }
-
-
-    [HttpPost("product/approvals/{approvalId}/decision")]
-    public async Task<IActionResult> DecideApproval(
-        string approvalId,
-        AgentApprovalDecisionRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _productAgent.RespondToApprovalAsync(
-                approvalId,
-                request.Approved,
-                request.Reason,
-                cancellationToken);
-
-        return Ok(result);
     }
 
 

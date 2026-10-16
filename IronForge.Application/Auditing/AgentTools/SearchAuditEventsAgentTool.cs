@@ -1,3 +1,4 @@
+using IronForge.Shared.Subscriptions;
 using System.ComponentModel;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
@@ -40,6 +41,7 @@ public sealed class SearchAuditEventsAgentTool : AgentTool
                 "Searches the organisation's audit trail (newest first): sign-ins, " +
                 "authorization decisions, product changes, agent runs, approvals and tool calls.",
             RequiredPermission = Permissions.AuditRead,
+            Module = PlatformModules.Audit,
             RiskLevel = AgentRiskLevel.Low
         };
 

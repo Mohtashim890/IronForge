@@ -1,6 +1,8 @@
+using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Models;
 using IronForge.Application.Agents.Runtime;
+using IronForge.Application.Auth.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -14,16 +16,23 @@ namespace IronForge.Application.Agents.Tools;
 ///   (only for model calls whose effective policy requires approval).
 /// Both the approval wrapper and the governance checks read the same
 /// effective policy, so they cannot disagree.
+///
+/// The model is only offered tools the current user may use. Governance
+/// (UserPermissionPolicy) enforces the same rule at execution; filtering here
+/// stops the model from proposing actions, including approval requests, that
+/// would be denied anyway.
 /// </summary>
 public sealed class AgentToolRegistry : IAgentToolRegistry
 {
     private readonly IReadOnlyDictionary<string, IAgentTool> _tools;
     private readonly IAgentGovernanceService _governance;
+    private readonly IUserAuthorizationService _userAuthorization;
     private readonly ILogger<AgentToolRegistry> _logger;
 
     public AgentToolRegistry(
         IEnumerable<IAgentTool> tools,
         IAgentGovernanceService governance,
+        IUserAuthorizationService userAuthorization,
         ILogger<AgentToolRegistry> logger)
     {
         var catalogue =
@@ -31,6 +40,13 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
         foreach (var tool in tools)
         {
+            if (PlatformModules.Find(tool.Descriptor.Module) is null)
+            {
+                throw new InvalidOperationException(
+                    $"Agent tool '{tool.Descriptor.Name}' belongs to unknown module " +
+                    $"'{tool.Descriptor.Module}'. Add it to PlatformModules.All.");
+            }
+
             if (!catalogue.TryAdd(tool.Descriptor.Name, tool))
             {
                 throw new InvalidOperationException(
@@ -40,6 +56,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
         _tools = catalogue;
         _governance = governance;
+        _userAuthorization = userAuthorization;
         _logger = logger;
     }
 
@@ -111,6 +128,12 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
             }
 
             var policy = GetEffectivePolicy(definition, binding.ToolName);
+
+            if (!_userAuthorization.HasPermission(policy.RequiredPermission))
+            {
+                // Not the user's to delegate (e.g. a Viewer and create_product).
+                continue;
+            }
 
             AIFunction function = Govern(
                 binding.ToolName,
