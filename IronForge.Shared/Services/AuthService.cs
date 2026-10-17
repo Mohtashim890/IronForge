@@ -237,6 +237,23 @@ namespace IronForge.Shared.Services
                     "api/auth/login",
                     request);
 
+                if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                {
+                    // Valid credentials without gym access yet, e.g. a pending join request.
+                    var reason = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+
+                    return ServiceResult<LoginResponse>.Fail(
+                        string.IsNullOrWhiteSpace(reason) ? "Your account cannot sign in yet." : reason,
+                        (int)response.StatusCode);
+                }
+
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    return ServiceResult<LoginResponse>.Fail(
+                        "Too many sign-in attempts. Wait a minute and try again.",
+                        (int)response.StatusCode);
+                }
+
                 if (!response.IsSuccessStatusCode)
                 {
                     return ServiceResult<LoginResponse>.Fail(

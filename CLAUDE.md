@@ -1,4 +1,4 @@
-# IronForge — Authoritative Context for AI Coding Agents
+﻿# IronForge — Authoritative Context for AI Coding Agents
 
 This file is the source of truth for new sessions. Read it before changing code. If code and this file disagree, verify in code, fix the code or this file, and say which you changed.
 
@@ -165,6 +165,12 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **Cancel**: voids Open invoices for future periods; NextBillingDate becomes null.
 - **Reactivate**: Cancelled or Expired → Active. A cancelled member restarts from today, or from PaidThrough + 1.
 - **Anonymize** (data deletion request): delete metrics, goals, workouts and routines; deactivate the membership; scrub personal fields. Invoices and payments are kept.
+- **Approval gates app access**: a member's `TenantMembership.IsActive` mirrors approval (`MemberProfile.ApprovedAtUtc != null`, see `IsApproved`).
+  - Join requests and member invites without a staff-created profile start inactive.
+  - Approve and Reactivate activate the membership; Decline deactivates it (`MemberService.SetAppAccessAsync`).
+  - A declined request (Cancelled with no approval) can be made again; the same profile is reopened as Pending.
+  - `AuthService.SignInAsync` refuses sign-in (403 plus the reason) when an account has no active gym membership and only pending or declined requests. Wrong passwords stay 401 "Invalid username or password". PlatformAdmins are exempt.
+- **A new gym has no membership plans.** Members cannot be added or approved until an Admin creates one; the dashboard, Members and Join requests pages say so and link to `/plans`.
 - **Check-in** (`CheckInService`): staff only and Active members only. A second scan within 30 minutes is a duplicate and returns the existing check-in.
 
 ### 4.3 Billing (`Gym/Billing/*`)

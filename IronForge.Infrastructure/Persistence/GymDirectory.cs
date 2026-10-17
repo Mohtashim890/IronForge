@@ -1,8 +1,9 @@
-using IronForge.Application.Entities;
+﻿using IronForge.Application.Entities;
 using IronForge.Application.Gym.Members;
 using IronForge.Application.Gym.Notifications;
 using IronForge.Infrastructure.Data;
 using IronForge.Shared.Authorization;
+using IronForge.Shared.Models.Gym;
 using IronForge.Shared.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,6 +45,34 @@ public sealed class GymDirectory : IGymDirectory
             .FirstOrDefaultAsync(
                 x => x.TenantId == tenantId && x.Email == normalizedEmail,
                 cancellationToken);
+    }
+
+    public Task<MemberProfile?> FindMemberByEmailTrackedAsync(
+        int tenantId,
+        string normalizedEmail,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.MemberProfiles
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                x => x.TenantId == tenantId && x.Email == normalizedEmail,
+                cancellationToken);
+    }
+
+    public async Task<List<UnapprovedMembership>> ListUnapprovedMembershipsAsync(
+        int userId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.MemberProfiles
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(x => x.UserId == userId && x.ApprovedAtUtc == null && x.AnonymizedAtUtc == null)
+            .Join(
+                _dbContext.Tenants,
+                m => m.TenantId,
+                t => t.Id,
+                (m, t) => new UnapprovedMembership(t.Id, t.Name, m.Status == MemberStatus.Cancelled))
+            .ToListAsync(cancellationToken);
     }
 
     public Task<MemberProfile?> FindUnlinkedMemberByEmailTrackedAsync(

@@ -1,4 +1,4 @@
-using IronForge.Application.Auditing.Models;
+﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
@@ -473,6 +473,9 @@ public sealed class MemberService : IMemberService
         member.MembershipPlanId = plan.Id;
         member.Status = MemberStatus.Active;
         member.ApprovedAtUtc = _clock.GetUtcNow().UtcDateTime;
+
+        // Approval opens the gym in the member's app.
+        await SetAppAccessAsync(member, true, cancellationToken);
         member.NextBillingDate ??= GymCalendar.Today(_clock, gym.Settings.TimeZoneId);
 
         var invoice = await _billing.IssueNextInvoiceAsync(gym, member, plan, cancellationToken);
@@ -519,6 +522,9 @@ public sealed class MemberService : IMemberService
         member.Status = MemberStatus.Cancelled;
         member.CancelledAtUtc = _clock.GetUtcNow().UtcDateTime;
         member.NextBillingDate = null;
+
+        // A declined request gives no access to the gym.
+        await SetAppAccessAsync(member, false, cancellationToken);
 
         _notifications.Queue(
             member.TenantId,
@@ -728,6 +734,9 @@ public sealed class MemberService : IMemberService
 
         member.Status = MemberStatus.Active;
         member.CancelledAtUtc = null;
+        member.ApprovedAtUtc ??= _clock.GetUtcNow().UtcDateTime;
+
+        await SetAppAccessAsync(member, true, cancellationToken);
 
         // A cancelled member starts a new period today; an expired member
         // continues where billing stopped (their overdue invoice stays open).
@@ -994,6 +1003,20 @@ public sealed class MemberService : IMemberService
         }
 
         await _members.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>Turns the member's app access to this gym on or off (their TenantMembership).</summary>
+    private async Task SetAppAccessAsync(MemberProfile member, bool active, CancellationToken cancellationToken)
+    {
+        if (member.UserId is not { } userId)
+            return;
+
+        var membership = await _memberships.FirstOrDefaultTrackedAsync(
+            x => x.TenantId == member.TenantId && x.UserId == userId && x.Role == TenantRoles.Member,
+            cancellationToken);
+
+        if (membership is not null)
+            membership.IsActive = active;
     }
 
     private async Task<(MemberProfile? Member, ServiceResult<MemberSummaryDto>? Failure)> LoadForChangeAsync(

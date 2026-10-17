@@ -1,4 +1,4 @@
-using IronForge.Application.Entities;
+﻿using IronForge.Application.Entities;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.IntegrationTests.Infrastructure;
 using IronForge.Shared.Authorization;
@@ -83,6 +83,151 @@ public sealed class GymWorkflowTests
     }
 
     [Fact]
+    public async Task PendingJoinRequest_CannotSignIn_UntilApproved()
+    {
+        var gym = await SeedGymAsync();
+        var memberId = await JoinAsync(gym, "nadia@example.com", "nadia");
+
+        var pending = await Anonymous(s => s.Auth.SignInAsync(Login("nadia")));
+        Assert.Null(pending.Response);
+        Assert.Contains("waiting for the gym's approval", pending.DenialReason);
+
+        // Wrong passwords stay indistinguishable from unknown accounts.
+        var wrong = await Anonymous(s => s.Auth.SignInAsync(new IronForge.Application.Auth.DTOs.LoginRequest { Username = "nadia", Password = "nope-nope" }));
+        Assert.Null(wrong.DenialReason);
+
+        var approved = await AsAdmin(gym, s => s.GymMembers.ApproveAsync(memberId, new ApproveMemberRequest()));
+        Assert.True(approved.Success, approved.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login("nadia")));
+        Assert.NotNull(signIn.Response);
+
+        var userId = await UserIdAsync("nadia");
+        var inGym = await Run(TestServiceFactory.Context(null, userId), s => s.Auth.SelectTenantAsync(
+            userId, gym.TenantId, signIn.Response!.RefreshToken));
+        Assert.NotNull(inGym);
+    }
+
+    [Fact]
+    public async Task DeclinedJoinRequest_CannotSignIn_AndCanAskAgain()
+    {
+        var gym = await SeedGymAsync();
+        var memberId = await JoinAsync(gym, "omar@example.com", "omar");
+
+        var declined = await AsAdmin(gym, s => s.GymMembers.RejectAsync(memberId));
+        Assert.True(declined.Success, declined.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login("omar")));
+        Assert.Null(signIn.Response);
+        Assert.Contains("was declined", signIn.DenialReason);
+
+        // A new request reopens the same profile as Pending.
+        var again = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = "Omar Again",
+            Email = "omar@example.com",
+            Username = "omar",
+            Password = "Password123!"
+        }));
+        Assert.True(again.Success, again.ErrorMessage);
+        Assert.Equal(MemberStatus.Pending, again.Data!.Status);
+
+        // A duplicate request while one is pending is refused.
+        var duplicate = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = "Omar",
+            Email = "omar@example.com",
+            Username = "omar",
+            Password = "Password123!"
+        }));
+        Assert.Equal(409, duplicate.StatusCode);
+
+        await using var db = Database.CreateDbContext();
+        Assert.Equal(1, await db.MemberProfiles.IgnoreQueryFilters().CountAsync(x => x.Email == "omar@example.com"));
+    }
+
+    [Fact]
+    public async Task MemberWithAnotherGym_StillSignsIn_ButOnlySeesApprovedGyms()
+    {
+        var gymA = await SeedGymAsync();
+        var gymB = await SeedGymAsync();
+        await SeedMemberAsync(gymA, "zara@example.com");
+
+        var joined = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gymB.JoinCode,
+            FullName = "Zara",
+            Email = "zara@example.com",
+            Username = $"zara{gymA.TenantId}",
+            Password = "Password123!"
+        }));
+        Assert.True(joined.Success, joined.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login($"zara{gymA.TenantId}")));
+        Assert.NotNull(signIn.Response);
+
+        var userId = await UserIdAsync($"zara{gymA.TenantId}");
+        var inB = await Run(TestServiceFactory.Context(null, userId), s => s.Auth.SelectTenantAsync(userId, gymB.TenantId, signIn.Response!.RefreshToken));
+        Assert.Null(inB);
+    }
+
+    [Fact]
+    public async Task StaffAddedMember_GetsAccess_WhenAcceptingTheInvitation()
+    {
+        var gym = await SeedGymAsync();
+
+        var created = await AsAdmin(gym, s => s.GymMembers.CreateAsync(new CreateMemberRequest
+        {
+            FullName = "Hira Raza",
+            Email = "hira@example.com",
+            MembershipPlanId = gym.PlanId,
+            SendAppInvitation = true
+        }));
+        Assert.True(created.Success, created.ErrorMessage);
+
+        var token = await IssueMemberInvitationTokenAsync(gym, "hira@example.com");
+
+        var accepted = await Anonymous(s => s.Invitations.AcceptAsync(new IronForge.Shared.Models.Tenants.AcceptInvitationRequest
+        {
+            Token = token,
+            Username = "hira",
+            Password = "Password123!"
+        }));
+        Assert.True(accepted.Success, accepted.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login("hira")));
+        Assert.NotNull(signIn.Response);
+
+        await using var db = Database.CreateDbContext();
+        var profile = await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Email == "hira@example.com");
+        Assert.NotNull(profile.UserId);
+        Assert.True(await db.TenantMemberships.AnyAsync(x => x.UserId == profile.UserId && x.TenantId == gym.TenantId && x.IsActive));
+    }
+
+    [Fact]
+    public async Task InvitedMemberWithoutAProfile_WaitsForApproval()
+    {
+        var gym = await SeedGymAsync();
+        var token = await IssueMemberInvitationTokenAsync(gym, "sana@example.com");
+
+        var accepted = await Anonymous(s => s.Invitations.AcceptAsync(new IronForge.Shared.Models.Tenants.AcceptInvitationRequest
+        {
+            Token = token,
+            Username = "sana",
+            Password = "Password123!"
+        }));
+        Assert.True(accepted.Success, accepted.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login("sana")));
+        Assert.Contains("waiting for the gym's approval", signIn.DenialReason);
+
+        await using var db = Database.CreateDbContext();
+        Assert.Equal(MemberStatus.Pending, (await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Email == "sana@example.com")).Status);
+    }
+
+    [Fact]
     public async Task JoinWithUnknownCode_OrSuspendedGym_IsRejected()
     {
         var gym = await SeedGymAsync();
@@ -117,6 +262,24 @@ public sealed class GymWorkflowTests
         }));
 
         Assert.Equal(409, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Staff_SeeTheGymsPlans_ForAddingAndApprovingMembers()
+    {
+        var gym = await SeedGymAsync();
+        await SeedMemberAsync(gym, "ali@example.com");
+        var trainer = await SeedUserAsync(gym, "trainer@gym.test", TenantRoles.Trainer);
+
+        var asAdmin = await AsAdmin(gym, s => s.Plans.ListAsync(includeArchived: true));
+        var asTrainer = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.Plans.ListAsync(includeArchived: false));
+
+        Assert.True(asAdmin.Success, asAdmin.ErrorMessage);
+        var plan = Assert.Single(asAdmin.Data!);
+        Assert.Equal(gym.PlanId, plan.Id);
+        Assert.Equal(1, plan.ActiveMemberCount);
+        Assert.True(asTrainer.Success, asTrainer.ErrorMessage);
+        Assert.Single(asTrainer.Data!);
     }
 
     // ---- Self-service is scoped to the caller ------------------------------
@@ -424,6 +587,47 @@ public sealed class GymWorkflowTests
     }
 
     // ---- Helpers ------------------------------------------------------------------
+
+    private static IronForge.Application.Auth.DTOs.LoginRequest Login(string username) =>
+        new() { Username = username, Password = "Password123!" };
+
+    /// <summary>Joins with the gym's code as a new account; returns the pending member id.</summary>
+    private async Task<int> JoinAsync(SeededGym gym, string email, string username)
+    {
+        var joined = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = username,
+            Email = email,
+            Username = username,
+            Password = "Password123!",
+            MembershipPlanId = gym.PlanId
+        }));
+
+        Assert.True(joined.Success, joined.ErrorMessage);
+
+        await using var db = Database.CreateDbContext();
+        return (await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Email == email && x.TenantId == gym.TenantId)).Id;
+    }
+
+    private async Task<int> UserIdAsync(string username)
+    {
+        await using var db = Database.CreateDbContext();
+        return (await db.Users.SingleAsync(x => x.Username == username)).Id;
+    }
+
+    private Task<string> IssueMemberInvitationTokenAsync(SeededGym gym, string email) =>
+        AsAdmin(gym, async s =>
+        {
+            var invitation = await s.Invitations.CreateForCurrentTenantAsync(new IronForge.Shared.Models.Tenants.CreateTenantInvitationRequest
+            {
+                Email = email,
+                Role = TenantRoles.Member
+            });
+
+            Assert.True(invitation.Success, invitation.ErrorMessage);
+            return invitation.Data!.Token;
+        });
 
     private sealed record SeededGym(int TenantId, int PlanId, int AdminUserId, string JoinCode);
 

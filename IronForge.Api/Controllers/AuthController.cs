@@ -26,8 +26,16 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> Login(
             LoginRequest request)
         {
-            var result =
-                await _authService.LoginAsync(request);
+            var signIn =
+                await _authService.SignInAsync(request);
+
+            // Correct credentials, but no gym access yet (pending or declined join request).
+            if (signIn.DenialReason is not null)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, signIn.DenialReason);
+            }
+
+            var result = signIn.Response;
 
             if (result == null)
             {

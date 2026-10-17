@@ -329,20 +329,22 @@ public sealed class TenantOnboardingTests
         var (tenantId, adminId) = await OnboardAsync("acme");
         var memberId = await AddMemberAsync(tenantId, adminId, "member@acme.com", "acme-member");
 
+        var before = await SignInToTenantAsync("acme-member", tenantId);
+        Assert.DoesNotContain(Permissions.GymBillingManage, PermissionsOf(before));
+
         var changed = await AsTenantAdmin(tenantId, adminId, s =>
-            s.Members.UpdateRoleAsync(memberId, TenantRoles.Trainer));
+            s.Members.UpdateRoleAsync(memberId, TenantRoles.Admin));
 
         Assert.True(changed.Success, changed.ErrorMessage);
-        Assert.Equal(TenantRoles.Trainer, changed.Data!.Role);
+        Assert.Equal(TenantRoles.Admin, changed.Data!.Role);
 
         var token = await SignInToTenantAsync("acme-member", tenantId);
 
         Assert.Equal(
-            TenantRoles.Trainer,
+            TenantRoles.Admin,
             new JwtSecurityTokenHandler().ReadJwtToken(token).Claims
                 .Single(x => x.Type == ClaimTypes.Role).Value);
-        Assert.DoesNotContain(Permissions.GymBillingManage, PermissionsOf(token));
-        Assert.Contains(Permissions.GymCheckInsManage, PermissionsOf(token));
+        Assert.Contains(Permissions.GymBillingManage, PermissionsOf(token));
     }
 
     [Fact]
@@ -404,7 +406,7 @@ public sealed class TenantOnboardingTests
         await using var db = Database.CreateDbContext();
         var membership = await db.TenantMemberships.SingleAsync(
             x => x.TenantId == globexId && x.UserId == globexMemberId);
-        Assert.Equal(TenantRoles.Member, membership.Role);
+        Assert.Equal(TenantRoles.Trainer, membership.Role);
     }
 
     [Fact]
@@ -540,7 +542,9 @@ public sealed class TenantOnboardingTests
         int adminId,
         string email,
         string username,
-        string role = TenantRoles.Member)
+        // Staff accounts: gym members invited without a staff-created profile
+        // wait for approval (see GymWorkflowTests).
+        string role = TenantRoles.Trainer)
     {
         var invite = await AsTenantAdmin(tenantId, adminId, s =>
             s.Invitations.CreateForCurrentTenantAsync(new CreateTenantInvitationRequest

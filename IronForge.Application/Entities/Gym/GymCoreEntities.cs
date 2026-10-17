@@ -111,7 +111,17 @@ namespace IronForge.Application.Entities
 
         public DateTime JoinedAtUtc { get; set; }
 
+        /// <summary>
+        /// When staff approved the membership (or added the member). A
+        /// member's app access to the gym requires approval: until then their
+        /// TenantMembership stays inactive.
+        /// </summary>
         public DateTime? ApprovedAtUtc { get; set; }
+
+        public bool IsApproved => ApprovedAtUtc != null;
+
+        /// <summary>A join request staff declined (never approved).</summary>
+        public bool IsDeclinedRequest => Status == MemberStatus.Cancelled && ApprovedAtUtc == null;
 
         /// <summary>Last day covered by a paid invoice.</summary>
         public DateOnly? PaidThrough { get; set; }

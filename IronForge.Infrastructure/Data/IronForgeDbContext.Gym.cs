@@ -73,6 +73,8 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.EmergencyContact).HasMaxLength(200);
                 entity.Property(x => x.Notes).HasMaxLength(2000);
                 entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+                entity.Ignore(x => x.IsApproved);
+                entity.Ignore(x => x.IsDeclinedRequest);
 
                 entity.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
                 entity.HasIndex(x => new { x.TenantId, x.UserId })

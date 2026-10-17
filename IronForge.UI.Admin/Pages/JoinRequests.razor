@@ -1,4 +1,4 @@
-@page "/join-requests"
+﻿@page "/join-requests"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
@@ -20,6 +20,14 @@
     @if (_error is not null)
     {
         <div class="if-alert error">@_error</div>
+    }
+
+    @if (_pending is { Count: > 0 } && _plans.Count == 0)
+    {
+        <div class="if-alert warning">
+            @(_plansError ?? "Your gym has no active membership plans, so requests cannot be approved yet.")
+            <a href="/plans">Create a plan</a>, then come back to approve.
+        </div>
     }
 
     @if (_pending is null)
@@ -56,7 +64,7 @@
                                 <AuthorizeView Policy="@Permissions.GymMembersManage">
                                     <div class="if-row" style="justify-content: flex-end; flex-wrap: nowrap">
                                         <button class="if-btn sm danger" disabled="@_busy" @onclick="() => RejectAsync(member)">Decline</button>
-                                        <button class="if-btn sm primary" disabled="@_busy" @onclick="() => ApproveAsync(member)">Approve</button>
+                                        <button class="if-btn sm primary" disabled="@(_busy || _planChoice.GetValueOrDefault(member.Id) == 0)" @onclick="() => ApproveAsync(member)">Approve</button>
                                     </div>
                                 </AuthorizeView>
                             </td>
@@ -72,6 +80,7 @@
 @code {
     private List<MemberSummaryDto>? _pending;
     private List<MembershipPlanDto> _plans = [];
+    private string? _plansError;
     private readonly Dictionary<int, int> _planChoice = [];
     private string? _joinCode;
     private bool _busy;
@@ -80,7 +89,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _plans = (await Gym.GetPlansAsync()).Data ?? [];
+        var plans = await Gym.GetPlansAsync();
+        _plans = plans.Data ?? [];
+        _plansError = plans.Success ? null : $"Plans could not be loaded: {plans.ErrorMessage}";
         _joinCode = (await Gym.GetSettingsAsync()).Data?.JoinCode;
 
         await LoadAsync();
@@ -100,7 +111,10 @@
 
         foreach (var member in _pending)
         {
-            _planChoice[member.Id] = member.MembershipPlanId ?? _plans.FirstOrDefault()?.Id ?? 0;
+            // The plan chosen when joining, if it is still offered; otherwise the first plan.
+            _planChoice[member.Id] = _plans.Any(x => x.Id == member.MembershipPlanId)
+                ? member.MembershipPlanId!.Value
+                : _plans.FirstOrDefault()?.Id ?? 0;
         }
     }
 

@@ -1,4 +1,4 @@
-using IronForge.Application.Auditing.Models;
+﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
@@ -25,6 +25,17 @@ public interface IGymDirectory
         string normalizedEmail,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Tracked: a declined join request is reopened.</summary>
+    Task<MemberProfile?> FindMemberByEmailTrackedAsync(
+        int tenantId,
+        string normalizedEmail,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The account's gym memberships that staff have not approved (pending or declined).</summary>
+    Task<List<UnapprovedMembership>> ListUnapprovedMembershipsAsync(
+        int userId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Tracked: the profile is linked to the new account.</summary>
     Task<MemberProfile?> FindUnlinkedMemberByEmailTrackedAsync(
         int tenantId,
@@ -37,6 +48,9 @@ public interface IGymDirectory
     /// <summary>Active Admins of a gym, to notify them of join requests.</summary>
     Task<List<NotificationRecipient>> ListAdminRecipientsAsync(int tenantId, CancellationToken cancellationToken = default);
 }
+
+/// <summary>A join request of an account that staff have not approved yet, or declined.</summary>
+public sealed record UnapprovedMembership(int TenantId, string GymName, bool Declined);
 
 public interface IGymJoinService
 {
@@ -135,10 +149,14 @@ public sealed class GymJoinService : IGymJoinService
         var email = GymCalendar.NormalizeEmail(request.Email);
         var username = request.Username.Trim();
 
-        if (await _directory.FindMemberByEmailAsync(tenant.Id, email, cancellationToken) is not null)
+        var existingProfile = await _directory.FindMemberByEmailAsync(tenant.Id, email, cancellationToken);
+
+        if (existingProfile is not null && !existingProfile.IsDeclinedRequest)
         {
             return GymResults.Conflict<GymJoinResultDto>(
-                "You are already registered at this gym. Sign in instead.");
+                existingProfile.IsApproved
+                    ? "You are already a member of this gym. Sign in instead."
+                    : "Your request to join this gym is already waiting for approval.");
         }
 
         MembershipPlan? plan = null;
@@ -179,6 +197,15 @@ public sealed class GymJoinService : IGymJoinService
             return GymResults.Conflict<GymJoinResultDto>("This username is already taken.");
         }
 
+        if (existingUser is not null &&
+            await _memberships.AnyAsync(
+                x => x.TenantId == tenant.Id && x.UserId == existingUser.Id && x.IsActive,
+                cancellationToken))
+        {
+            return GymResults.Conflict<GymJoinResultDto>(
+                "Your account already has access to this gym. Sign in instead.");
+        }
+
         var now = _clock.GetUtcNow().UtcDateTime;
 
         var (user, member) = await _unitOfWork.ExecuteInTransactionAsync(async () =>
@@ -206,6 +233,7 @@ public sealed class GymJoinService : IGymJoinService
                 x => x.TenantId == tenant.Id && x.UserId == account.Id,
                 cancellationToken);
 
+            // Gym access starts when staff approve the request (MemberService.ApproveAsync).
             if (membership is null)
             {
                 _memberships.Add(new TenantMembership
@@ -213,28 +241,34 @@ public sealed class GymJoinService : IGymJoinService
                     TenantId = tenant.Id,
                     UserId = account.Id,
                     Role = TenantRoles.Member,
-                    IsActive = true,
+                    IsActive = false,
                     CreatedAtUtc = now
                 });
             }
             else
             {
-                membership.IsActive = true;
+                membership.Role = TenantRoles.Member;
+                membership.IsActive = false;
             }
 
-            var profile = new MemberProfile
-            {
-                TenantId = tenant.Id,
-                UserId = account.Id,
-                FullName = request.FullName.Trim(),
-                Email = email,
-                Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim(),
-                MembershipPlanId = plan?.Id,
-                Status = MemberStatus.Pending,
-                JoinedAtUtc = now
-            };
+            // A declined request can be made again: the same profile is reopened.
+            var profile = existingProfile is null
+                ? null
+                : await _directory.FindMemberByEmailTrackedAsync(tenant.Id, email, cancellationToken);
 
-            _members.Add(profile);
+            if (profile is null)
+            {
+                profile = new MemberProfile { TenantId = tenant.Id, Email = email };
+                _members.Add(profile);
+            }
+
+            profile.UserId = account.Id;
+            profile.FullName = request.FullName.Trim();
+            profile.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
+            profile.MembershipPlanId = plan?.Id;
+            profile.Status = MemberStatus.Pending;
+            profile.JoinedAtUtc = now;
+            profile.CancelledAtUtc = null;
 
             var admins = await _directory.ListAdminRecipientsAsync(tenant.Id, cancellationToken);
 

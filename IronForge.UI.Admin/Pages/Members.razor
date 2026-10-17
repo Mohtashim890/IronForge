@@ -1,4 +1,4 @@
-@page "/members"
+﻿@page "/members"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -135,6 +135,14 @@
             <div class="if-alert error">@_addError</div>
         }
 
+        @if (!ActivePlans.Any())
+        {
+            <div class="if-alert warning">
+                @(_plansError ?? "Your gym has no active membership plans yet.")
+                <a href="/plans">Create a plan</a> first, then add the member.
+            </div>
+        }
+
         <div class="if-form-grid">
             <div class="if-field">
                 <label>Full name</label>
@@ -152,7 +160,7 @@
                 <label>Plan</label>
                 <select @bind="_new.MembershipPlanId">
                     <option value="0">Choose a plan</option>
-                    @foreach (var plan in _plans.Where(x => x.IsActive))
+                    @foreach (var plan in ActivePlans)
                     {
                         <option value="@plan.Id">@plan.Name — @GymFormat.Money(plan.Price, plan.Currency) @GymFormat.Interval(plan.BillingInterval)</option>
                     }
@@ -172,7 +180,7 @@
     </ChildContent>
     <Footer>
         <button class="if-btn" type="button" @onclick="() => _adding = false">Cancel</button>
-        <button class="if-btn primary" type="button" disabled="@_saving" @onclick="AddAsync">@(_saving ? "Adding…" : "Add member")</button>
+        <button class="if-btn primary" type="button" disabled="@(_saving || !ActivePlans.Any())" @onclick="AddAsync">@(_saving ? "Adding…" : "Add member")</button>
     </Footer>
 </Modal>
 
@@ -182,6 +190,9 @@
     private readonly MemberQuery _query = new() { PageSize = 25 };
     private PagedResult<MemberSummaryDto>? _page;
     private List<MembershipPlanDto> _plans = [];
+    private string? _plansError;
+
+    private IEnumerable<MembershipPlanDto> ActivePlans => _plans.Where(x => x.IsActive);
     private string _currency = "";
     private string? _error;
     private string? _message;
@@ -197,10 +208,7 @@
         if (Enum.TryParse<MemberStatus>(StatusFilter, out var status))
             _query.Status = status;
 
-        var plans = await Gym.GetPlansAsync(includeArchived: true);
-        _plans = plans.Data ?? [];
-        _currency = _plans.FirstOrDefault()?.Currency ?? "";
-
+        await LoadPlansAsync();
         await ReloadAsync();
     }
 
@@ -268,18 +276,41 @@
         }
     }
 
-    private void OpenAdd()
+    private async Task LoadPlansAsync()
     {
-        _new = new CreateMemberRequest { StartDate = DateOnly.FromDateTime(DateTime.Today), SendAppInvitation = true };
+        var plans = await Gym.GetPlansAsync(includeArchived: true);
+
+        _plans = plans.Data ?? [];
+        _plansError = plans.Success ? null : $"Plans could not be loaded: {plans.ErrorMessage}";
+        _currency = _plans.FirstOrDefault()?.Currency ?? "";
+    }
+
+    private async Task OpenAdd()
+    {
+        // Plans may have been created since the page opened.
+        await LoadPlansAsync();
+
+        _new = new CreateMemberRequest
+        {
+            StartDate = DateOnly.FromDateTime(DateTime.Today),
+            SendAppInvitation = true,
+            MembershipPlanId = ActivePlans.FirstOrDefault()?.Id ?? 0
+        };
         _addError = null;
         _adding = true;
     }
 
     private async Task AddAsync()
     {
-        if (string.IsNullOrWhiteSpace(_new.FullName) || string.IsNullOrWhiteSpace(_new.Email) || _new.MembershipPlanId == 0)
+        if (string.IsNullOrWhiteSpace(_new.FullName) || string.IsNullOrWhiteSpace(_new.Email))
         {
-            _addError = "Enter a name, an email and a plan.";
+            _addError = "Enter the member's name and email.";
+            return;
+        }
+
+        if (ActivePlans.All(x => x.Id != _new.MembershipPlanId))
+        {
+            _addError = "Choose a membership plan.";
             return;
         }
 

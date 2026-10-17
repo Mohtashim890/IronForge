@@ -464,6 +464,11 @@ public sealed class TenantInvitationService : ITenantInvitationService
             accountCreated = true;
         }
 
+        // Staff get access at once. A gym member gets it when their membership
+        // is approved: staff-added members are; others wait for approval.
+        var hasAccess = invitation.Role != TenantRoles.Member ||
+            await LinkMemberProfileAsync(invitation, user, now, cancellationToken);
+
         var membership = await _memberships.FirstOrDefaultTrackedAsync(
             x => x.TenantId == invitation.TenantId && x.UserId == user.Id,
             cancellationToken);
@@ -475,7 +480,7 @@ public sealed class TenantInvitationService : ITenantInvitationService
                 TenantId = invitation.TenantId,
                 UserId = user.Id,
                 Role = invitation.Role,
-                IsActive = true,
+                IsActive = hasAccess,
                 CreatedAtUtc = now
             });
         }
@@ -483,12 +488,7 @@ public sealed class TenantInvitationService : ITenantInvitationService
         {
             // A former (deactivated) member rejoins with the invited role.
             membership.Role = invitation.Role;
-            membership.IsActive = true;
-        }
-
-        if (invitation.Role == TenantRoles.Member)
-        {
-            await LinkMemberProfileAsync(invitation, user, now, cancellationToken);
+            membership.IsActive = hasAccess;
         }
 
         invitation.AcceptedAtUtc = now;
@@ -523,7 +523,12 @@ public sealed class TenantInvitationService : ITenantInvitationService
     /// A gym member invitation links the account to the profile staff
     /// created for that email; without one, a Pending profile waits for approval.
     /// </summary>
-    private async Task LinkMemberProfileAsync(
+    /// <summary>
+    /// Links the account to the member profile staff created for the invited
+    /// email, or creates a Pending profile. Returns whether the membership is
+    /// approved, i.e. whether the member may use the gym in the app now.
+    /// </summary>
+    private async Task<bool> LinkMemberProfileAsync(
         TenantInvitation invitation,
         User user,
         DateTime now,
@@ -537,13 +542,15 @@ public sealed class TenantInvitationService : ITenantInvitationService
         if (profile is not null)
         {
             profile.UserId = user.Id;
-            return;
+            return profile.IsApproved;
         }
 
-        if (await _gymDirectory.FindMemberByEmailAsync(invitation.TenantId, invitation.Email, cancellationToken) is not null)
+        var existing = await _gymDirectory.FindMemberByEmailAsync(invitation.TenantId, invitation.Email, cancellationToken);
+
+        if (existing is not null)
         {
-            // Already linked (e.g. a second invitation): nothing to do.
-            return;
+            // Already linked (e.g. a second invitation).
+            return existing.IsApproved;
         }
 
         _memberProfiles.Add(new MemberProfile
@@ -555,6 +562,8 @@ public sealed class TenantInvitationService : ITenantInvitationService
             Status = Shared.Models.Gym.MemberStatus.Pending,
             JoinedAtUtc = now
         });
+
+        return false;
     }
 
     private async Task<(TenantInvitation? Invitation, Tenant? Tenant, string Error)>

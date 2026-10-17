@@ -69,7 +69,8 @@ public sealed class TestServiceFactory
                 ExpirationMinutes = 15
             }),
             new RefreshTokenService(),
-            Audit);
+            Audit,
+            Directory);
 
     public TenantInvitationService Invitations =>
         new(

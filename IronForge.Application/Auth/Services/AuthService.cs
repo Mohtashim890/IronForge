@@ -4,6 +4,8 @@ using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
+using IronForge.Application.Gym.Members;
+using IronForge.Shared.Authorization;
 using IronForge.Application.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -24,6 +26,7 @@ namespace IronForge.Application.Auth.Services
         private readonly JwtSettings _jwtSettings;
         private readonly IRefreshTokenService _refreshTokenService;
         private readonly IAuditService _auditService;
+        private readonly IGymDirectory _gymDirectory;
 
         public AuthService(
             IRepository<User> users,
@@ -33,8 +36,10 @@ namespace IronForge.Application.Auth.Services
             IPasswordHasher<User> passwordHasher,
             IOptions<JwtSettings> jwtOptions,
             IRefreshTokenService refreshTokenService,
-            IAuditService auditService)
+            IAuditService auditService,
+            IGymDirectory gymDirectory)
         {
+            _gymDirectory = gymDirectory;
             _users = users;
             _refreshTokens = refreshTokens;
             _tenantMemberships = tenantMemberships;
@@ -45,7 +50,10 @@ namespace IronForge.Application.Auth.Services
             _auditService = auditService;
         }
 
-        public async Task<LoginResponse?> LoginAsync(LoginRequest request)
+        public async Task<LoginResponse?> LoginAsync(LoginRequest request) =>
+            (await SignInAsync(request)).Response;
+
+        public async Task<SignInOutcome> SignInAsync(LoginRequest request)
         {
             var login = (request.Username ?? "").Trim();
             var loginLower = login.ToLower();
@@ -63,7 +71,7 @@ namespace IronForge.Application.Auth.Services
                    actorType: AuditActorType.User,
                    reason: "Invalid credentials.");
 
-                return null;
+                return SignInOutcome.InvalidCredentials;
             }
 
             var passwordResult =
@@ -82,7 +90,23 @@ namespace IronForge.Application.Auth.Services
                    actorType: AuditActorType.User,
                    reason: "Invalid credentials.");
 
-                return null;
+                return SignInOutcome.InvalidCredentials;
+            }
+
+            var denial = await GetSignInDenialAsync(user);
+
+            if (denial is not null)
+            {
+                await _auditService.RecordAsync(
+                   AuditCategory.Authentication,
+                   "AuthenticationDenied",
+                   AuditOutcome.Denied,
+                   actorType: AuditActorType.User,
+                   resourceType: "User",
+                   resourceId: user.Id.ToString(),
+                   reason: denial);
+
+                return SignInOutcome.Denied(denial);
             }
 
             user.LastLoginAtUtc = DateTime.UtcNow;
@@ -118,11 +142,38 @@ namespace IronForge.Application.Auth.Services
                 resourceType: "User",
                 resourceId: user.Id.ToString());
 
-            return new LoginResponse
+            return SignInOutcome.Success(new LoginResponse
             {
                 AccessToken = accessToken,
                 RefreshToken = refreshToken
-            };
+            });
+        }
+
+        /// <summary>
+        /// A gym member may sign in once staff approved them. An account whose
+        /// only gym memberships are join requests (pending or declined) is
+        /// refused with the reason. Operators and anyone with an active gym
+        /// membership sign in normally.
+        /// </summary>
+        private async Task<string?> GetSignInDenialAsync(User user)
+        {
+            if (user.Role == PlatformRoles.PlatformAdmin)
+                return null;
+
+            if (await _tenantMemberships.AnyAsync(x => x.UserId == user.Id && x.IsActive))
+                return null;
+
+            var requests = await _gymDirectory.ListUnapprovedMembershipsAsync(user.Id);
+
+            if (requests.FirstOrDefault(x => !x.Declined) is { } pending)
+                return $"Your request to join {pending.GymName} is waiting for the gym's approval. " +
+                       "You can sign in once it is approved.";
+
+            if (requests.FirstOrDefault(x => x.Declined) is { } declined)
+                return $"Your request to join {declined.GymName} was declined. " +
+                       "Contact the gym, or join again with its code.";
+
+            return null;
         }
 
         public async Task<LoginResponse?> RefreshTokenAsync(string refreshToken)

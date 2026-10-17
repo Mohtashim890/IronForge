@@ -1,4 +1,4 @@
-using IronForge.Application.Agents.Memory.ConversationSession;
+﻿using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auditing.Models;
 using IronForge.Application.Entities;
@@ -308,7 +308,8 @@ public sealed class DemoDataSeeder
             var user = AddUser(email.Split('@')[0] + "." + gym.Tenant.Slug[..3], email, PlatformRoles.User);
             _db.SaveChanges();
             userId = user.Id;
-            AddMembership(gym.TenantId, user.Id, TenantRoles.Member);
+            // Join requests (Pending) get gym access only once staff approve them.
+            AddMembership(gym.TenantId, user.Id, TenantRoles.Member, isActive: status != MemberStatus.Pending);
         }
 
         var joinedDaysAgo = status == MemberStatus.Pending
@@ -992,14 +993,14 @@ public sealed class DemoDataSeeder
         return user;
     }
 
-    private void AddMembership(int tenantId, int userId, string role)
+    private void AddMembership(int tenantId, int userId, string role, bool isActive = true)
     {
         _db.TenantMemberships.Add(new TenantMembership
         {
             TenantId = tenantId,
             UserId = userId,
             Role = role,
-            IsActive = true,
+            IsActive = isActive,
             CreatedAtUtc = _now.AddDays(-400)
         });
     }

@@ -1,4 +1,4 @@
-@page "/dashboard"
+﻿@page "/dashboard"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
@@ -20,6 +20,14 @@
     @if (_error is not null)
     {
         <div class="if-alert error">@_error</div>
+    }
+
+    @if (_noPlans)
+    {
+        <div class="if-alert warning">
+            <strong>Set up your gym:</strong> there are no active membership plans yet, so members cannot be added or approved.
+            <a href="/plans">Create your first plan</a>.
+        </div>
     }
 
     @if (_data is null)
@@ -132,6 +140,7 @@
     private List<ChartPoint> _revenue = [];
     private List<ChartPoint> _checkIns = [];
     private string? _error;
+    private bool _noPlans;
 
     protected override async Task OnInitializedAsync()
     {
@@ -150,6 +159,9 @@
         _checkIns = _data.CheckInsByDay
             .Select(x => new ChartPoint(x.Day.ToString("dd"), x.Count))
             .ToList();
+
+        var plans = await Gym.GetPlansAsync();
+        _noPlans = plans.Success && plans.Data!.Count == 0;
 
         var expiring = await Gym.GetExpiringAsync(7);
         _expiring = expiring.Data ?? [];
