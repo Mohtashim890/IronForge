@@ -93,6 +93,38 @@ public class EfRepository<TEntity> : IRepository<TEntity>
                 cancellationToken);
     }
 
+    public async Task<List<TResult>> QueryAsync<TResult>(
+        Func<IQueryable<TEntity>, IQueryable<TResult>> query,
+        CancellationToken cancellationToken = default)
+    {
+        return await query(_dbSet.AsNoTracking())
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<TEntity>> QueryTrackedAsync(
+        Func<IQueryable<TEntity>, IQueryable<TEntity>> query,
+        CancellationToken cancellationToken = default)
+    {
+        return await query(_dbSet)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> QueryCountAsync<TResult>(
+        Func<IQueryable<TEntity>, IQueryable<TResult>> query,
+        CancellationToken cancellationToken = default)
+    {
+        return await query(_dbSet.AsNoTracking())
+            .CountAsync(cancellationToken);
+    }
+
+    public async Task<decimal> QuerySumAsync(
+        Func<IQueryable<TEntity>, IQueryable<decimal>> query,
+        CancellationToken cancellationToken = default)
+    {
+        return await query(_dbSet.AsNoTracking())
+            .SumAsync(cancellationToken);
+    }
+
     public async Task AddAsync(
         TEntity entity,
         CancellationToken cancellationToken = default)
@@ -120,7 +152,15 @@ public class EfRepository<TEntity> : IRepository<TEntity>
     public async Task<int> SaveChangesAsync(
         CancellationToken cancellationToken = default)
     {
-        return await _dbContext.SaveChangesAsync(
-            cancellationToken);
+        try
+        {
+            return await _dbContext.SaveChangesAsync(
+                cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // Lets the Application layer handle lost updates without EF Core.
+            throw new ConcurrencyConflictException(ex);
+        }
     }
 }

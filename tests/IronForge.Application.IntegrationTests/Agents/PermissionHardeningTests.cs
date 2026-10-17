@@ -1,4 +1,4 @@
-using IronForge.Application.Agents.Approvals;
+﻿using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Models;
@@ -7,7 +7,6 @@ using IronForge.Application.Auth.Models;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Entities;
 using IronForge.Application.IntegrationTests.Infrastructure;
-using IronForge.Application.Products.Services;
 using IronForge.Application.Tenants.Services;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Agents.Manage;
@@ -19,8 +18,8 @@ using Microsoft.EntityFrameworkCore;
 namespace IronForge.Application.IntegrationTests.Agents;
 
 /// <summary>
-/// Four-eyes approvals, delegation revocation on role change, the products
-/// ownership permission, allowed roles per agent and managed template agents.
+/// Four-eyes approvals, delegation revocation on role change, allowed roles
+/// per agent and managed template agents.
 /// </summary>
 public sealed class PermissionHardeningTests
     : IntegrationTestBase,
@@ -46,12 +45,12 @@ public sealed class PermissionHardeningTests
         await SeedApprovalAsync(tenantId, users.Requester, AgentRiskLevel.Medium);
 
         var asApprover = await As(tenantId, users.Approver, TenantRoles.Admin, s => s.ApprovalQueue.GetAsync());
-        var asRequester = await As(tenantId, users.Requester, TenantRoles.Member, s => s.ApprovalQueue.GetAsync());
+        var asRequester = await As(tenantId, users.Requester, TenantRoles.Trainer, s => s.ApprovalQueue.GetAsync());
 
         Assert.Equal([highRisk], asApprover.Data!.AwaitingYourDecision.Select(x => x.ApprovalId));
         Assert.Empty(asApprover.Data.YourRequests);
 
-        // Members cannot decide; they only see their own request (Medium risk is decided in chat).
+        // Trainers cannot decide; they only see their own request (Medium risk is decided in chat).
         Assert.Empty(asRequester.Data!.AwaitingYourDecision);
         var mine = Assert.Single(asRequester.Data.YourRequests);
         Assert.Equal(highRisk, mine.ApprovalId);
@@ -65,7 +64,7 @@ public sealed class PermissionHardeningTests
         var tenantId = await SeedTenantAsync();
         var users = await SeedUsersAsync(tenantId);
 
-        // An Admin asked for a delete themselves.
+        // An Admin asked for an announcement themselves.
         var approvalId = await SeedApprovalAsync(tenantId, users.Approver, AgentRiskLevel.High);
 
         var result = await As(tenantId, users.Approver, TenantRoles.Admin, s =>
@@ -76,14 +75,14 @@ public sealed class PermissionHardeningTests
     }
 
     [Fact]
-    public async Task Member_CannotDecideInTheQueue()
+    public async Task Trainer_CannotDecideInTheQueue()
     {
         var tenantId = await SeedTenantAsync();
         var users = await SeedUsersAsync(tenantId);
 
         var approvalId = await SeedApprovalAsync(tenantId, users.Approver, AgentRiskLevel.High);
 
-        var result = await As(tenantId, users.Requester, TenantRoles.Member, s =>
+        var result = await As(tenantId, users.Requester, TenantRoles.Trainer, s =>
             s.ApprovalQueue.DecideAsync(approvalId, approved: true, reason: null));
 
         Assert.Equal(403, result.StatusCode);
@@ -122,7 +121,7 @@ public sealed class PermissionHardeningTests
         Assert.True(decided.Success, decided.ErrorMessage);
         Assert.Equal("approver", decided.Data!.DecidedBy);
 
-        var queue = await As(tenantId, users.Requester, TenantRoles.Member, s => s.ApprovalQueue.GetAsync());
+        var queue = await As(tenantId, users.Requester, TenantRoles.Trainer, s => s.ApprovalQueue.GetAsync());
         Assert.True(Assert.Single(queue.Data!.YourRequests).CanRun);
 
         var after = await AuthorizeExecutionAsync(tenantId, users.Requester, approvalId, forceApprovedBySelf: false);
@@ -139,59 +138,13 @@ public sealed class PermissionHardeningTests
         var delegationId = await SeedDelegationAsync(tenantId, users.Requester);
 
         var result = await As(tenantId, users.Approver, TenantRoles.Admin, s =>
-            s.Members.UpdateRoleAsync(users.Requester, TenantRoles.Viewer));
+            s.Members.UpdateRoleAsync(users.Requester, TenantRoles.Member));
 
         Assert.True(result.Success, result.ErrorMessage);
 
         await using var db = Database.CreateDbContext();
         Assert.True((await db.AgentDelegations.IgnoreQueryFilters()
             .SingleAsync(x => x.DelegationId == delegationId)).Revoked);
-    }
-
-    // ---- 9. Ownership exception is a permission, not a role name -------------
-
-    [Theory]
-    [InlineData("Member", false, false)]
-    [InlineData("Admin", true, true)]
-    // A role *named* Admin without the permission no longer bypasses ownership.
-    [InlineData("Admin", false, false)]
-    public async Task UpdatingSomeoneElsesProduct_RequiresManageAll(
-        string roleName,
-        bool grantManageAll,
-        bool expected)
-    {
-        var tenantId = await SeedTenantAsync();
-
-        var permissions = RolePermissions.GetPermissions(TenantRoles.Member).ToList();
-        if (grantManageAll)
-            permissions.Add(Permissions.ProductsManageAll);
-
-        var context = TestServiceFactory.Context(tenantId, Requester, [.. permissions]);
-        context = new IronForge.Application.Execution.ExecutionContext
-        {
-            TenantId = context.TenantId,
-            Actor = new IronForge.Application.Execution.ExecutionActor
-            {
-                UserId = Requester,
-                Role = roleName,
-                UserPermissions = context.Actor.UserPermissions
-            }
-        };
-
-        await using var db = Database.CreateDbContext(context);
-        var s = new TestServiceFactory(db, context);
-
-        var result = await new ProductAuthorizationService(
-                s.ContextAccessor,
-                new UserAuthorizationService(s.ContextAccessor),
-                effectiveAgentAuthorization: null!,
-                agentAuthorization: null!,
-                new TenantAuthorizationService(s.ContextAccessor))
-            .AuthorizeAsync(
-                new Product { Id = 1, TenantId = tenantId, Name = "Desk", OwnerUserId = 999 },
-                Permissions.ProductsUpdate);
-
-        Assert.Equal(expected, result.Allowed);
     }
 
     // ---- 12. Allowed roles per agent ----------------------------------------------
@@ -203,10 +156,10 @@ public sealed class PermissionHardeningTests
         await SeedAgentAsync(tenantId, "everyone", allowedRoles: []);
         await SeedAgentAsync(tenantId, "admins-only", allowedRoles: [TenantRoles.Admin]);
 
-        var asViewer = await As(tenantId, Requester, TenantRoles.Viewer, s => s.AgentManagement.GetAvailableAgentsAsync());
+        var asTrainer = await As(tenantId, Requester, TenantRoles.Trainer, s => s.AgentManagement.GetAvailableAgentsAsync());
         var asAdmin = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.GetAvailableAgentsAsync());
 
-        Assert.Equal(["everyone"], asViewer.Data!.Select(x => x.AgentId));
+        Assert.Equal(["everyone"], asTrainer.Data!.Select(x => x.AgentId));
         Assert.Equal(["admins-only", "everyone"], asAdmin.Data!.Select(x => x.AgentId).Order());
     }
 
@@ -246,10 +199,10 @@ public sealed class PermissionHardeningTests
     public async Task ManagedAgent_OnlyActiveStateAndRolesAreEditable()
     {
         var tenantId = await SeedTenantAsync();
-        await SeedTemplateAgentAsync(tenantId, AgentTemplates.ProductAgent);
+        await SeedTemplateAgentAsync(tenantId, AgentTemplates.GymAdmin);
 
         var update = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateAgentAsync(
-            AgentIds.ProductAgent,
+            AgentIds.GymAdmin,
             new UpdateAgentRequest
             {
                 Name = "Renamed",
@@ -260,17 +213,17 @@ public sealed class PermissionHardeningTests
             }));
 
         Assert.True(update.Success, update.ErrorMessage);
-        Assert.Equal(AgentTemplates.ProductAgent.Name, update.Data!.Name);
-        Assert.Equal(AgentDefinitions.ProductAgent.Instructions, update.Data.Instructions);
+        Assert.Equal(AgentTemplates.GymAdmin.Name, update.Data!.Name);
+        Assert.Equal(AgentDefinitions.GymAdmin.Instructions, update.Data.Instructions);
         Assert.False(update.Data.IsActive);
         Assert.Equal([TenantRoles.Admin], update.Data.AllowedRoles);
 
         var tools = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateToolsAsync(
-            AgentIds.ProductAgent,
-            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "get_products" }] }));
+            AgentIds.GymAdmin,
+            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "search_members" }] }));
 
         var delete = await As(tenantId, Approver, TenantRoles.Admin, s =>
-            s.AgentManagement.DeleteAgentAsync(AgentIds.ProductAgent));
+            s.AgentManagement.DeleteAgentAsync(AgentIds.GymAdmin));
 
         Assert.Equal(409, tools.StatusCode);
         Assert.Equal(409, delete.StatusCode);
@@ -280,17 +233,17 @@ public sealed class PermissionHardeningTests
     public async Task DetachedAgent_BecomesEditable()
     {
         var tenantId = await SeedTenantAsync();
-        await SeedTemplateAgentAsync(tenantId, AgentTemplates.ProductAgent);
+        await SeedTemplateAgentAsync(tenantId, AgentTemplates.GymAdmin);
 
         var detached = await As(tenantId, Approver, TenantRoles.Admin, s =>
-            s.AgentManagement.DetachAsync(AgentIds.ProductAgent));
+            s.AgentManagement.DetachAsync(AgentIds.GymAdmin));
 
         Assert.True(detached.Success, detached.ErrorMessage);
         Assert.False(detached.Data!.IsManaged);
 
         var tools = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateToolsAsync(
-            AgentIds.ProductAgent,
-            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "get_products" }] }));
+            AgentIds.GymAdmin,
+            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "search_members" }] }));
 
         Assert.True(tools.Success, tools.ErrorMessage);
     }
@@ -302,26 +255,27 @@ public sealed class PermissionHardeningTests
         var outdated = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
         var detachedTenant = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
 
-        // upgraded: has the Product agent, the Insights agent is missing.
-        await SeedTemplateAgentAsync(upgraded, AgentTemplates.ProductAgent);
+        // upgraded: has the Gym Admin agent; the coach and Insights agents are missing.
+        await SeedTemplateAgentAsync(upgraded, AgentTemplates.GymAdmin);
 
-        // outdated: both agents on an older version, deactivated and restricted by the tenant.
+        // outdated: every agent on an older version, deactivated and restricted by the tenant.
         foreach (var template in AgentTemplates.Default)
         {
             await SeedTemplateAgentAsync(outdated, template, version: 0, isActive: false, roles: [TenantRoles.Admin]);
         }
 
-        // detachedTenant: the Product agent was detached and customised.
-        await SeedTemplateAgentAsync(detachedTenant, AgentTemplates.ProductAgent, detached: true);
+        // detachedTenant: the Gym Admin agent was detached and customised.
+        await SeedTemplateAgentAsync(detachedTenant, AgentTemplates.GymAdmin, detached: true);
         await SeedTemplateAgentAsync(detachedTenant, AgentTemplates.InsightsAgent);
 
         var result = await AsPlatformAdmin(s => s.TemplateRollout.RolloutAsync());
 
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Equal(1, result.Data!.AgentsInstalled);
-        Assert.Equal(2, result.Data.AgentsUpdated);
+        // upgraded gets the coach and insights, detachedTenant the coach.
+        Assert.Equal(3, result.Data!.AgentsInstalled);
+        Assert.Equal(3, result.Data.AgentsUpdated);
         Assert.Equal(1, result.Data.DetachedSkipped);
-        Assert.Equal(2, result.Data.TenantsChanged);
+        Assert.Equal(3, result.Data.TenantsChanged);
 
         await using (var db = Database.CreateDbContext())
         {
@@ -345,7 +299,7 @@ public sealed class PermissionHardeningTests
                 Assert.Equal([TenantRoles.Admin], agent.AllowedRoles);
             }
 
-            var customised = agents.Single(x => x.TenantId == detachedTenant && x.AgentId == AgentIds.ProductAgent);
+            var customised = agents.Single(x => x.TenantId == detachedTenant && x.AgentId == AgentIds.GymAdmin);
             Assert.Null(customised.TemplateId);
             Assert.Equal("Custom instructions.", customised.Instructions);
         }
@@ -434,8 +388,8 @@ public sealed class PermissionHardeningTests
 
         services.ContextAccessor.SetAgent(new AgentIdentity
         {
-            AgentId = AgentIds.ProductAgent,
-            Name = AgentIds.ProductAgent,
+            AgentId = AgentIds.GymAdmin,
+            Name = AgentIds.GymAdmin,
             Version = "1.0",
             Type = AgentType.Internal
         });
@@ -473,7 +427,7 @@ public sealed class PermissionHardeningTests
         await db.SaveChangesAsync();
 
         db.TenantMemberships.AddRange(
-            new TenantMembership { TenantId = tenantId, UserId = requester.Id, Role = TenantRoles.Member, IsActive = true, CreatedAtUtc = DateTime.UtcNow },
+            new TenantMembership { TenantId = tenantId, UserId = requester.Id, Role = TenantRoles.Trainer, IsActive = true, CreatedAtUtc = DateTime.UtcNow },
             new TenantMembership { TenantId = tenantId, UserId = approver.Id, Role = TenantRoles.Admin, IsActive = true, CreatedAtUtc = DateTime.UtcNow });
 
         await db.SaveChangesAsync();
@@ -492,8 +446,8 @@ public sealed class PermissionHardeningTests
             SessionId = Guid.NewGuid(),
             TenantId = tenantId,
             UserId = userId,
-            AgentId = AgentIds.ProductAgent,
-            ToolName = risk >= AgentRiskLevel.High ? "delete_product" : "create_product",
+            AgentId = AgentIds.GymAdmin,
+            ToolName = risk >= AgentRiskLevel.High ? "send_announcement" : "send_payment_reminder",
             ToolCallId = "call-1",
             ArgumentsJson = """{"id":1}""",
             RiskLevel = risk,
@@ -517,7 +471,7 @@ public sealed class PermissionHardeningTests
             DelegationId = Guid.NewGuid(),
             TenantId = tenantId,
             UserId = userId,
-            AgentId = AgentIds.ProductAgent,
+            AgentId = AgentIds.GymAdmin,
             ClientId = "mcp-client",
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30)

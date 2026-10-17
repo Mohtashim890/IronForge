@@ -27,8 +27,19 @@
 
     public static class PlatformModules
     {
-        public const string Products = "products";
         public const string Audit = "audit";
+
+        /// <summary>Members, membership plans, check-ins and gym settings.</summary>
+        public const string GymCore = "gym.core";
+
+        /// <summary>Invoices, payments and payment reminders.</summary>
+        public const string GymBilling = "gym.billing";
+
+        /// <summary>Routines, workout logging, progress tracking and the AI fitness coach.</summary>
+        public const string GymCoaching = "gym.coaching";
+
+        /// <summary>Announcements and member notifications.</summary>
+        public const string GymEngagement = "gym.engagement";
 
         /// <summary>
         /// Every module the platform knows. Core modules come with plans.
@@ -38,8 +49,11 @@
         /// </summary>
         public static readonly IReadOnlyList<PlatformModule> All =
         [
-            new(Products, "Products", "Read and manage the product catalogue."),
-            new(Audit, "Activity insights", "Search the workspace's audit log.")
+            new(GymCore, "Gym core", "Members, membership plans, check-ins and gym settings."),
+            new(GymBilling, "Billing", "Invoices, card and cash payments, and payment reminders."),
+            new(GymCoaching, "Coaching", "Workout routines, progress tracking and the AI fitness coach."),
+            new(GymEngagement, "Engagement", "Announcements and member notifications."),
+            new(Audit, "Activity insights", "Search the gym's audit log.")
         ];
 
         public static PlatformModule? Find(string? id) =>
@@ -71,24 +85,39 @@
     /// </summary>
     public static class SubscriptionPlans
     {
+        /// <summary>Run the gym: members, billing and announcements, with the admin agent.</summary>
         public static readonly SubscriptionPlan Starter = new(
             "starter",
             "Starter",
-            [PlatformModules.Products],
+            [PlatformModules.GymCore, PlatformModules.GymBilling, PlatformModules.GymEngagement],
             MonthlyAgentTokenLimit: 500_000,
             ModelProfiles: [ModelProfileNames.Economy]);
 
+        /// <summary>Adds member coaching (routines, progress, AI coach) and activity insights.</summary>
         public static readonly SubscriptionPlan Professional = new(
             "professional",
             "Professional",
-            [PlatformModules.Products, PlatformModules.Audit],
+            [
+                PlatformModules.GymCore,
+                PlatformModules.GymBilling,
+                PlatformModules.GymEngagement,
+                PlatformModules.GymCoaching,
+                PlatformModules.Audit
+            ],
             MonthlyAgentTokenLimit: 2_000_000,
             ModelProfiles: [ModelProfileNames.Standard, ModelProfileNames.Economy]);
 
+        /// <summary>Professional with a larger AI budget for big gyms and chains.</summary>
         public static readonly SubscriptionPlan Enterprise = new(
             "enterprise",
             "Enterprise",
-            [PlatformModules.Products, PlatformModules.Audit],
+            [
+                PlatformModules.GymCore,
+                PlatformModules.GymBilling,
+                PlatformModules.GymEngagement,
+                PlatformModules.GymCoaching,
+                PlatformModules.Audit
+            ],
             MonthlyAgentTokenLimit: 10_000_000,
             ModelProfiles: [ModelProfileNames.Standard, ModelProfileNames.Economy]);
 

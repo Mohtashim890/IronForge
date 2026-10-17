@@ -1,0 +1,74 @@
+@page "/workouts"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>Workout history | IronForge</PageTitle>
+
+<p><a href="/routines" class="if-small">← Training</a></p>
+<h1 style="font-size: 1.4rem">Workout history</h1>
+
+@if (Saved == 1)
+{
+    <div class="if-alert success">Workout saved. Nice work! 💪</div>
+}
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+@if (_workouts is not null && _workouts.Count == 0)
+{
+    <div class="m-card if-empty">No workouts in the last 60 days. <a href="/workouts/log">Log your first one</a>.</div>
+}
+
+@foreach (var workout in _workouts ?? [])
+{
+    <div class="m-card">
+        <div class="if-row">
+            <strong style="flex: 1">@GymFormat.Date(workout.PerformedOn)</strong>
+            <span class="if-small if-muted">@(workout.DurationMinutes is { } m ? $"{m} min · " : "")@workout.TotalVolumeKg.ToString("N0") kg volume</span>
+        </div>
+        <div class="if-small" style="margin-top: 6px">
+            @foreach (var exercise in workout.Sets.GroupBy(x => x.ExerciseName))
+            {
+                <div>
+                    <strong>@exercise.Key</strong>
+                    <span class="if-muted">@string.Join(", ", exercise.Select(x => x.WeightKg is { } kg ? $"{x.Reps}×{kg:0.#}kg" : $"{x.Reps}"))</span>
+                </div>
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(workout.Notes))
+        {
+            <div class="if-small if-muted" style="margin-top: 6px">“@workout.Notes”</div>
+        }
+        <button class="if-btn sm ghost" style="margin-top: 6px" @onclick="() => DeleteAsync(workout)">Delete</button>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery] public int? Saved { get; set; }
+
+    private List<WorkoutLogDto>? _workouts;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Me.GetWorkoutsAsync(60);
+
+        if (result.Success)
+            _workouts = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task DeleteAsync(WorkoutLogDto workout)
+    {
+        var result = await Me.DeleteWorkoutAsync(workout.Id);
+
+        if (result.Success)
+            _workouts!.Remove(workout);
+        else
+            _error = result.ErrorMessage;
+    }
+}

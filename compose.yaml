@@ -13,6 +13,18 @@ services:
       OpenTelemetry__Otlp__Headers: ${OPENTELEMETRY__OTLP__HEADERS}
       # Public web page that accepts tenant invitations.
       Invitations__AcceptUrl: ${INVITATIONS__ACCEPTURL:-https://localhost/accept-invite}
+      AppUrls__WebBaseUrl: https://localhost
+      AppUrls__ResetPasswordUrl: https://localhost/reset-password
+      AppUrls__ApiBaseUrl: https://api.localhost
+      Cors__AllowedOrigins__0: https://localhost
+      Cors__AllowedOrigins__1: https://platform.localhost
+      # Stripe test keys; empty uses the simulated checkout.
+      Stripe__SecretKey: ${STRIPE__SECRETKEY:-}
+      Stripe__WebhookSecret: ${STRIPE__WEBHOOKSECRET:-}
+      # Mailpit catches every email (inbox at http://localhost:8025).
+      Email__Host: ironforge-mailpit
+      Email__Port: "1025"
+      Email__Security: None
 
     networks:
       - ironforge-network
@@ -71,6 +83,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
 
       ApiSettings__BaseUrl: http://ironforge-api:8080
+      DataProtection__KeysPath: /keys
+
+    volumes:
+      - web_keys:/keys
 
     networks:
       - ironforge-network
@@ -78,6 +94,35 @@ services:
     depends_on:
       ironforge-api:
         condition: service_healthy
+
+  ironforge-platform:
+    build:
+      context: .
+      dockerfile: IronForge.Platform/Dockerfile
+    container_name: ironforge-platform
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+
+      ApiSettings__BaseUrl: http://ironforge-api:8080
+      DataProtection__KeysPath: /keys
+
+    volumes:
+      - platform_keys:/keys
+
+    networks:
+      - ironforge-network
+
+    depends_on:
+      ironforge-api:
+        condition: service_healthy
+
+  ironforge-mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: ironforge-mailpit
+    ports:
+      - "8025:8025"
+    networks:
+      - ironforge-network
 
   ironforge-mcp-client:
     build:
@@ -132,6 +177,8 @@ services:
     depends_on:
         ironforge-web:
             condition: service_started
+        ironforge-platform:
+            condition: service_started
         ironforge-api:
             condition: service_healthy
         ironforge-mcp:
@@ -142,6 +189,8 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  web_keys:
+  platform_keys:
   
 networks:
   ironforge-network:

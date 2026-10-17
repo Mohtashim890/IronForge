@@ -5,6 +5,7 @@ using IronForge.Application.Auditing.Services;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
+using IronForge.Application.Gym.Settings;
 using IronForge.Application.Persistence;
 using IronForge.Application.Tenants.Invitations;
 using IronForge.Shared.Authorization;
@@ -65,6 +66,7 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
     private readonly IUserAuthorizationService _authorization;
     private readonly IAuditService _auditService;
     private readonly IAgentChatClientFactory _modelProfiles;
+    private readonly IGymSettingsFactory _gymSettings;
 
     public TenantProvisioningService(
         IRepository<Tenant> tenants,
@@ -74,8 +76,10 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         IUnitOfWork unitOfWork,
         IUserAuthorizationService authorization,
         IAuditService auditService,
-        IAgentChatClientFactory modelProfiles)
+        IAgentChatClientFactory modelProfiles,
+        IGymSettingsFactory gymSettings)
     {
+        _gymSettings = gymSettings;
         _tenants = tenants;
         _memberships = memberships;
         _agents = agents;
@@ -200,6 +204,14 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         _tenants.Add(tenant);
 
         await _tenants.SaveChangesAsync(cancellationToken);
+
+        // Every tenant is a gym: its settings (currency, time zone, join code)
+        // exist from the start, so billing and joining work right away.
+        await _gymSettings.CreateAsync(
+            tenant.Id,
+            string.IsNullOrWhiteSpace(request.Currency) ? "USD" : request.Currency.Trim().ToUpperInvariant(),
+            string.IsNullOrWhiteSpace(request.TimeZoneId) ? "UTC" : request.TimeZoneId.Trim(),
+            cancellationToken);
 
         // Each tenant gets its own editable copy of the template agents its
         // plan covers. A template whose modules are missing would offer the

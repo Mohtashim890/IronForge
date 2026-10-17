@@ -8,12 +8,18 @@ using IronForge.Application.Agents.Tools;
 using IronForge.Application.Agents.Usage;
 using IronForge.Application.Auditing.AgentTools;
 using IronForge.Application.Auditing.Services;
-using IronForge.Application.Products.AgentTools;
 using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
+using IronForge.Application.Gym.AgentTools;
+using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Common;
+using IronForge.Application.Gym.Fitness;
+using IronForge.Application.Gym.Members;
+using IronForge.Application.Gym.Notifications;
+using IronForge.Application.Gym.Settings;
 using IronForge.Application.Tenants.Invitations;
 using IronForge.Application.Tenants.Services;
 using IronForge.Infrastructure.Data;
@@ -80,7 +86,10 @@ public sealed class TestServiceFactory
             {
                 AcceptUrl = AcceptUrl,
                 LifetimeDays = 7
-            }));
+            }),
+            new EfRepository<MemberProfile>(Db),
+            Directory,
+            Notifications);
 
     public TenantProvisioningService Provisioning =>
         new(
@@ -91,7 +100,8 @@ public sealed class TestServiceFactory
             new EfUnitOfWork(Db),
             new UserAuthorizationService(ContextAccessor),
             Audit,
-            new TestModelProfiles());
+            new TestModelProfiles(),
+            GymSettingsFactory);
 
     public TenantMemberService Members =>
         new(
@@ -184,15 +194,171 @@ public sealed class TestServiceFactory
             Governance,
             Entitlements);
 
+    /// <summary>The real catalogue: every gym tool plus the audit tool.</summary>
     public static IAgentTool[] CatalogueTools() =>
-    [
-        new GetProductsAgentTool(null!),
-        new GetProductAgentTool(null!),
-        new CreateProductAgentTool(null!),
-        new UpdateProductAgentTool(null!),
-        new DeleteProductAgentTool(null!),
-        new SearchAuditEventsAgentTool(null!, null!)
-    ];
+        GymAgentToolCatalog.Types
+            .Select(type =>
+            {
+                var constructor = type.GetConstructors().Single();
+
+                return (IAgentTool)constructor.Invoke(
+                    constructor.GetParameters().Select(_ => (object?)null).ToArray());
+            })
+            .Append(new SearchAuditEventsAgentTool(null!, null!))
+            .ToArray();
+
+    // ---- Gym services --------------------------------------------------------
+
+    /// <summary>The clock gym services use; tests may move it.</summary>
+    public TimeProvider Clock { get; set; } = TimeProvider.System;
+
+    public GymDirectory Directory => new(Db);
+
+    public NotificationService Notifications =>
+        new(
+            new EfRepository<Notification>(Db),
+            new EfRepository<EmailOutboxMessage>(Db),
+            ContextAccessor,
+            Clock);
+
+    public GymSettingsFactory GymSettingsFactory =>
+        new(new EfRepository<GymSettings>(Db), Clock);
+
+    /// <summary>Agent permission checks are real; external-agent delegation is not used by these paths.</summary>
+    public GymAccessService GymAccess =>
+        new(
+            ContextAccessor,
+            new UserAuthorizationService(ContextAccessor),
+            new IronForge.Application.Agents.Authorization.AgentAuthorizationService(AgentPermissions),
+            null!,
+            new EfRepository<MemberProfile>(Db),
+            Entitlements);
+
+    public BillingEngine BillingEngine =>
+        new(
+            new EfRepository<Tenant>(Db),
+            new EfRepository<GymSettings>(Db),
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MembershipPlan>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<Payment>(Db),
+            new EfRepository<InvoiceReminder>(Db),
+            new InvoiceNumberGenerator(Db),
+            Notifications,
+            Clock);
+
+    public TestPaymentGateway PaymentGateway { get; } = new();
+
+    public BillingService Billing =>
+        new(
+            GymAccess,
+            new EfRepository<Invoice>(Db),
+            new EfRepository<Payment>(Db),
+            new EfRepository<MemberProfile>(Db),
+            BillingEngine,
+            PaymentGateway,
+            Audit,
+            Clock);
+
+    public PaymentConfirmationService PaymentConfirmation =>
+        new(
+            new EfRepository<ProcessedWebhookEvent>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<MemberProfile>(Db),
+            BillingEngine,
+            PaymentGateway,
+            new EfUnitOfWork(Db),
+            Audit,
+            Clock,
+            NullLogger<PaymentConfirmationService>.Instance);
+
+    public MembershipPlanService Plans =>
+        new(
+            GymAccess,
+            new EfRepository<MembershipPlan>(Db),
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<GymSettings>(Db),
+            Audit,
+            Clock);
+
+    public MemberService GymMembers =>
+        new(
+            GymAccess,
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MembershipPlan>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<CheckIn>(Db),
+            new EfRepository<WorkoutRoutine>(Db),
+            new EfRepository<WorkoutLog>(Db),
+            new EfRepository<BodyMetric>(Db),
+            new EfRepository<FitnessGoal>(Db),
+            new EfRepository<TenantMembership>(Db),
+            new EfRepository<User>(Db),
+            BillingEngine,
+            Invitations,
+            Entitlements,
+            Notifications,
+            new EfUnitOfWork(Db),
+            Audit,
+            Clock);
+
+    public CheckInService CheckIns =>
+        new(
+            GymAccess,
+            new EfRepository<CheckIn>(Db),
+            new EfRepository<MemberProfile>(Db),
+            BillingEngine,
+            Clock);
+
+    public GymJoinService Join =>
+        new(
+            new EfRepository<GymSettings>(Db),
+            new EfRepository<Tenant>(Db),
+            new EfRepository<User>(Db),
+            new EfRepository<TenantMembership>(Db),
+            new EfRepository<MemberProfile>(Db),
+            Directory,
+            new PasswordHasher<User>(),
+            Notifications,
+            new EfUnitOfWork(Db),
+            Audit,
+            Clock);
+
+    public RoutineService Routines =>
+        new(
+            GymAccess,
+            new EfRepository<Exercise>(Db),
+            new EfRepository<WorkoutRoutine>(Db),
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<User>(Db),
+            BillingEngine,
+            Notifications,
+            Audit,
+            Clock);
+
+    public ProgressService Progress =>
+        new(
+            GymAccess,
+            new EfRepository<WorkoutLog>(Db),
+            new EfRepository<WorkoutRoutine>(Db),
+            new EfRepository<RoutineDay>(Db),
+            new EfRepository<Exercise>(Db),
+            new EfRepository<BodyMetric>(Db),
+            new EfRepository<FitnessGoal>(Db),
+            new EfRepository<MemberProfile>(Db),
+            BillingEngine,
+            Clock);
+
+    public AnnouncementService Announcements =>
+        new(
+            GymAccess,
+            new EfRepository<Announcement>(Db),
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MembershipPlan>(Db),
+            BillingEngine,
+            Notifications,
+            Audit,
+            Clock);
 
     public static IronForge.Application.Execution.ExecutionContext Context(
         int? tenantId = null,
@@ -206,7 +372,30 @@ public sealed class TestServiceFactory
             Actor = new ExecutionActor
             {
                 UserId = userId,
+                Username = userId is null ? null : $"user{userId}",
                 UserPermissions = permissions.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            }
+        };
+    }
+
+    /// <summary>A signed-in user acting in a gym with a tenant role.</summary>
+    public static IronForge.Application.Execution.ExecutionContext AsRole(
+        int tenantId,
+        int userId,
+        string role)
+    {
+        return new IronForge.Application.Execution.ExecutionContext
+        {
+            TenantId = tenantId,
+            Source = ExecutionSource.Web,
+            Actor = new ExecutionActor
+            {
+                UserId = userId,
+                Username = $"user{userId}",
+                Role = role,
+                UserPermissions = IronForge.Application.Auth.Models.RolePermissions
+                    .GetPermissions(role)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
             }
         };
     }
@@ -230,4 +419,42 @@ public sealed class TestModelProfiles : IronForge.Application.Agents.ModelProfil
     public (Microsoft.Extensions.AI.IChatClient Client, IronForge.Application.Agents.ModelProfiles.AgentModelProfile Profile)
         GetClient(string? profileName) =>
         throw new NotSupportedException("Tests do not call models.");
+}
+
+/// <summary>Checkout without a payment provider: sessions are recorded, nothing is charged.</summary>
+public sealed class TestPaymentGateway : IPaymentGateway
+{
+    public List<CheckoutRequest> Checkouts { get; } = [];
+
+    public string Provider => "test";
+
+    public bool IsSimulated => true;
+
+    public Task<CheckoutResult> CreateCheckoutAsync(CheckoutRequest request, CancellationToken cancellationToken = default)
+    {
+        Checkouts.Add(request);
+
+        var session = $"test_{Guid.NewGuid():N}";
+
+        return Task.FromResult(new CheckoutResult(session, $"https://pay.test/{session}"));
+    }
+
+    public Task<ConnectOnboardingLink> CreateConnectOnboardingLinkAsync(
+        string? existingAccountId,
+        string? email,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException();
+
+    public Task<bool> IsChargesEnabledAsync(string accountId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+}
+
+/// <summary>A clock tests can set and move.</summary>
+public sealed class TestClock : TimeProvider
+{
+    public TestClock(DateTimeOffset now) => Now = now;
+
+    public DateTimeOffset Now { get; set; }
+
+    public override DateTimeOffset GetUtcNow() => Now;
 }

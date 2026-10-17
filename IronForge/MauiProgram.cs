@@ -1,20 +1,14 @@
-﻿using IronForge.Services;
-using IronForge.Shared.Authorization;
+﻿using System.Text.Json;
+using IronForge.Services;
 using IronForge.Shared.Configurations;
-using IronForge.Shared.Models;
 using IronForge.Shared.Services;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Buffers.Text;
 
 namespace IronForge
 {
     public static class MauiProgram
     {
-        private const string ApiClientName = "IronForgeApi";
-
         public static MauiApp CreateMauiApp()
         {
             var builder = MauiApp.CreateBuilder();
@@ -27,16 +21,7 @@ namespace IronForge
 
             builder.Services.AddMauiBlazorWebView();
 
-            var apiBaseUrl =
-                #if DEBUG
-                #if ANDROID
-                    "https://10.0.2.2:7226/";
-                #else
-                    "https://localhost:7226/";
-                #endif
-                #else
-                    "https://api.mohtashim.dev/";
-                #endif
+            var apiBaseUrl = ResolveApiBaseUrl();
 
             builder.Services.Configure<ApiSettings>(options =>
             {
@@ -52,268 +37,97 @@ namespace IronForge
             builder.Services.AddSingleton<ITokenStore, SecureTokenStore>();
 
             // One named client for the API. It only configures the primary
-            // (socket-level) handler; the JWT handler is added per scope below.
-            builder.Services.AddHttpClient(ApiClientName, (serviceProvider, client) =>
-            {
-                var settings =
-                    serviceProvider.GetRequiredService<ApiSettings>();
-                client.BaseAddress = new Uri(settings.BaseUrl);
-            })
+            // (socket-level) handler; the JWT handler is added per scope by
+            // AddIronForgeApiClients.
+            builder.Services.AddHttpClient(
+                IronForgeClientServiceCollectionExtensions.ApiClientName,
+                (serviceProvider, client) =>
+                {
+                    var settings = serviceProvider.GetRequiredService<ApiSettings>();
+                    client.BaseAddress = new Uri(settings.BaseUrl);
+                })
             .ConfigurePrimaryHttpMessageHandler(() =>
             {
                 var handler = new HttpClientHandler();
 
-#if DEBUG
+                // The ASP.NET Core development certificate (CN=localhost) is
+                // trusted only for a local API: the emulator's host alias or
+                // this machine. Every other host gets normal validation.
                 handler.ServerCertificateCustomValidationCallback =
                     (message, cert, chain, errors) =>
-                    {
-                        if (cert != null && cert.Issuer.Equals("CN=localhost"))
-                            return true;
-
-                        return errors == System.Net.Security.SslPolicyErrors.None;
-                    };
-#endif
+                        errors == System.Net.Security.SslPolicyErrors.None ||
+                        (cert != null &&
+                         cert.Issuer.Equals("CN=localhost") &&
+                         IsLocalHost(message.RequestUri?.Host));
 
                 return handler;
             });
 
-            builder.Services.AddScoped<IAuthService>(serviceProvider =>
+            // Payment checkout opens in the system browser (before the shared
+            // registration, which only adds a default when none exists).
+            builder.Services.AddScoped<IExternalLinkOpener, MauiLinkOpener>();
+
+            // The member app: gym members only.
+            builder.Services.AddIronForgeApiClients(new ClientAppProfile
             {
-                var httpClient =
-                    serviceProvider
-                        .GetRequiredService<IHttpClientFactory>()
-                        .CreateClient(ApiClientName);
-
-                var tokenStore =
-                    serviceProvider.GetRequiredService<ITokenStore>();
-
-                return new AuthService(
-                    httpClient,
-                    tokenStore);
+                Audience = ClientAudience.Member,
+                AppName = "Your gym in your pocket",
+                HomeRoute = "/home"
             });
-
-            // IHttpClientFactory builds message handlers in its own DI scope, not the
-            // BlazorWebView's. A JwtAuthorizationHandler added with AddHttpMessageHandler
-            // would get its own IAuthService instance, so token refreshes and forced
-            // logouts would not reach JwtAuthenticationStateProvider (the UI keeps a
-            // stale login state) and the two instances would not share a refresh lock.
-            // So the handler is created here, inside the BlazorWebView scope, on top
-            // of the factory-managed primary handler.
-            builder.Services.AddScoped<IProductService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider.GetRequiredService<ApiSettings>();
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                // disposeHandler: false - the inner handler's lifetime is owned by the factory.
-                var httpClient =
-                    new HttpClient(authorizationHandler, disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new ProductService(httpClient);
-            });
-
-            builder.Services.AddScoped<IAgentWorkspaceService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider.GetRequiredService<ApiSettings>();
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                // disposeHandler: false - the inner handler's lifetime is owned by the factory.
-                var httpClient =
-                    new HttpClient(authorizationHandler, disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new AgentWorkspaceService(httpClient);
-            });
-
-            builder.Services.AddScoped<IAgentManagementService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider.GetRequiredService<ApiSettings>();
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                // disposeHandler: false - the inner handler's lifetime is owned by the factory.
-                var httpClient =
-                    new HttpClient(authorizationHandler, disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new AgentManagementService(httpClient);
-            });
-
-            builder.Services.AddScoped<IMcpClientManagementService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider
-                        .GetRequiredService<IOptions<ApiSettings>>()
-                        .Value;
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                var httpClient =
-                    new HttpClient(
-                        authorizationHandler,
-                        disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new McpClientManagementService(httpClient);
-            });
-
-
-            builder.Services.AddScoped<IAgentMcpClientManagementService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider
-                        .GetRequiredService<IOptions<ApiSettings>>()
-                        .Value;
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                var httpClient =
-                    new HttpClient(
-                        authorizationHandler,
-                        disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new AgentMcpClientManagementService(httpClient);
-            });
-
-            builder.Services.AddScoped<IAgentDelegationManagementService>(serviceProvider =>
-            {
-                var settings =
-                    serviceProvider.GetRequiredService<ApiSettings>();
-
-                var authorizationHandler =
-                    new JwtAuthorizationHandler(
-                        serviceProvider.GetRequiredService<ITokenStore>(),
-                        serviceProvider.GetRequiredService<IAuthService>())
-                    {
-                        InnerHandler =
-                            serviceProvider
-                                .GetRequiredService<IHttpMessageHandlerFactory>()
-                                .CreateHandler(ApiClientName)
-                    };
-
-                // disposeHandler: false - the inner handler's lifetime is owned by the factory.
-                var httpClient =
-                    new HttpClient(authorizationHandler, disposeHandler: false)
-                    {
-                        BaseAddress = new Uri(settings.BaseUrl)
-                    };
-
-                return new AgentDelegationManagementService(httpClient);
-            });
-
-            // Tenant onboarding and member management.
-            builder.Services.AddScoped<IPlatformTenantService>(serviceProvider =>
-                new PlatformTenantService(CreateAuthorizedApiClient(serviceProvider)));
-
-            builder.Services.AddScoped<ITenantMembersService>(serviceProvider =>
-                new TenantMembersService(CreateAuthorizedApiClient(serviceProvider)));
-
-            builder.Services.AddScoped<IApprovalQueueClient>(serviceProvider =>
-                new ApprovalQueueClient(CreateAuthorizedApiClient(serviceProvider)));
-
-            // The invitee is not signed in: plain client without the JWT handler.
-            builder.Services.AddScoped<IInvitationService>(serviceProvider =>
-                new InvitationService(
-                    serviceProvider
-                        .GetRequiredService<IHttpClientFactory>()
-                        .CreateClient(ApiClientName)));
 
             builder.Services.AddIronForgeMAUIAuthorization();
             builder.Services.AddCascadingAuthenticationState();
-            builder.Services.AddScoped<AuthenticationStateProvider, JwtAuthenticationStateProvider>();
 
 #if DEBUG
             builder.Services.AddBlazorWebViewDeveloperTools();
-    		builder.Logging.AddDebug();
+            builder.Logging.AddDebug();
 #endif
 
             return builder.Build();
         }
 
-        // Same construction as the services above: the JWT handler lives in the
-        // BlazorWebView scope on top of the factory-managed primary handler.
-        private static HttpClient CreateAuthorizedApiClient(
-            IServiceProvider serviceProvider)
+        /// <summary>
+        /// Debug builds talk to the local API. Release builds read
+        /// Resources/Raw/appsettings.json (ApiSettings:BaseUrl), so a Release
+        /// build can also be pointed at a local API for testing. On Android,
+        /// "localhost" means the emulator itself, so it is mapped to the host
+        /// machine's alias 10.0.2.2.
+        /// </summary>
+        private static string ResolveApiBaseUrl()
         {
-            var settings =
-                serviceProvider.GetRequiredService<ApiSettings>();
+#if DEBUG
+            var url = "https://localhost:7226/";
+#else
+            var url = ReadConfiguredBaseUrl() ?? "https://api.mohtashim.dev/";
+#endif
 
-            var authorizationHandler =
-                new JwtAuthorizationHandler(
-                    serviceProvider.GetRequiredService<ITokenStore>(),
-                    serviceProvider.GetRequiredService<IAuthService>())
-                {
-                    InnerHandler =
-                        serviceProvider
-                            .GetRequiredService<IHttpMessageHandlerFactory>()
-                            .CreateHandler(ApiClientName)
-                };
+#if ANDROID
+            url = url.Replace("://localhost", "://10.0.2.2").Replace("://127.0.0.1", "://10.0.2.2");
+#endif
 
-            return new HttpClient(authorizationHandler, disposeHandler: false)
-            {
-                BaseAddress = new Uri(settings.BaseUrl)
-            };
+            return url.EndsWith('/') ? url : url + "/";
         }
+
+        private static string? ReadConfiguredBaseUrl()
+        {
+            try
+            {
+                using var stream = FileSystem.OpenAppPackageFileAsync("appsettings.json").GetAwaiter().GetResult();
+                using var document = JsonDocument.Parse(stream);
+
+                return document.RootElement.TryGetProperty("ApiSettings", out var api) &&
+                       api.TryGetProperty("BaseUrl", out var url) &&
+                       url.GetString() is { Length: > 0 } value
+                    ? value
+                    : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private static bool IsLocalHost(string? host) =>
+            host is "localhost" or "127.0.0.1" or "10.0.2.2";
     }
 }

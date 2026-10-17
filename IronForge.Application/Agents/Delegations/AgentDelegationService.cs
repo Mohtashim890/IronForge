@@ -248,7 +248,7 @@ public class AgentDelegationService
             cancellationToken);
 
         //We'll treat the successful security state transitions as the primary delegation audit trail,
-        //while ProductService already captures resource-level denied operations.
+        //while the domain services already capture resource-level denied operations.
 
         await _auditService.RecordAsync(
             AuditCategory.Delegation,

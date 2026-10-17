@@ -49,12 +49,14 @@ namespace IronForge.Shared.Services
                     return null;
                 }
 
+                var claims = JwtClaims.Normalize(jwt.Claims).ToList();
+
                 var nameClaim =
-                    jwt.Claims.FirstOrDefault(
+                    claims.FirstOrDefault(
                         x => x.Type == System.Security.Claims.ClaimTypes.Name);
 
                 var roleClaim =
-                    jwt.Claims.FirstOrDefault(
+                    claims.FirstOrDefault(
                         x => x.Type == System.Security.Claims.ClaimTypes.Role);
 
                 return new ActiveTenant

@@ -1,0 +1,127 @@
+@page "/membership"
+@attribute [Authorize]
+@inject MemberApiClient Me
+@inject IExternalLinkOpener Links
+
+<PageTitle>Membership | IronForge</PageTitle>
+
+<p><a href="/me" class="if-small">← Me</a></p>
+<h1 style="font-size: 1.4rem">Membership &amp; payments</h1>
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+@if (_info is not null)
+{
+    <div class="if-alert info">@_info</div>
+}
+
+@if (_me is not null)
+{
+    <div class="m-card">
+        <div class="if-row">
+            <div style="flex: 1">
+                <div class="if-small if-muted">Plan</div>
+                <strong>@(_me.Plan?.Name ?? "No plan")</strong>
+                @if (_me.Plan is { } plan)
+                {
+                    <div class="if-small if-muted">@GymFormat.Money(plan.Price, plan.Currency) @GymFormat.Interval(plan.BillingInterval)</div>
+                }
+            </div>
+            <Badge Tone="@GymFormat.Tone(_me.Status)">@_me.Status</Badge>
+        </div>
+        <div class="if-row if-small" style="margin-top: 10px; justify-content: space-between">
+            <span>Paid through <strong>@GymFormat.Date(_me.PaidThrough)</strong></span>
+            <span>Next bill <strong>@GymFormat.Date(_me.NextBillingDate)</strong></span>
+        </div>
+    </div>
+
+    <div class="m-section-title">Invoices</div>
+    @if (_invoices.Count == 0)
+    {
+        <div class="m-card if-empty">No invoices yet.</div>
+    }
+    @foreach (var invoice in _invoices)
+    {
+        <div class="m-card">
+            <div class="if-row">
+                <div style="flex: 1">
+                    <strong>@GymFormat.Money(invoice.Amount, invoice.Currency)</strong>
+                    <div class="if-small if-muted">@invoice.Number · @GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</div>
+                    <div class="if-small @(invoice.DaysOverdue > 0 ? "" : "if-muted")" style="@(invoice.DaysOverdue > 0 ? "color: var(--if-danger)" : "")">
+                        @(invoice.Status == InvoiceStatus.Paid ? $"Paid {GymFormat.Date(invoice.PaidAtUtc)}" : invoice.DaysOverdue > 0 ? $"Overdue by {invoice.DaysOverdue} day(s)" : $"Due {GymFormat.Date(invoice.DueDate)}")
+                    </div>
+                </div>
+                @if (invoice.Status is InvoiceStatus.Open or InvoiceStatus.Overdue)
+                {
+                    <button class="if-btn primary sm" disabled="@_paying" @onclick="() => PayAsync(invoice)">Pay</button>
+                }
+                else
+                {
+                    <Badge Tone="@GymFormat.Tone(invoice.Status)">@invoice.Status</Badge>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_waitingForPayment)
+    {
+        <button class="if-btn block" @onclick="LoadAsync">I've paid — refresh</button>
+    }
+}
+
+@code {
+    private MyMembershipDto? _me;
+    private List<InvoiceDto> _invoices = [];
+    private bool _paying;
+    private bool _waitingForPayment;
+    private string? _error;
+    private string? _info;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var membership = await Me.GetMembershipAsync();
+
+        if (!membership.Success)
+        {
+            _error = membership.ErrorMessage;
+            return;
+        }
+
+        _me = membership.Data;
+        _invoices = (await Me.GetInvoicesAsync()).Data ?? [];
+
+        if (_waitingForPayment && _invoices.All(x => x.Status is not (InvoiceStatus.Open or InvoiceStatus.Overdue)))
+        {
+            _info = "Payment received. Thank you!";
+            _waitingForPayment = false;
+        }
+    }
+
+    private async Task PayAsync(InvoiceDto invoice)
+    {
+        _paying = true;
+        _error = null;
+
+        var result = await Me.StartCheckoutAsync(invoice.Id);
+
+        _paying = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _waitingForPayment = true;
+        _info = result.Data!.Simulated
+            ? "A test checkout opened in your browser. No real money is charged."
+            : "Complete the payment in your browser, then come back here.";
+
+        await Links.OpenAsync(result.Data.Url);
+    }
+}

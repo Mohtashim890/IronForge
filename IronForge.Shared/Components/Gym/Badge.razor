@@ -1,0 +1,8 @@
+<span class="if-badge @Tone">@ChildContent</span>
+
+@code {
+    /// <summary>success, warning, danger, info, accent or empty for neutral.</summary>
+    [Parameter] public string? Tone { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

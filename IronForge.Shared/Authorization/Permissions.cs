@@ -6,14 +6,6 @@ namespace IronForge.Shared.Authorization
 {
     public static class Permissions
     {
-        public const string ProductsRead = "products.read";
-        public const string ProductsCreate = "products.create";
-        public const string ProductsUpdate = "products.update";
-        public const string ProductsDelete = "products.delete";
-
-        /// <summary>Act on every product, not only your own (ownership bypass).</summary>
-        public const string ProductsManageAll = "products.manage-all";
-
         public const string AuditRead = "audit.read";
 
         public const string AgentsRead = "agents.read";
@@ -33,6 +25,22 @@ namespace IronForge.Shared.Authorization
 
         public const string MembersRead = "tenant.members.read";
         public const string MembersManage = "tenant.members.manage";
+
+        // Gym operations (staff).
+        public const string GymMembersRead = "gym.members.read";
+        public const string GymMembersManage = "gym.members.manage";
+        public const string GymPlansManage = "gym.plans.manage";
+        public const string GymBillingRead = "gym.billing.read";
+        public const string GymBillingManage = "gym.billing.manage";
+        public const string GymCheckInsManage = "gym.checkins.manage";
+        public const string GymRoutinesManage = "gym.routines.manage";
+        public const string GymNotificationsSend = "gym.notifications.send";
+        public const string GymSettingsManage = "gym.settings.manage";
+
+        // Gym member self-service: always limited to the caller's own profile.
+        public const string GymSelfRead = "gym.self.read";
+        public const string GymSelfWorkoutsWrite = "gym.self.workouts.write";
+        public const string GymSelfPayments = "gym.self.payments";
 
         // Platform-level: granted by User.Role, independent of the selected tenant.
         public const string PlatformTenantsManage = "platform.tenants.manage";

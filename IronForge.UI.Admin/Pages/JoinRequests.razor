@@ -1,0 +1,130 @@
+@page "/join-requests"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Join requests | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Join requests</h1>
+            <p>People who signed up in the app with your gym's join code<span>@(_joinCode is null ? "" : $" ({_joinCode})")</span>, waiting for approval.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_pending is null)
+    {
+        <div class="if-loading">Loading requests…</div>
+    }
+    else if (_pending.Count == 0)
+    {
+        <div class="if-card if-empty">No requests waiting. Share your join code at the front desk or on social media.</div>
+    }
+    else
+    {
+        <div class="if-table-wrap">
+            <table class="if-table">
+                <thead>
+                    <tr><th>Name</th><th>Contact</th><th>Requested</th><th>Plan</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var member in _pending)
+                    {
+                        <tr>
+                            <td><a href="@($"/members/{member.Id}")"><strong>@member.FullName</strong></a></td>
+                            <td class="if-small">@member.Email<br /><span class="if-muted">@member.Phone</span></td>
+                            <td class="if-small if-muted">@GymFormat.Ago(member.JoinedAtUtc)</td>
+                            <td>
+                                <select class="if-input" style="min-width: 180px" @bind="_planChoice[member.Id]">
+                                    @foreach (var plan in _plans)
+                                    {
+                                        <option value="@plan.Id">@plan.Name — @GymFormat.Money(plan.Price, plan.Currency)</option>
+                                    }
+                                </select>
+                            </td>
+                            <td>
+                                <AuthorizeView Policy="@Permissions.GymMembersManage">
+                                    <div class="if-row" style="justify-content: flex-end; flex-wrap: nowrap">
+                                        <button class="if-btn sm danger" disabled="@_busy" @onclick="() => RejectAsync(member)">Decline</button>
+                                        <button class="if-btn sm primary" disabled="@_busy" @onclick="() => ApproveAsync(member)">Approve</button>
+                                    </div>
+                                </AuthorizeView>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="if-muted if-small" style="margin-top: 10px">Approving activates the membership, issues the first invoice and notifies the member.</p>
+    }
+</div>
+
+@code {
+    private List<MemberSummaryDto>? _pending;
+    private List<MembershipPlanDto> _plans = [];
+    private readonly Dictionary<int, int> _planChoice = [];
+    private string? _joinCode;
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plans = (await Gym.GetPlansAsync()).Data ?? [];
+        _joinCode = (await Gym.GetSettingsAsync()).Data?.JoinCode;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetMembersAsync(new MemberQuery { Status = MemberStatus.Pending, PageSize = 100 });
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _pending = result.Data!.Items;
+
+        foreach (var member in _pending)
+        {
+            _planChoice[member.Id] = member.MembershipPlanId ?? _plans.FirstOrDefault()?.Id ?? 0;
+        }
+    }
+
+    private async Task ApproveAsync(MemberSummaryDto member)
+    {
+        _busy = true;
+        var result = await Gym.ApproveMemberAsync(member.Id, _planChoice.GetValueOrDefault(member.Id));
+        _busy = false;
+
+        _message = result.Success ? $"{member.FullName} is now an active member." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+
+    private async Task RejectAsync(MemberSummaryDto member)
+    {
+        _busy = true;
+        var result = await Gym.RejectMemberAsync(member.Id);
+        _busy = false;
+
+        _message = result.Success ? $"{member.FullName}'s request was declined." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+}

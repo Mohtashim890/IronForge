@@ -1,0 +1,34 @@
+@if (Open)
+{
+    <div class="if-modal-backdrop" @onclick="CloseAsync">
+        <div class="if-modal @(Wide ? "wide" : "")" role="dialog" aria-modal="true" aria-label="@Title" @onclick:stopPropagation="true">
+            <div class="if-modal-head">
+                <h3>@Title</h3>
+                <button type="button" class="if-btn ghost sm" aria-label="Close" @onclick="CloseAsync">✕</button>
+            </div>
+            <div class="if-modal-body">
+                @ChildContent
+            </div>
+            @if (Footer is not null)
+            {
+                <div class="if-modal-foot">@Footer</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+
+    [Parameter] public string Title { get; set; } = "";
+
+    [Parameter] public bool Wide { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public RenderFragment? Footer { get; set; }
+
+    private Task CloseAsync() => OpenChanged.InvokeAsync(false);
+}

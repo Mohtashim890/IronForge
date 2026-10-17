@@ -40,7 +40,7 @@ namespace IronForge.Shared.Services
 
                 var identity =
                     new ClaimsIdentity(
-                        jwt.Claims,
+                        JwtClaims.Normalize(jwt.Claims),
                         authenticationType: "jwt",
                         nameType: ClaimTypes.Name,
                         roleType: ClaimTypes.Role);

@@ -1,0 +1,278 @@
+@page "/tenants/{TenantId:int}"
+@attribute [Authorize(Policy = Permissions.PlatformTenantsManage)]
+@using IronForge.Shared.Models.Tenants
+@using IronForge.Shared.Subscriptions
+@inject PlatformApiClient Platform
+@inject IPlatformTenantService Tenants
+
+<PageTitle>@(_data?.Tenant.Name ?? "Gym") | IronForge Platform</PageTitle>
+
+<div class="if-page">
+    <p><a href="/tenants" class="if-small">← Gyms</a></p>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_data is not null)
+    {
+        var t = _data.Tenant;
+
+        <div class="if-page-head">
+            <div>
+                <h1>@t.Name</h1>
+                <p>
+                    <code>@t.Slug</code> ·
+                    <Badge Tone="@StatusTone(t)">@(t.IsActive ? t.SubscriptionStatus.ToString() : "Suspended")</Badge>
+                    · @PlanLabels.NameOf(t.Plan) plan · since @GymFormat.Date(t.CreatedAtUtc)
+                </p>
+            </div>
+            <div class="if-row">
+                <button class="if-btn @(t.IsActive ? "danger" : "primary")" disabled="@_busy" @onclick="ToggleSuspendAsync">@(t.IsActive ? "Suspend" : "Reactivate")</button>
+            </div>
+        </div>
+
+        <div class="if-grid">
+            <StatTile Label="Active members" Value="@_data.MembersByStatus.GetValueOrDefault("Active").ToString()" Sub="@($"{_data.StaffCount} staff")" Tone="success" />
+            <StatTile Label="Gym revenue (30 days)" Value="@GymFormat.Money(_data.GymRevenueLast30Days, _data.Currency)" Sub="Member payments collected" Tone="accent" />
+            <StatTile Label="AI tokens this month" Value="@GymFormat.Compact(_data.TokensThisMonth)" Sub="@(_data.EffectiveMonthlyTokenLimit is { } l ? $"of {GymFormat.Compact(l)} limit" : "no limit")" Tone="info" />
+            <StatTile Label="Access" Value="@(t.HasAccess ? "Open" : "Blocked")" Sub="@(t.TrialEndsAtUtc is { } end ? $"Trial ends {GymFormat.Date(end)}" : null)" Tone="@(t.HasAccess ? "success" : "danger")" />
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head"><h2>Subscription</h2></div>
+
+                <div class="if-form-grid">
+                    <div class="if-field">
+                        <label>Plan</label>
+                        <select @bind="_sub.Plan">
+                            @foreach (var plan in SubscriptionPlans.All)
+                            {
+                                <option value="@plan.Id">@plan.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="if-field">
+                        <label>Status</label>
+                        <select @bind="_sub.SubscriptionStatus">
+                            @foreach (var status in Enum.GetValues<SubscriptionStatus>())
+                            {
+                                <option value="@status">@status</option>
+                            }
+                        </select>
+                    </div>
+                    @if (_sub.SubscriptionStatus == SubscriptionStatus.Trial)
+                    {
+                        <div class="if-field">
+                            <label>Trial ends</label>
+                            <input type="date" @bind="_trialEnds" />
+                        </div>
+                    }
+                    <div class="if-field">
+                        <label>Monthly AI token limit</label>
+                        <input type="number" placeholder="Plan default" @bind="_sub.MonthlyAgentTokenLimit" />
+                    </div>
+                </div>
+
+                <div class="if-field">
+                    <label>Add-on modules</label>
+                    @foreach (var module in PlatformModules.All.Where(x => !(SubscriptionPlans.Find(_sub.Plan)?.Modules.Contains(x.Id) ?? false)))
+                    {
+                        <label class="if-row if-small" style="font-weight: 500">
+                            <input type="checkbox" checked="@_addOns.Contains(module.Id)" @onchange="e => ToggleAddOn(module.Id, (bool)e.Value!)" />
+                            @module.Name <span class="if-muted">— @module.Description</span>
+                        </label>
+                    }
+                </div>
+
+                <button class="if-btn primary" disabled="@_busy" @onclick="SaveSubscriptionAsync">Save subscription</button>
+                <p class="if-muted if-small" style="margin-top: 8px">Changes apply on the gym's next request; access changes at the next sign-in refresh.</p>
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head"><h2>AI usage, last 30 days</h2></div>
+                <BarChart Points="@_tokens" Format="@(v => GymFormat.Compact((long)v))" Height="130" AriaLabel="Tokens per day" />
+
+                <h3 style="font-size: 1rem; margin-top: 16px">Agents</h3>
+                <ul class="if-list">
+                    @foreach (var agent in _data.Agents)
+                    {
+                        <li>
+                            <div style="flex: 1">
+                                <strong>@agent.Name</strong>
+                                <div class="if-small if-muted">@agent.AgentId · @agent.ModelProfile</div>
+                            </div>
+                            @if (agent.IsManaged && agent.TemplateVersion < agent.LatestTemplateVersion)
+                            {
+                                <Badge Tone="warning">v@(agent.TemplateVersion) → v@(agent.LatestTemplateVersion)</Badge>
+                            }
+                            else if (!agent.IsManaged)
+                            {
+                                <Badge>Custom</Badge>
+                            }
+                            <Badge Tone="@(agent.IsActive ? "success" : "")">@(agent.IsActive ? "On" : "Off")</Badge>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head"><h2>Gym</h2></div>
+                <table class="if-table">
+                    <tbody>
+                        <tr><td class="if-muted">Currency</td><td>@_data.Currency</td></tr>
+                        <tr><td class="if-muted">Time zone</td><td>@_data.TimeZoneId</td></tr>
+                        <tr><td class="if-muted">Join code</td><td class="if-mono">@_data.JoinCode</td></tr>
+                        @foreach (var (status, count) in _data.MembersByStatus)
+                        {
+                            <tr><td class="if-muted">@status members</td><td>@count</td></tr>
+                        }
+                    </tbody>
+                </table>
+
+                <h3 style="font-size: 1rem; margin-top: 16px">Invite another admin</h3>
+                <div class="if-row" style="flex-wrap: nowrap">
+                    <input class="if-input" type="email" placeholder="owner@gym.com" @bind="_inviteEmail" />
+                    <button class="if-btn" disabled="@(_busy || string.IsNullOrWhiteSpace(_inviteEmail))" @onclick="InviteAsync">Invite</button>
+                </div>
+                @if (_inviteLink is not null)
+                {
+                    <p class="if-small" style="margin-top: 8px">Invitation emailed. Link: <span class="if-mono" style="word-break: break-all">@_inviteLink</span></p>
+                }
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h2>Recent activity</h2>
+                    <a class="if-small" href="@($"/audit?tenant={TenantId}")">Full log →</a>
+                </div>
+                <ul class="if-list">
+                    @foreach (var item in _data.RecentActivity)
+                    {
+                        <li style="align-items: flex-start">
+                            <div style="flex: 1">
+                                <strong>@item.Action</strong>
+                                <div class="if-small if-muted">@item.Reason</div>
+                            </div>
+                            <span class="if-small if-muted">@GymFormat.Ago(item.OccurredAtUtc)</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int TenantId { get; set; }
+
+    private PlatformTenantDetailDto? _data;
+    private List<ChartPoint> _tokens = [];
+    private UpdateTenantSubscriptionRequest _sub = new();
+    private DateOnly? _trialEnds;
+    private HashSet<string> _addOns = [];
+    private string _inviteEmail = "";
+    private string? _inviteLink;
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Platform.GetTenantAsync(TenantId);
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _data = result.Data!;
+        _tokens = _data.TokensByDay.Select(x => new ChartPoint(x.Day.ToString("dd"), x.Tokens)).ToList();
+
+        var t = _data.Tenant;
+        _sub = new UpdateTenantSubscriptionRequest
+        {
+            Plan = t.Plan,
+            SubscriptionStatus = t.SubscriptionStatus,
+            TrialEndsAtUtc = t.TrialEndsAtUtc,
+            MonthlyAgentTokenLimit = t.MonthlyAgentTokenLimit,
+            AddOnModules = t.AddOnModules.ToList(),
+            AddOnModelProfiles = t.AddOnModelProfiles.ToList()
+        };
+        _trialEnds = t.TrialEndsAtUtc is { } end ? DateOnly.FromDateTime(end) : null;
+        _addOns = t.AddOnModules.ToHashSet();
+    }
+
+    private void ToggleAddOn(string module, bool on)
+    {
+        if (on)
+            _addOns.Add(module);
+        else
+            _addOns.Remove(module);
+    }
+
+    private async Task SaveSubscriptionAsync()
+    {
+        _sub.AddOnModules = _addOns.ToList();
+        _sub.TrialEndsAtUtc = _trialEnds?.ToDateTime(new TimeOnly(23, 59), DateTimeKind.Utc);
+
+        _busy = true;
+        var result = await Tenants.UpdateSubscriptionAsync(TenantId, _sub);
+        _busy = false;
+
+        _message = result.Success ? "Subscription saved." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+
+    private async Task ToggleSuspendAsync()
+    {
+        _busy = true;
+        var result = await Tenants.SetStatusAsync(TenantId, !_data!.Tenant.IsActive);
+        _busy = false;
+
+        _message = result.Success ? (result.Data!.IsActive ? "Gym reactivated." : "Gym suspended. Its users can no longer sign in to it.") : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+
+    private async Task InviteAsync()
+    {
+        _busy = true;
+        var result = await Tenants.InviteAdminAsync(TenantId, _inviteEmail.Trim());
+        _busy = false;
+
+        if (result.Success)
+        {
+            _inviteLink = result.Data!.AcceptUrl;
+            _inviteEmail = "";
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private static string StatusTone(PlatformTenantDto tenant) =>
+        !tenant.IsActive ? "danger" : tenant.SubscriptionStatus switch
+        {
+            SubscriptionStatus.Active => "success",
+            SubscriptionStatus.Trial => "info",
+            SubscriptionStatus.PastDue => "warning",
+            _ => "danger"
+        };
+}

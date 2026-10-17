@@ -1,0 +1,728 @@
+﻿@page "/tenants"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(
+    Policy = IronForge.Shared.Authorization.Permissions.PlatformTenantsManage)]
+
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@using IronForge.Shared.Components.Management
+@using IronForge.Shared.Components.UI
+@using IronForge.Shared.Models.Tenants
+@using IronForge.Shared.Subscriptions
+
+@inject IPlatformTenantService TenantService
+@inject IJSRuntime JS
+
+<PageTitle>Tenants</PageTitle>
+
+<div class="platform-tenants-page">
+    <PageHeader Title="Tenants"
+                Subtitle="Gyms on the platform: onboard new gyms, change their plan and control their access.">
+        <Actions>
+            <button type="button"
+                    class="btn btn-outline-primary"
+                    disabled="@isRollingOut"
+                    title="Install and update the platform's template agents in every tenant"
+                    @onclick="RolloutTemplatesAsync">
+                @(isRollingOut ? "Updating..." : "Update template agents")
+            </button>
+
+            <button type="button"
+                    class="btn btn-primary"
+                    @onclick="OpenProvision">
+                + New gym
+            </button>
+        </Actions>
+    </PageHeader>
+
+    @if (!string.IsNullOrWhiteSpace(actionError))
+    {
+        <div class="alert alert-danger tenants-alert" role="alert">@actionError</div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(rolloutMessage))
+    {
+        <div class="alert alert-success tenants-alert" role="status">@rolloutMessage</div>
+    }
+
+    @if (showProvision)
+    {
+        <section class="tenants-panel" aria-label="New tenant">
+            <div class="tenants-panel-header">
+                <div>
+                    <h2>Onboard a client</h2>
+                    <p>
+                        Creates the workspace with the standard agents and an
+                        invitation for its first Admin.
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClosePanels"
+                        disabled="@isSaving">
+                    Close
+                </button>
+            </div>
+
+            @if (createdLink is null)
+            {
+                <EditForm Model="provisionModel" OnValidSubmit="ProvisionAsync">
+                    <DataAnnotationsValidator />
+
+                    <div class="tenants-form-grid">
+                        <div>
+                            <label class="form-label" for="tenant-name">Client name</label>
+                            <InputText id="tenant-name"
+                                       class="form-control"
+                                       @bind-Value="provisionModel.Name"
+                                       @bind-Value:after="SuggestSlug"
+                                       placeholder="Acme Corporation" />
+                            <ValidationMessage For="@(() => provisionModel.Name)" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-slug">Slug</label>
+                            <InputText id="tenant-slug"
+                                       class="form-control"
+                                       @bind-Value="provisionModel.Slug"
+                                       @bind-Value:after="() => slugEdited = true"
+                                       placeholder="acme" />
+                            <ValidationMessage For="@(() => provisionModel.Slug)" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-admin">First Admin's email</label>
+                            <InputText id="tenant-admin"
+                                       class="form-control"
+                                       @bind-Value="provisionModel.AdminEmail"
+                                       placeholder="it@acme.com" />
+                            <ValidationMessage For="@(() => provisionModel.AdminEmail)" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-plan">Plan</label>
+                            <InputSelect id="tenant-plan"
+                                         class="form-select"
+                                         @bind-Value="provisionModel.Plan">
+                                @foreach (var plan in SubscriptionPlans.All)
+                                {
+                                    <option value="@plan.Id">@plan.Name (@ModuleNames(plan.Modules))</option>
+                                }
+                            </InputSelect>
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-trial">Trial days</label>
+                            <InputNumber id="tenant-trial"
+                                         class="form-control"
+                                         @bind-Value="provisionModel.TrialDays"
+                                         placeholder="No trial: starts active" />
+                            <ValidationMessage For="@(() => provisionModel.TrialDays)" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-limit">Monthly agent token limit</label>
+                            <InputNumber id="tenant-limit"
+                                         class="form-control"
+                                         @bind-Value="provisionModel.MonthlyAgentTokenLimit"
+                                         placeholder="Plan default" />
+                            <ValidationMessage For="@(() => provisionModel.MonthlyAgentTokenLimit)" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-currency">Currency</label>
+                            <InputText id="tenant-currency"
+                                       class="form-control"
+                                       maxlength="3"
+                                       @bind-Value="provisionModel.Currency"
+                                       placeholder="USD" />
+                        </div>
+
+                        <div>
+                            <label class="form-label" for="tenant-timezone">Time zone</label>
+                            <InputText id="tenant-timezone"
+                                       class="form-control"
+                                       @bind-Value="provisionModel.TimeZoneId"
+                                       placeholder="Asia/Karachi" />
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(formError))
+                    {
+                        <div class="alert alert-danger mt-3" role="alert">@formError</div>
+                    }
+
+                    <button type="submit"
+                            class="btn btn-primary mt-3"
+                            disabled="@isSaving">
+                        @(isSaving ? "Creating..." : "Create gym")
+                    </button>
+                </EditForm>
+            }
+            else
+            {
+                <InvitationLinkBox Link="@createdLink"
+                                   OnCopy="() => CopyAsync(createdLink.AcceptUrl)"
+                                   Copied="@linkCopied" />
+            }
+        </section>
+    }
+
+    @if (inviteTenant is not null)
+    {
+        <section class="tenants-panel" aria-label="Invite admin">
+            <div class="tenants-panel-header">
+                <div>
+                    <h2>Invite an Admin to @inviteTenant.Name</h2>
+                    <p>For example when the first invitation expired or the client's contact changed.</p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClosePanels"
+                        disabled="@isSaving">
+                    Close
+                </button>
+            </div>
+
+            @if (createdLink is null)
+            {
+                <EditForm Model="adminInviteModel" OnValidSubmit="InviteAdminAsync">
+                    <DataAnnotationsValidator />
+
+                    <label class="form-label" for="admin-email">Email</label>
+                    <InputText id="admin-email"
+                               class="form-control"
+                               @bind-Value="adminInviteModel.Email" />
+                    <ValidationMessage For="@(() => adminInviteModel.Email)" />
+
+                    @if (!string.IsNullOrWhiteSpace(formError))
+                    {
+                        <div class="alert alert-danger mt-3" role="alert">@formError</div>
+                    }
+
+                    <button type="submit"
+                            class="btn btn-primary mt-3"
+                            disabled="@isSaving">
+                        @(isSaving ? "Creating..." : "Create invitation link")
+                    </button>
+                </EditForm>
+            }
+            else
+            {
+                <InvitationLinkBox Link="@createdLink"
+                                   OnCopy="() => CopyAsync(createdLink.AcceptUrl)"
+                                   Copied="@linkCopied" />
+            }
+        </section>
+    }
+
+    @if (subscriptionTenant is not null)
+    {
+        <section class="tenants-panel" aria-label="Subscription">
+            <div class="tenants-panel-header">
+                <div>
+                    <h2>Subscription of @subscriptionTenant.Name</h2>
+                    <p>
+                        Changes apply on the tenant's next request: the tool catalogue
+                        and agents follow the enabled modules immediately.
+                    </p>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClosePanels"
+                        disabled="@isSaving">
+                    Close
+                </button>
+            </div>
+
+            <EditForm Model="subscriptionModel" OnValidSubmit="SaveSubscriptionAsync">
+                <DataAnnotationsValidator />
+
+                <div class="tenants-form-grid">
+                    <div>
+                        <label class="form-label" for="sub-plan">Plan</label>
+                        <InputSelect id="sub-plan"
+                                     class="form-select"
+                                     @bind-Value="subscriptionModel.Plan">
+                            @foreach (var plan in SubscriptionPlans.All)
+                            {
+                                <option value="@plan.Id">@plan.Name (@ModuleNames(plan.Modules))</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    <div>
+                        <label class="form-label" for="sub-status">Status</label>
+                        <InputSelect id="sub-status"
+                                     class="form-select"
+                                     @bind-Value="subscriptionModel.SubscriptionStatus">
+                            @foreach (var status in Enum.GetValues<SubscriptionStatus>())
+                            {
+                                <option value="@status">@StatusText(status)</option>
+                            }
+                        </InputSelect>
+                    </div>
+
+                    @if (subscriptionModel.SubscriptionStatus == SubscriptionStatus.Trial)
+                    {
+                        <div>
+                            <label class="form-label" for="sub-trial">Trial ends (UTC)</label>
+                            <InputDate id="sub-trial"
+                                       class="form-control"
+                                       @bind-Value="subscriptionModel.TrialEndsAtUtc" />
+                            <small class="tenants-hint">Empty: open-ended trial.</small>
+                        </div>
+                    }
+
+                    <div>
+                        <label class="form-label" for="sub-limit">Monthly agent token limit</label>
+                        <InputNumber id="sub-limit"
+                                     class="form-control"
+                                     @bind-Value="subscriptionModel.MonthlyAgentTokenLimit"
+                                     placeholder="@PlanLimitText(subscriptionModel.Plan)" />
+                        <ValidationMessage For="@(() => subscriptionModel.MonthlyAgentTokenLimit)" />
+                    </div>
+                </div>
+
+                <fieldset class="tenants-modules">
+                    <legend>Modules</legend>
+
+                    @foreach (var module in PlatformModules.All)
+                    {
+                        var inPlan = SubscriptionPlans.Find(subscriptionModel.Plan)?.Modules.Contains(module.Id) == true;
+
+                        <label class="tenants-module">
+                            <input type="checkbox"
+                                   checked="@(inPlan || subscriptionModel.AddOnModules.Contains(module.Id))"
+                                   disabled="@inPlan"
+                                   @onchange="e => ToggleAddOn(module.Id, e.Value is true)" />
+                            <span>
+                                <strong>@module.Name</strong>
+                                @(inPlan ? "included in plan" : module.IsCustom ? "custom add-on" : "add-on")
+                                <small>@module.Description</small>
+                            </span>
+                        </label>
+                    }
+                </fieldset>
+
+                <fieldset class="tenants-modules">
+                    <legend>Model profiles</legend>
+
+                    @foreach (var profile in modelProfiles)
+                    {
+                        var planProfiles = SubscriptionPlans.Find(subscriptionModel.Plan)?.ModelProfiles ?? [];
+                        var inPlan = planProfiles.Contains(profile);
+
+                        <label class="tenants-module">
+                            <input type="checkbox"
+                                   checked="@(inPlan || subscriptionModel.AddOnModelProfiles.Contains(profile))"
+                                   disabled="@inPlan"
+                                   @onchange="e => ToggleProfile(profile, e.Value is true)" />
+                            <span>
+                                <strong>@profile</strong>
+                                @(inPlan
+                                    ? planProfiles[0] == profile ? "included in plan (default)" : "included in plan"
+                                    : "add-on")
+                            </span>
+                        </label>
+                    }
+                </fieldset>
+
+                @if (!string.IsNullOrWhiteSpace(formError))
+                {
+                    <div class="alert alert-danger mt-3" role="alert">@formError</div>
+                }
+
+                <button type="submit"
+                        class="btn btn-primary mt-3"
+                        disabled="@isSaving">
+                    @(isSaving ? "Saving..." : "Save subscription")
+                </button>
+            </EditForm>
+        </section>
+    }
+
+    <ResourceList TItem="PlatformTenantDto"
+                  Items="@tenants"
+                  IsLoading="@isLoading"
+                  ErrorMessage="@loadError"
+                  EmptyTitle="No tenants yet"
+                  EmptyMessage="Onboard your first client to create their workspace."
+                  OnRetry="LoadAsync">
+
+        <ToolbarContent>
+            <div class="tenants-summary">
+                <span>@tenants.Count tenants</span>
+                <span>@tenants.Count(x => x.IsActive) active</span>
+            </div>
+        </ToolbarContent>
+
+        <RowTemplate Context="tenant">
+            <div class="tenant-row @(tenant.IsActive ? "" : "tenant-row-inactive")">
+                <div class="tenant-main">
+                    <div class="tenant-title">
+                        <a href="@($"/tenants/{tenant.TenantId}")"><strong>@tenant.Name</strong></a>
+                        <StatusBadge Text="@(tenant.IsActive ? "Active" : "Suspended")" />
+                        <StatusBadge Text="@StatusText(tenant.SubscriptionStatus, tenant.TrialEndsAtUtc)" />
+                        @if (tenant.IsActive && !tenant.HasAccess)
+                        {
+                            <span class="tenant-no-access">No access</span>
+                        }
+                    </div>
+                    <code class="tenant-slug">@tenant.Slug</code>
+                </div>
+
+                <div class="tenant-metadata">
+                    <div>
+                        <span>Plan</span>
+                        <strong>@(SubscriptionPlans.Find(tenant.Plan)?.Name ?? tenant.Plan)</strong>
+                        <small class="tenants-hint">@string.Join(", ", tenant.AllowedModelProfiles)</small>
+                    </div>
+                    <div>
+                        <span>Members</span>
+                        <strong>@tenant.ActiveMemberCount</strong>
+                    </div>
+                    <div>
+                        <span>Token limit</span>
+                        <strong>@(tenant.MonthlyAgentTokenLimit?.ToString("N0") ?? PlanLimitText(tenant.Plan))</strong>
+                    </div>
+                    <div>
+                        <span>Created</span>
+                        <strong>@tenant.CreatedAtUtc.ToLocalTime().ToString("d")</strong>
+                    </div>
+                </div>
+
+                <div class="tenant-actions">
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            @onclick="() => OpenSubscription(tenant)">
+                        Subscription
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            @onclick="() => OpenAdminInvite(tenant)">
+                        Invite admin
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-sm @(tenant.IsActive ? "btn-outline-danger" : "btn-outline-success")"
+                            disabled="@(busyTenantId == tenant.TenantId)"
+                            @onclick="() => ToggleStatusAsync(tenant)">
+                        @(tenant.IsActive ? "Suspend" : "Reactivate")
+                    </button>
+                </div>
+            </div>
+        </RowTemplate>
+    </ResourceList>
+</div>
+
+@code {
+    private List<PlatformTenantDto> tenants = [];
+    private bool isLoading;
+    private string? loadError;
+    private string? actionError;
+    private int? busyTenantId;
+
+    private bool showProvision;
+    private ProvisionTenantRequest provisionModel = new();
+    private bool slugEdited;
+
+    private PlatformTenantDto? inviteTenant;
+
+    private PlatformTenantDto? subscriptionTenant;
+    private UpdateTenantSubscriptionRequest subscriptionModel = new();
+    private List<string> modelProfiles = [];
+    private bool isRollingOut;
+    private string? rolloutMessage;
+    private CreateAdminInvitationRequest adminInviteModel = new();
+
+    private bool isSaving;
+    private string? formError;
+    private TenantInvitationLinkDto? createdLink;
+    private bool linkCopied;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var profiles = await TenantService.GetModelProfilesAsync();
+        modelProfiles = profiles.Success ? profiles.Data ?? [] : [];
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        loadError = null;
+
+        try
+        {
+            var result = await TenantService.GetTenantsAsync();
+
+            if (!result.Success)
+            {
+                loadError = result.ErrorMessage;
+                return;
+            }
+
+            tenants = result.Data ?? [];
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OpenProvision()
+    {
+        ClosePanels();
+        provisionModel = new ProvisionTenantRequest();
+        slugEdited = false;
+        showProvision = true;
+    }
+
+    private void OpenAdminInvite(PlatformTenantDto tenant)
+    {
+        ClosePanels();
+        adminInviteModel = new CreateAdminInvitationRequest();
+        inviteTenant = tenant;
+    }
+
+    private void ClosePanels()
+    {
+        showProvision = false;
+        inviteTenant = null;
+        subscriptionTenant = null;
+        createdLink = null;
+        linkCopied = false;
+        formError = null;
+    }
+
+    /// <summary>Derives "acme-corp" from "Acme Corp" until the slug is edited by hand.</summary>
+    private void SuggestSlug()
+    {
+        if (slugEdited)
+            return;
+
+        var characters = provisionModel.Name
+            .Trim()
+            .ToLowerInvariant()
+            .Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-')
+            .ToArray();
+
+        provisionModel.Slug = string.Join(
+            "-",
+            new string(characters).Split('-', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private void OpenSubscription(PlatformTenantDto tenant)
+    {
+        ClosePanels();
+
+        subscriptionModel = new UpdateTenantSubscriptionRequest
+        {
+            Plan = tenant.Plan,
+            SubscriptionStatus = tenant.SubscriptionStatus,
+            TrialEndsAtUtc = tenant.TrialEndsAtUtc,
+            AddOnModules = tenant.AddOnModules.ToList(),
+            AddOnModelProfiles = tenant.AddOnModelProfiles.ToList(),
+            MonthlyAgentTokenLimit = tenant.MonthlyAgentTokenLimit
+        };
+
+        subscriptionTenant = tenant;
+    }
+
+    private void ToggleAddOn(string module, bool enabled)
+    {
+        subscriptionModel.AddOnModules.Remove(module);
+
+        if (enabled)
+        {
+            subscriptionModel.AddOnModules.Add(module);
+        }
+    }
+
+    private async Task RolloutTemplatesAsync()
+    {
+        isRollingOut = true;
+        actionError = null;
+        rolloutMessage = null;
+
+        try
+        {
+            var result = await TenantService.RolloutTemplatesAsync();
+
+            if (!result.Success)
+            {
+                actionError = result.ErrorMessage;
+                return;
+            }
+
+            var r = result.Data!;
+
+            rolloutMessage =
+                r.AgentsInstalled + r.AgentsUpdated == 0
+                    ? "All template agents are up to date."
+                    : $"{r.AgentsInstalled} installed, {r.AgentsUpdated} updated across {r.TenantsChanged} tenant(s)." +
+                      (r.DetachedSkipped > 0 ? $" {r.DetachedSkipped} detached agent(s) left as they are." : "");
+        }
+        finally
+        {
+            isRollingOut = false;
+        }
+    }
+
+    private void ToggleProfile(string profile, bool enabled)
+    {
+        subscriptionModel.AddOnModelProfiles.Remove(profile);
+
+        if (enabled)
+        {
+            subscriptionModel.AddOnModelProfiles.Add(profile);
+        }
+    }
+
+    private async Task SaveSubscriptionAsync()
+    {
+        if (subscriptionTenant is null)
+            return;
+
+        isSaving = true;
+        formError = null;
+
+        try
+        {
+            if (subscriptionModel.TrialEndsAtUtc is { } trialEnd)
+            {
+                // InputDate yields an unspecified-kind date; the API stores UTC.
+                subscriptionModel.TrialEndsAtUtc =
+                    DateTime.SpecifyKind(trialEnd.Date, DateTimeKind.Utc);
+            }
+
+            var result = await TenantService.UpdateSubscriptionAsync(
+                subscriptionTenant.TenantId,
+                subscriptionModel);
+
+            if (!result.Success)
+            {
+                formError = result.ErrorMessage;
+                return;
+            }
+
+            ClosePanels();
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static string ModuleNames(IEnumerable<string> modules) =>
+        string.Join(", ", modules.Select(x => PlatformModules.Find(x)?.Name ?? x));
+
+    private static string PlanLimitText(string plan) =>
+        SubscriptionPlans.Find(plan)?.MonthlyAgentTokenLimit is { } limit
+            ? $"Plan: {limit:N0}"
+            : "Platform default";
+
+    private static string StatusText(SubscriptionStatus status, DateTime? trialEndsAtUtc = null) =>
+        status switch
+        {
+            SubscriptionStatus.Trial when trialEndsAtUtc is { } end =>
+                $"Trial until {end.ToLocalTime():d}",
+            SubscriptionStatus.PastDue => "Past due",
+            _ => status.ToString()
+        };
+
+    private async Task ProvisionAsync()
+    {
+        isSaving = true;
+        formError = null;
+
+        try
+        {
+            var result = await TenantService.ProvisionAsync(provisionModel);
+
+            if (!result.Success)
+            {
+                formError = result.ErrorMessage;
+                return;
+            }
+
+            createdLink = result.Data!.AdminInvitation;
+            await LoadAsync();
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task InviteAdminAsync()
+    {
+        if (inviteTenant is null)
+            return;
+
+        isSaving = true;
+        formError = null;
+
+        try
+        {
+            var result = await TenantService.InviteAdminAsync(
+                inviteTenant.TenantId,
+                adminInviteModel.Email);
+
+            if (!result.Success)
+            {
+                formError = result.ErrorMessage;
+                return;
+            }
+
+            createdLink = result.Data;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ToggleStatusAsync(PlatformTenantDto tenant)
+    {
+        busyTenantId = tenant.TenantId;
+        actionError = null;
+
+        try
+        {
+            var result = await TenantService.SetStatusAsync(
+                tenant.TenantId,
+                !tenant.IsActive);
+
+            if (!result.Success)
+            {
+                actionError = result.ErrorMessage;
+            }
+
+            await LoadAsync();
+        }
+        finally
+        {
+            busyTenantId = null;
+        }
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            linkCopied = true;
+        }
+        catch (JSException)
+        {
+            // Clipboard not available: the link stays visible for manual copying.
+        }
+    }
+}

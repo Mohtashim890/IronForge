@@ -1,0 +1,17 @@
+@page "/notifications"
+@attribute [Authorize]
+
+<PageTitle>Notifications | IronForge</PageTitle>
+
+<div class="if-page" style="max-width: 760px">
+    <div class="if-page-head">
+        <div>
+            <h1>Notifications</h1>
+            <p>Join requests, approvals and other updates for you.</p>
+        </div>
+    </div>
+
+    <div class="if-card">
+        <NotificationList />
+    </div>
+</div>

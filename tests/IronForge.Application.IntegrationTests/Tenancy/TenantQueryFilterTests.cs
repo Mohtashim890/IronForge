@@ -310,7 +310,7 @@ public sealed class TenantQueryFilterTests
                 TenantId = tenant.Id,
                 UserId = user.Id,
                 AgentId = SharedAgentId,
-                ToolName = "create_product",
+                ToolName = "send_payment_reminder",
                 ToolCallId = $"call-{tenant.Slug}",
                 ArgumentsJson = "{}",
                 RiskLevel = AgentRiskLevel.Medium,
@@ -323,7 +323,7 @@ public sealed class TenantQueryFilterTests
             {
                 TenantId = tenant.Id,
                 OccurredAtUtc = now,
-                Category = AuditCategory.Product,
+                Category = AuditCategory.Billing,
                 Action = $"Event-{tenant.Slug}",
                 Outcome = AuditOutcome.Succeeded,
                 ActorType = AuditActorType.User,
@@ -347,7 +347,7 @@ public sealed class TenantQueryFilterTests
                     new AgentDelegationScopeEntity
                     {
                         DelegationId = delegationId,
-                        Scope = "products.read"
+                        Scope = "gym.members.read"
                     }
                 }
             });

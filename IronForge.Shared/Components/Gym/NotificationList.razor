@@ -1,0 +1,102 @@
+@using IronForge.Shared.Models.Gym
+@using IronForge.Shared.Services.Gym
+@inject NotificationsApiClient Notifications
+@inject NavigationManager Navigation
+
+@if (_loading)
+{
+    <div class="if-loading">Loading notifications…</div>
+}
+else if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+else if (_items.Count == 0)
+{
+    <div class="if-empty">You're all caught up. No notifications yet.</div>
+}
+else
+{
+    <div class="if-row" style="margin-bottom: 8px">
+        <span class="if-muted if-small">@_items.Count(x => !x.IsRead) unread</span>
+        <span class="if-spacer"></span>
+        <button class="if-btn sm" type="button" @onclick="MarkAllAsync" disabled="@(_items.All(x => x.IsRead))">Mark all read</button>
+    </div>
+
+    <ul class="if-list">
+        @foreach (var item in _items)
+        {
+            <li style="align-items: flex-start; cursor: pointer; @(item.IsRead ? "" : "background: #fffaf6;")" @onclick="() => OpenAsync(item)">
+                <span class="if-avatar" aria-hidden="true">@Icon(item.Type)</span>
+                <div style="flex: 1; min-width: 0">
+                    <div class="if-row">
+                        <strong>@item.Title</strong>
+                        @if (!item.IsRead)
+                        {
+                            <Badge Tone="accent">New</Badge>
+                        }
+                    </div>
+                    <div class="if-muted if-small" style="white-space: pre-line">@item.Body</div>
+                    <div class="if-small" style="color: var(--if-subtle); margin-top: 4px">@GymFormat.Ago(item.CreatedAtUtc)</div>
+                </div>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    private List<NotificationDto> _items = [];
+    private bool _loading = true;
+    private string? _error;
+
+    /// <summary>Raised after notifications are marked read, e.g. to refresh a badge.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Notifications.GetAsync(take: 100);
+
+        _loading = false;
+
+        if (result.Success)
+            _items = result.Data!;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task MarkAllAsync()
+    {
+        var result = await Notifications.MarkAllReadAsync();
+
+        if (result.Success)
+        {
+            _items.ForEach(x => x.IsRead = true);
+            await Changed.InvokeAsync();
+        }
+    }
+
+    private async Task OpenAsync(NotificationDto item)
+    {
+        if (!item.IsRead)
+        {
+            await Notifications.MarkReadAsync(item.Id);
+            item.IsRead = true;
+            await Changed.InvokeAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(item.Link) && item.Link.StartsWith('/'))
+        {
+            Navigation.NavigateTo(item.Link);
+        }
+    }
+
+    private static string Icon(NotificationType type) => type switch
+    {
+        NotificationType.PaymentReminder => "!",
+        NotificationType.Payment => "$",
+        NotificationType.Announcement => "📣",
+        NotificationType.Routine => "🏋",
+        NotificationType.Membership => "★",
+        _ => "i"
+    };
+}

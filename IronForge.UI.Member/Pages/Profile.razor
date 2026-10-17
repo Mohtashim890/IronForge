@@ -1,0 +1,79 @@
+@page "/profile"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>Profile | IronForge</PageTitle>
+
+<p><a href="/me" class="if-small">← Me</a></p>
+<h1 style="font-size: 1.4rem">Your profile</h1>
+
+@if (_message is not null)
+{
+    <div class="if-alert success">@_message</div>
+}
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+<div class="m-card">
+    <div class="if-field"><label>Full name</label><input @bind="_form.FullName" /></div>
+    <div class="if-field"><label>Phone</label><input type="tel" @bind="_form.Phone" /></div>
+    <div class="if-form-grid">
+        <div class="if-field"><label>Date of birth</label><input type="date" @bind="_form.DateOfBirth" /></div>
+        <div class="if-field">
+            <label>Gender</label>
+            <select @bind="_form.Gender">
+                <option value="">Prefer not to say</option>
+                <option>Female</option>
+                <option>Male</option>
+                <option>Other</option>
+            </select>
+        </div>
+        <div class="if-field"><label>Height (cm)</label><input type="number" @bind="_form.HeightCm" /></div>
+    </div>
+    <div class="if-field"><label>Emergency contact</label><input @bind="_form.EmergencyContact" placeholder="Name and phone" /></div>
+
+    <button class="if-btn primary block" disabled="@_saving" @onclick="SaveAsync">@(_saving ? "Saving…" : "Save")</button>
+    <p class="if-muted if-small" style="margin-top: 10px">Your coach uses your age and height to tailor advice.</p>
+</div>
+
+@code {
+    private UpdateMyProfileRequest _form = new();
+    private bool _saving;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Me.GetMembershipAsync();
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        var me = result.Data!;
+        _form = new UpdateMyProfileRequest
+        {
+            FullName = me.FullName,
+            Phone = me.Phone,
+            DateOfBirth = me.DateOfBirth,
+            Gender = me.Gender,
+            HeightCm = me.HeightCm,
+            EmergencyContact = me.EmergencyContact
+        };
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        var result = await Me.UpdateProfileAsync(_form);
+        _saving = false;
+
+        _message = result.Success ? "Saved." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+}

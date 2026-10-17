@@ -50,7 +50,9 @@ public sealed class AgentTemplate
             TenantId = tenantId,
             AgentId = Definition.AgentId,
             IsActive = true,
-            CreatedAtUtc = nowUtc
+            CreatedAtUtc = nowUtc,
+            // The template's audience; the tenant may change it later.
+            AllowedRoles = Definition.AllowedRoles.ToList()
         };
 
         ApplyTo(agent, nowUtc);
@@ -93,14 +95,24 @@ public sealed class AgentTemplate
 
 public static class AgentTemplates
 {
-    public static readonly AgentTemplate ProductAgent =
+    public static readonly AgentTemplate FitnessCoach =
         new()
         {
-            Definition = AgentDefinitions.ProductAgent,
-            Name = "Product Agent",
-            Description = "Agent for product management operations.",
+            Definition = AgentDefinitions.FitnessCoach,
+            Name = "Fitness Coach",
+            Description = "Members' personal AI coach: routines, workout logging, progress and goals.",
             Version = 1,
-            Modules = [PlatformModules.Products],
+            Modules = [PlatformModules.GymCoaching, PlatformModules.GymBilling],
+        };
+
+    public static readonly AgentTemplate GymAdmin =
+        new()
+        {
+            Definition = AgentDefinitions.GymAdmin,
+            Name = "Gym Admin Agent",
+            Description = "Staff assistant for members, attendance, billing and announcements.",
+            Version = 1,
+            Modules = [PlatformModules.GymCore, PlatformModules.GymBilling, PlatformModules.GymEngagement],
         };
 
     public static readonly AgentTemplate InsightsAgent =
@@ -108,15 +120,16 @@ public static class AgentTemplates
         {
             Definition = AgentDefinitions.InsightsAgent,
             Name = "Insights Agent",
-            Description = "Read-only analyst for the product catalogue and recent activity.",
-            Version = 1,
-            Modules = [PlatformModules.Products, PlatformModules.Audit],
+            Description = "Read-only analyst for the gym's activity log and key numbers.",
+            Version = 2,
+            Modules = [PlatformModules.GymCore, PlatformModules.Audit],
         };
 
-    /// <summary>Installed into every newly provisioned tenant.</summary>
+    /// <summary>Installed into every newly provisioned tenant whose plan covers their modules.</summary>
     public static readonly IReadOnlyList<AgentTemplate> Default =
     [
-        ProductAgent,
+        GymAdmin,
+        FitnessCoach,
         InsightsAgent
     ];
 }

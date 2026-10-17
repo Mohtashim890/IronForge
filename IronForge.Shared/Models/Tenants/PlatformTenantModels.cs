@@ -71,6 +71,14 @@ namespace IronForge.Shared.Models.Tenants
         /// <summary>Starts a trial of this many days; null starts an active subscription.</summary>
         [Range(1, 90)]
         public int? TrialDays { get; set; }
+
+        /// <summary>The gym's currency (ISO 4217); every price and invoice uses it.</summary>
+        [StringLength(3, MinimumLength = 3)]
+        public string? Currency { get; set; } = "USD";
+
+        /// <summary>The gym's time zone (IANA id, e.g. Asia/Karachi).</summary>
+        [StringLength(100)]
+        public string? TimeZoneId { get; set; } = "UTC";
     }
 
     /// <summary>Platform operator changes what a tenant has paid for.</summary>

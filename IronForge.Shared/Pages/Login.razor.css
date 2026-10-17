@@ -315,3 +315,22 @@
         font-size: 1.45rem;
     }
 }
+
+.login-links {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+}
+
+.login-links a {
+    color: #e8590c;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.login-links a:hover {
+    text-decoration: underline;
+}

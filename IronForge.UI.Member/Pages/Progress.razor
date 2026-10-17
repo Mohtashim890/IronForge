@@ -1,0 +1,160 @@
+@page "/progress"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>Progress | IronForge</PageTitle>
+
+<h1 style="font-size: 1.4rem">Progress</h1>
+
+@if (_error is not null)
+{
+    <div class="if-alert @(_upgrade ? "info" : "error")">@_error</div>
+}
+
+@if (_progress is not null)
+{
+    <div class="if-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px">
+        <StatTile Label="Weight" Value="@(_progress.CurrentWeightKg is { } w ? $"{w}" : "—")" Sub="@WeightChange" />
+        <StatTile Label="Workouts (30d)" Value="@_progress.WorkoutsLast30Days.ToString()" />
+        <StatTile Label="Streak" Value="@($"{_progress.WeeklyStreak} wk")" />
+    </div>
+
+    <div class="m-card" style="margin-top: 14px">
+        <div class="if-card-head"><h3>Weight (kg)</h3></div>
+        <LineChart Points="@_weight" Unit=" kg" AriaLabel="Weight over time" Height="140" />
+
+        <div class="if-row" style="margin-top: 12px; flex-wrap: nowrap">
+            <input class="if-input" type="number" step="0.1" placeholder="Today's weight (kg)" @bind="_newWeight" />
+            <input class="if-input" type="number" step="0.1" placeholder="Body fat %" @bind="_newFat" style="max-width: 120px" />
+            <button class="if-btn primary" disabled="@(_newWeight is null && _newFat is null)" @onclick="RecordAsync">Save</button>
+        </div>
+    </div>
+
+    <div class="m-card">
+        <div class="if-card-head"><h3>Training volume per week</h3></div>
+        <BarChart Points="@_volume" AriaLabel="Weekly training volume" Height="120" Format="@(v => GymFormat.Compact((long)v))" />
+    </div>
+
+    <div class="m-section-title">Goals</div>
+    <div class="m-card">
+        @if (_goals.Count == 0)
+        {
+            <p class="if-muted" style="margin-top: 0">No goals yet.</p>
+        }
+        <ul class="if-list">
+            @foreach (var goal in _goals)
+            {
+                <li>
+                    <div style="flex: 1">
+                        <strong>@goal.Description</strong>
+                        <div class="if-small if-muted">@goal.Type @(goal.TargetDate is { } d ? $"· by {GymFormat.Date(d)}" : "")</div>
+                    </div>
+                    @if (goal.Status == GoalStatus.Active)
+                    {
+                        <button class="if-btn sm" @onclick="() => CompleteAsync(goal)">Done 🎉</button>
+                    }
+                    else
+                    {
+                        <Badge Tone="@(goal.Status == GoalStatus.Achieved ? "success" : "")">@goal.Status</Badge>
+                    }
+                </li>
+            }
+        </ul>
+
+        <div class="if-field" style="margin-top: 12px">
+            <label>New goal</label>
+            <input @bind="_goal.Description" placeholder="e.g. Run 5 km without stopping" />
+        </div>
+        <div class="if-row" style="flex-wrap: nowrap">
+            <select class="if-input" @bind="_goal.Type">
+                @foreach (var type in Enum.GetValues<GoalType>())
+                {
+                    <option value="@type">@type</option>
+                }
+            </select>
+            <input class="if-input" type="date" @bind="_goal.TargetDate" />
+            <button class="if-btn primary" disabled="@string.IsNullOrWhiteSpace(_goal.Description)" @onclick="AddGoalAsync">Add</button>
+        </div>
+    </div>
+}
+
+@code {
+    private ProgressSummaryDto? _progress;
+    private List<FitnessGoalDto> _goals = [];
+    private List<ChartPoint> _weight = [];
+    private List<ChartPoint> _volume = [];
+    private decimal? _newWeight;
+    private decimal? _newFat;
+    private SaveFitnessGoalRequest _goal = new() { Type = GoalType.General };
+    private string? _error;
+    private bool _upgrade;
+
+    private string? WeightChange =>
+        _progress?.CurrentWeightKg is { } now && _progress.StartWeightKg is { } start && now != start
+            ? $"{(now - start > 0 ? "+" : "")}{now - start:0.0} kg since start"
+            : "kg";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Me.GetProgressAsync();
+
+        if (!result.Success)
+        {
+            _upgrade = result.StatusCode == 403;
+            _error = _upgrade ? "Progress tracking isn't part of your gym's plan yet." : result.ErrorMessage;
+            return;
+        }
+
+        _progress = result.Data!;
+        _weight = _progress.Metrics
+            .Where(x => x.WeightKg.HasValue)
+            .OrderBy(x => x.RecordedOn)
+            .Select(x => new ChartPoint(GymFormat.ShortDate(x.RecordedOn), (double)x.WeightKg!.Value))
+            .ToList();
+        _volume = _progress.WeeklyVolume
+            .Select(x => new ChartPoint(GymFormat.ShortDate(x.WeekStart), (double)x.VolumeKg))
+            .ToList();
+        _goals = (await Me.GetGoalsAsync()).Data ?? [];
+    }
+
+    private async Task RecordAsync()
+    {
+        var result = await Me.RecordMetricAsync(new RecordBodyMetricRequest { WeightKg = _newWeight, BodyFatPercent = _newFat });
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _newWeight = null;
+        _newFat = null;
+        await LoadAsync();
+    }
+
+    private async Task AddGoalAsync()
+    {
+        var result = await Me.CreateGoalAsync(_goal);
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _goal = new SaveFitnessGoalRequest { Type = GoalType.General };
+        _goals = (await Me.GetGoalsAsync()).Data ?? [];
+    }
+
+    private async Task CompleteAsync(FitnessGoalDto goal)
+    {
+        var result = await Me.UpdateGoalStatusAsync(goal.Id, GoalStatus.Achieved);
+
+        if (result.Success)
+            _goals = (await Me.GetGoalsAsync()).Data ?? [];
+        else
+            _error = result.ErrorMessage;
+    }
+}

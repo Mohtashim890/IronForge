@@ -1,4 +1,4 @@
-using IronForge.Shared.Subscriptions;
+﻿using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Models;
 using IronForge.Application.Agents.Runtime;
@@ -131,7 +131,7 @@ public sealed class AgentToolRegistry : IAgentToolRegistry
 
             if (!_userAuthorization.HasPermission(policy.RequiredPermission))
             {
-                // Not the user's to delegate (e.g. a Viewer and create_product).
+                // Not the user's to delegate (e.g. a Trainer and send_payment_reminder).
                 continue;
             }
 

@@ -1,4 +1,4 @@
-using IronForge.Application.Auditing.Models;
+﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
@@ -47,8 +47,12 @@ namespace IronForge.Application.Auth.Services
 
         public async Task<LoginResponse?> LoginAsync(LoginRequest request)
         {
+            var login = (request.Username ?? "").Trim();
+            var loginLower = login.ToLower();
+
+            // Members usually remember their email rather than a username.
             var user = await _users.FirstOrDefaultTrackedAsync(
-                x => x.Username == request.Username);
+                x => x.Username == login || x.Email.ToLower() == loginLower);
 
             if (user is null || !user.IsActive)
             {

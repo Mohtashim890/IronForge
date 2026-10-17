@@ -1,4 +1,4 @@
-using IronForge.Application.Agents.Delegations;
+﻿using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.Models;
@@ -33,13 +33,13 @@ public sealed class AgentCapabilityAndProfileTests
     public async Task AgentPermissions_AreThePermissionsOfItsBoundTools()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, "analyst", "standard", "get_products", "search_audit_events");
+        await SeedAgentAsync(tenantId, "analyst", "standard", "search_members", "search_audit_events");
 
         var permissions = await AsAdmin(tenantId, s =>
             s.AgentPermissions.GetPermissionsAsync("analyst"));
 
         Assert.Equal(
-            [Permissions.AuditRead, Permissions.ProductsRead],
+            [Permissions.AuditRead, Permissions.GymMembersRead],
             permissions.Order());
     }
 
@@ -47,12 +47,12 @@ public sealed class AgentCapabilityAndProfileTests
     public async Task AgentPermissions_ExcludeToolsOfDisabledModules()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, "analyst", "economy", "get_products", "search_audit_events");
+        await SeedAgentAsync(tenantId, "analyst", "economy", "search_members", "search_audit_events");
 
         var permissions = await AsAdmin(tenantId, s =>
             s.AgentPermissions.GetPermissionsAsync("analyst"));
 
-        Assert.Equal([Permissions.ProductsRead], permissions);
+        Assert.Equal([Permissions.GymMembersRead], permissions);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public sealed class AgentCapabilityAndProfileTests
     {
         var acme = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
         var globex = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(globex, "analyst", "standard", "get_products");
+        await SeedAgentAsync(globex, "analyst", "standard", "search_members");
 
         var permissions = await AsAdmin(acme, s =>
             s.AgentPermissions.GetPermissionsAsync("analyst"));
@@ -72,21 +72,21 @@ public sealed class AgentCapabilityAndProfileTests
     public async Task AgentDto_ShowsDerivedPermissions()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, "writer", "standard", "get_products", "create_product");
+        await SeedAgentAsync(tenantId, "writer", "standard", "search_members", "freeze_membership");
 
         var agent = await AsAdmin(tenantId, s => s.AgentManagement.GetAgentAsync("writer"));
 
         Assert.Equal(
-            [Permissions.ProductsCreate, Permissions.ProductsRead],
+            [Permissions.GymMembersManage, Permissions.GymMembersRead],
             agent.Data!.Permissions);
     }
 
     [Fact]
     public async Task Delegation_ScopeOutsideTheAgentsTools_IsRejected()
     {
-        // The user (an Admin) holds products.delete, but the agent has no delete tool.
+        // The user (an Admin) holds gym.billing.manage, but the agent has no billing tool.
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, "reader", "standard", "get_products");
+        await SeedAgentAsync(tenantId, "reader", "standard", "search_members");
 
         var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             AsAdmin(tenantId, s =>
@@ -100,11 +100,11 @@ public sealed class AgentCapabilityAndProfileTests
                 .CreateAsync(
                     "reader",
                     "mcp-client",
-                    [Permissions.ProductsDelete],
+                    [Permissions.GymBillingManage],
                     TimeSpan.FromMinutes(30))));
 
         Assert.Equal(
-            "Agent 'reader' is not allowed to use permission 'products.delete'.",
+            "Agent 'reader' is not allowed to use permission 'gym.billing.manage'.",
             exception.Message);
     }
 
@@ -155,7 +155,7 @@ public sealed class AgentCapabilityAndProfileTests
     {
         // E.g. created on Professional, then downgraded to Starter.
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, "legacy", ModelProfileNames.Standard, "get_products");
+        await SeedAgentAsync(tenantId, "legacy", ModelProfileNames.Standard, "search_members");
 
         var definition = await AsAdmin(tenantId, s =>
             s.AgentDefinitions.GetRequiredAsync("legacy"));

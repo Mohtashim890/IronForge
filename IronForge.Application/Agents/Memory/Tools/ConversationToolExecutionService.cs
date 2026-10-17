@@ -119,7 +119,7 @@ namespace IronForge.Application.Agents.Memory.Tools
 
                 return result;
             }
-            catch (Exception)
+            catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 activity?.SetTag("ironforge.tool.execution_status", ToolExecutionStatuses.Failed);
                 activity?.SetStatus(
@@ -128,9 +128,36 @@ namespace IronForge.Application.Agents.Memory.Tools
                    1,
                    toolNameTag,
                    pathTag);
-            }
 
-            return null;
+                // The model gets a plain error instead of an empty result, so
+                // it can explain the failure. Only governance denials carry a
+                // message meant for users; other exception details stay internal.
+                var error = new
+                {
+                    Success = false,
+                    Error = exception is UnauthorizedAccessException
+                        ? exception.Message
+                        : "The tool failed to run. Try again later."
+                };
+
+                resultModel = new ToolCallPersistenceModel
+                {
+                    CallId = callContent?.CallId ?? "",
+                    ToolName = function.Name,
+                    Result = System.Text.Json.JsonSerializer.Serialize(error)
+                };
+
+                await _conversationService.AddMessageAsync(
+                    session.Id,
+                    ConversationMessageRole.Tool,
+                    System.Text.Json.JsonSerializer.Serialize(resultModel),
+                    toolCallId: callContent?.CallId,
+                    toolName: function.Name,
+                    metadataJson: """{"contentType":"functionResult"}""",
+                    cancellationToken);
+
+                return error;
+            }
         }
     }
 }

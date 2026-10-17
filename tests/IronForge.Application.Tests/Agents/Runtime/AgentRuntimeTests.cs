@@ -1,4 +1,4 @@
-using IronForge.Application.Agents.Approvals;
+﻿using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Memory.Context;
 using IronForge.Application.Agents.Memory.ConversationSession;
@@ -43,8 +43,15 @@ public class AgentRuntimeTests
 
     public AgentRuntimeTests()
     {
-        _executionContext.Set(
-            ApplicationTestContext.AuthenticatedUser());
+        _executionContext.Set(new IronForge.Application.Execution.ExecutionContext
+        {
+            TenantId = ApplicationTestContext.DefaultTenantId,
+            Actor = new ExecutionActor
+            {
+                UserId = ApplicationTestContext.DefaultUserId,
+                Role = "Admin"
+            }
+        });
 
         _chatClients
             .Setup(x => x.GetClient(It.IsAny<string?>()))
@@ -83,7 +90,7 @@ public class AgentRuntimeTests
                 _sentOptions = options;
             })
             .ReturnsAsync(new ChatResponse(
-                new ChatMessage(ChatRole.Assistant, "Here are your products."))
+                new ChatMessage(ChatRole.Assistant, "Three members are overdue."))
             {
                 Usage = new UsageDetails
                 {
@@ -127,18 +134,30 @@ public class AgentRuntimeTests
     }
 
     [Fact]
-    public async Task ProductAgentDefinition_KeepsExistingBehaviourSettings()
+    public async Task GymAdminDefinition_HasItsBehaviourSettings()
     {
         var definition = await new CodeAgentDefinitionProvider()
-            .GetRequiredAsync(AgentIds.ProductAgent);
+            .GetRequiredAsync(AgentIds.GymAdmin);
 
-        Assert.Equal(5, definition.MaximumIterationsPerRequest);
+        Assert.Equal(8, definition.MaximumIterationsPerRequest);
         Assert.False(definition.AllowMultipleToolCalls);
-        Assert.Equal(TimeSpan.FromMinutes(10), definition.ApprovalLifetime);
-        Assert.Equal(
-            ["get_products", "get_product", "create_product", "update_product", "delete_product"],
-            definition.Tools.Select(tool => tool.ToolName));
+        Assert.Equal(TimeSpan.FromMinutes(30), definition.ApprovalLifetime);
+        Assert.Equal(["Admin", "Trainer"], definition.AllowedRoles);
+        Assert.Contains("send_announcement", definition.Tools.Select(tool => tool.ToolName));
+        Assert.Equal(2000, definition.GetToolBinding("record_cash_payment")!.MaximumAmount);
         Assert.False(string.IsNullOrWhiteSpace(definition.Instructions));
+    }
+
+    [Fact]
+    public async Task FitnessCoachDefinition_IsForMembersOnly()
+    {
+        var definition = await new CodeAgentDefinitionProvider()
+            .GetRequiredAsync(AgentIds.FitnessCoach);
+
+        Assert.Equal(["Member"], definition.AllowedRoles);
+        Assert.True(definition.AllowMultipleToolCalls);
+        Assert.Contains("log_workout", definition.Tools.Select(tool => tool.ToolName));
+        Assert.DoesNotContain(definition.Tools, tool => tool.ToolName.StartsWith("send_"));
     }
 
     [Fact]
@@ -151,49 +170,49 @@ public class AgentRuntimeTests
     [Fact]
     public async Task RunAsync_NewSession_SendsSystemPromptFirstAndDefinitionTools()
     {
-        var session = Session(AgentIds.ProductAgent);
+        var session = Session(AgentIds.GymAdmin);
 
         _conversationService
-            .Setup(x => x.CreateSessionAsync(AgentIds.ProductAgent, null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.CreateSessionAsync(AgentIds.GymAdmin, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session);
 
         var result = await CreateRuntime().RunAsync(
-            AgentIds.ProductAgent,
+            AgentIds.GymAdmin,
             sessionId: null,
-            "list my products");
+            "who is overdue?");
 
         Assert.Equal(AgentRunStatus.Completed, result.Status);
         Assert.Equal(session.Id, result.SessionId);
-        Assert.Equal("Here are your products.", result.Message);
+        Assert.Equal("Three members are overdue.", result.Message);
 
         // System prompt first, then persisted context, then the new message.
         var messages = Assert.IsAssignableFrom<IList<ChatMessage>>(_sentMessages);
         Assert.Equal(ChatRole.System, messages[0].Role);
-        Assert.Equal(AgentDefinitions.ProductAgent.Instructions, messages[0].Text);
+        Assert.Equal(AgentDefinitions.GymAdmin.Instructions, messages[0].Text);
         Assert.Equal("earlier question", messages[1].Text);
-        Assert.Equal("list my products", messages[^1].Text);
+        Assert.Equal("who is overdue?", messages[^1].Text);
 
         // The model is offered exactly the definition's tools.
         Assert.NotNull(_sentOptions?.Tools);
         Assert.Equal(
-            AgentDefinitions.ProductAgent.Tools.Select(tool => tool.ToolName),
+            AgentDefinitions.GymAdmin.Tools.Select(tool => tool.ToolName),
             _sentOptions!.Tools!.Select(tool => tool.Name));
 
         // The agent identity comes from the definition.
         var agent = _executionContext.Current!.Actor.Agent!;
-        Assert.Equal(AgentIds.ProductAgent, agent.AgentId);
+        Assert.Equal(AgentIds.GymAdmin, agent.AgentId);
         Assert.Equal(AgentType.Internal, agent.Type);
 
         // The system prompt is never persisted; user and assistant text are.
         _conversationService.Verify(x => x.AddMessageAsync(
-            session.Id, ConversationMessageRole.User, "list my products",
+            session.Id, ConversationMessageRole.User, "who is overdue?",
             null, null, null, It.IsAny<CancellationToken>()), Times.Once);
         _conversationService.Verify(x => x.AddMessageAsync(
-            session.Id, ConversationMessageRole.Assistant, "Here are your products.",
+            session.Id, ConversationMessageRole.Assistant, "Three members are overdue.",
             null, null, null, It.IsAny<CancellationToken>()), Times.Once);
         _conversationService.Verify(x => x.AddMessageAsync(
             It.IsAny<Guid>(), It.IsAny<ConversationMessageRole>(),
-            AgentDefinitions.ProductAgent.Instructions,
+            AgentDefinitions.GymAdmin.Instructions,
             It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
             It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -209,9 +228,9 @@ public class AgentRuntimeTests
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(
             () => CreateRuntime().RunAsync(
-                AgentIds.ProductAgent,
+                AgentIds.GymAdmin,
                 foreignSession.Id,
-                "list my products"));
+                "who is overdue?"));
 
         Assert.Equal("Conversation session was not found.", exception.Message);
 
@@ -236,8 +255,8 @@ public class AgentRuntimeTests
             SessionId = foreignSession.Id,
             TenantId = ApplicationTestContext.DefaultTenantId,
             UserId = ApplicationTestContext.DefaultUserId,
-            AgentId = AgentIds.ProductAgent,
-            ToolName = "delete_product",
+            AgentId = AgentIds.GymAdmin,
+            ToolName = "send_announcement",
             Status = AgentApprovalStatus.Pending,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(5)
         };
@@ -252,7 +271,7 @@ public class AgentRuntimeTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => CreateRuntime().RespondToApprovalAsync(
-                AgentIds.ProductAgent,
+                AgentIds.GymAdmin,
                 "approval-1",
                 approved: true));
 
@@ -297,9 +316,9 @@ public class AgentRuntimeTests
 
         await Assert.ThrowsAsync<AgentQuotaExceededException>(
             () => CreateRuntime().RunAsync(
-                AgentIds.ProductAgent,
+                AgentIds.GymAdmin,
                 sessionId: null,
-                "list my products"));
+                "who is overdue?"));
 
         _conversationService.Verify(x => x.CreateSessionAsync(
             It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -315,7 +334,7 @@ public class AgentRuntimeTests
 
     private AgentApproval PendingApproval(AgentRiskLevel risk, string toolName)
     {
-        var session = Session(AgentIds.ProductAgent);
+        var session = Session(AgentIds.GymAdmin);
 
         _conversationService
             .Setup(x => x.GetSessionAsync(session.Id, It.IsAny<CancellationToken>()))
@@ -327,7 +346,7 @@ public class AgentRuntimeTests
             SessionId = session.Id,
             TenantId = ApplicationTestContext.DefaultTenantId,
             UserId = ApplicationTestContext.DefaultUserId,
-            AgentId = AgentIds.ProductAgent,
+            AgentId = AgentIds.GymAdmin,
             ToolName = toolName,
             ArgumentsJson = "{}",
             RiskLevel = risk,
@@ -348,11 +367,11 @@ public class AgentRuntimeTests
     [InlineData(AgentRiskLevel.Critical)]
     public async Task HighRiskAction_CannotBeApprovedByTheRequester(AgentRiskLevel risk)
     {
-        var approval = PendingApproval(risk, "delete_product");
+        var approval = PendingApproval(risk, "send_announcement");
 
         var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
             CreateRuntime().RespondToApprovalAsync(
-                AgentIds.ProductAgent,
+                AgentIds.GymAdmin,
                 approval.ApprovalId,
                 approved: true));
 
@@ -367,13 +386,13 @@ public class AgentRuntimeTests
     [Fact]
     public async Task HighRiskAction_ApprovedByAnotherApprover_IsRunByTheRequester()
     {
-        var approval = PendingApproval(AgentRiskLevel.High, "delete_product");
+        var approval = PendingApproval(AgentRiskLevel.High, "send_announcement");
 
         approval.Status = AgentApprovalStatus.Approved;
         approval.DecidedByUserId = ApplicationTestContext.DefaultUserId + 1;
 
         var result = await CreateRuntime().RespondToApprovalAsync(
-            AgentIds.ProductAgent,
+            AgentIds.GymAdmin,
             approval.ApprovalId,
             approved: true);
 
@@ -390,10 +409,10 @@ public class AgentRuntimeTests
     [Fact]
     public async Task HighRiskAction_CanBeCancelledByTheRequester()
     {
-        var approval = PendingApproval(AgentRiskLevel.High, "delete_product");
+        var approval = PendingApproval(AgentRiskLevel.High, "send_announcement");
 
         await CreateRuntime().RespondToApprovalAsync(
-            AgentIds.ProductAgent,
+            AgentIds.GymAdmin,
             approval.ApprovalId,
             approved: false);
 
@@ -404,10 +423,10 @@ public class AgentRuntimeTests
     [Fact]
     public async Task MediumRiskAction_IsStillApprovedByTheRequester()
     {
-        var approval = PendingApproval(AgentRiskLevel.Medium, "create_product");
+        var approval = PendingApproval(AgentRiskLevel.Medium, "send_payment_reminder");
 
         await CreateRuntime().RespondToApprovalAsync(
-            AgentIds.ProductAgent,
+            AgentIds.GymAdmin,
             approval.ApprovalId,
             approved: true);
 
@@ -423,7 +442,7 @@ public class AgentRuntimeTests
 
     private static CodeAgentDefinitionProvider ProviderWithRoles(params string[] roles)
     {
-        var template = AgentDefinitions.ProductAgent;
+        var template = AgentDefinitions.GymAdmin;
 
         return new CodeAgentDefinitionProvider(
         [
@@ -457,11 +476,11 @@ public class AgentRuntimeTests
     [Fact]
     public async Task RunAsync_RoleNotAllowedForTheAgent_IsRefusedBeforeAnyModelCall()
     {
-        SignInAs("Viewer");
+        SignInAs("Member");
 
         var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            CreateRuntime(ProviderWithRoles("Admin", "Member")).RunAsync(
-                AgentIds.ProductAgent,
+            CreateRuntime(ProviderWithRoles("Admin", "Trainer")).RunAsync(
+                AgentIds.GymAdmin,
                 sessionId: null,
                 "delete everything"));
 
@@ -478,18 +497,18 @@ public class AgentRuntimeTests
     [Fact]
     public async Task RunAsync_AllowedRole_Runs()
     {
-        SignInAs("member");
+        SignInAs("trainer");
 
-        var session = Session(AgentIds.ProductAgent);
+        var session = Session(AgentIds.GymAdmin);
 
         _conversationService
-            .Setup(x => x.CreateSessionAsync(AgentIds.ProductAgent, null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.CreateSessionAsync(AgentIds.GymAdmin, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(session);
 
-        var result = await CreateRuntime(ProviderWithRoles("Member")).RunAsync(
-            AgentIds.ProductAgent,
+        var result = await CreateRuntime(ProviderWithRoles("Trainer")).RunAsync(
+            AgentIds.GymAdmin,
             sessionId: null,
-            "list my products");
+            "who is overdue?");
 
         Assert.Equal(AgentRunStatus.Completed, result.Status);
     }

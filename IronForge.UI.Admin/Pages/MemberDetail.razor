@@ -1,0 +1,503 @@
+@page "/members/{MemberId:int}"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+@inject NavigationManager Navigation
+
+<PageTitle>@(_member?.Summary.FullName ?? "Member") | IronForge</PageTitle>
+
+<div class="if-page">
+    <p><a href="/members" class="if-small">← Members</a></p>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_member is null)
+    {
+        @if (_error is null)
+        {
+            <div class="if-loading">Loading member…</div>
+        }
+    }
+    else
+    {
+        var s = _member.Summary;
+
+        <div class="if-page-head">
+            <div class="if-row" style="flex-wrap: nowrap">
+                <span class="if-avatar" style="width: 52px; height: 52px; font-size: 1.1rem">@GymFormat.Initials(s.FullName)</span>
+                <div>
+                    <h1>@s.FullName</h1>
+                    <p>
+                        <Badge Tone="@GymFormat.Tone(s.Status)">@s.Status</Badge>
+                        <span class="if-muted"> · @(s.PlanName ?? "No plan") · member since @GymFormat.Date(s.JoinedAtUtc)</span>
+                    </p>
+                </div>
+            </div>
+
+            <AuthorizeView Policy="@Permissions.GymMembersManage">
+                <div class="if-row">
+                    @switch (s.Status)
+                    {
+                        case MemberStatus.Pending:
+                            <button class="if-btn primary" disabled="@_busy" @onclick="ApproveAsync">Approve</button>
+                            <button class="if-btn danger" disabled="@_busy" @onclick="RejectAsync">Decline</button>
+                            break;
+                        case MemberStatus.Active:
+                            <button class="if-btn" disabled="@_busy" @onclick="() => _freezing = true">Freeze</button>
+                            <button class="if-btn danger" disabled="@_busy" @onclick="CancelAsync">Cancel membership</button>
+                            break;
+                        case MemberStatus.Frozen:
+                            <button class="if-btn primary" disabled="@_busy" @onclick="UnfreezeAsync">Unfreeze</button>
+                            break;
+                        case MemberStatus.Expired:
+                        case MemberStatus.Cancelled:
+                            <button class="if-btn primary" disabled="@_busy" @onclick="ReactivateAsync">Reactivate</button>
+                            break;
+                    }
+                    <button class="if-btn" disabled="@_busy" @onclick="OpenEdit">Edit</button>
+                </div>
+            </AuthorizeView>
+        </div>
+
+        <div class="if-grid">
+            <StatTile Label="Paid through" Value="@GymFormat.Date(s.PaidThrough)" Sub="@(s.NextBillingDate is null ? null : $"Next billing {GymFormat.Date(s.NextBillingDate)}")" Tone="success" />
+            <StatTile Label="Outstanding" Value="@GymFormat.Money(s.OutstandingAmount, _currency)" Tone="@(s.OutstandingAmount > 0 ? "danger" : null)" />
+            <StatTile Label="Visits (30 days)" Value="@_member.CheckInsLast30Days.ToString()" Sub="@(s.LastCheckInUtc is { } at ? $"Last {GymFormat.Ago(at)}" : "No visits yet")" Tone="info" />
+            <StatTile Label="App account" Value="@(s.HasAppAccount ? "Yes" : "Not yet")" Sub="@s.Email" />
+        </div>
+
+        <div class="if-tabs" style="margin-top: 20px">
+            @foreach (var tab in new[] { "Overview", "Billing", "Training", "Visits" })
+            {
+                <button type="button" class="@(_tab == tab ? "active" : "")" @onclick="() => _tab = tab">@tab</button>
+            }
+        </div>
+
+        @if (_tab == "Overview")
+        {
+            <div class="if-grid-2">
+                <div class="if-card">
+                    <div class="if-card-head"><h2>Profile</h2></div>
+                    <table class="if-table">
+                        <tbody>
+                            <tr><td class="if-muted">Email</td><td>@s.Email</td></tr>
+                            <tr><td class="if-muted">Phone</td><td>@(s.Phone ?? "—")</td></tr>
+                            <tr><td class="if-muted">Date of birth</td><td>@GymFormat.Date(_member.DateOfBirth)</td></tr>
+                            <tr><td class="if-muted">Gender</td><td>@(_member.Gender ?? "—")</td></tr>
+                            <tr><td class="if-muted">Height</td><td>@(_member.HeightCm is { } h ? $"{h:0} cm" : "—")</td></tr>
+                            <tr><td class="if-muted">Emergency contact</td><td>@(_member.EmergencyContact ?? "—")</td></tr>
+                            @if (_member.FrozenUntil is { } until)
+                            {
+                                <tr><td class="if-muted">Frozen until</td><td>@GymFormat.Date(until)</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (!string.IsNullOrWhiteSpace(_member.Notes))
+                    {
+                        <p class="if-small" style="margin-top: 12px"><strong>Notes:</strong> @_member.Notes</p>
+                    }
+                </div>
+
+                <div class="if-card">
+                    <div class="if-card-head">
+                        <h2>Plan</h2>
+                    </div>
+                    <p>@(s.PlanName ?? "No plan")</p>
+                    <AuthorizeView Policy="@Permissions.GymMembersManage">
+                        <div class="if-row">
+                            <select class="if-input" style="max-width: 260px" @bind="_planId">
+                                @foreach (var plan in _plans.Where(x => x.IsActive))
+                                {
+                                    <option value="@plan.Id">@plan.Name — @GymFormat.Money(plan.Price, plan.Currency) @GymFormat.Interval(plan.BillingInterval)</option>
+                                }
+                            </select>
+                            <button class="if-btn" disabled="@(_busy || _planId == s.MembershipPlanId)" @onclick="ChangePlanAsync">Change plan</button>
+                        </div>
+                        <p class="if-muted if-small">A new plan applies from the next invoice.</p>
+                    </AuthorizeView>
+
+                    <h3 style="font-size: 1rem; margin-top: 18px">Goals</h3>
+                    @if (_member.Goals.Count == 0)
+                    {
+                        <p class="if-muted">No goals set.</p>
+                    }
+                    else
+                    {
+                        <ul class="if-list">
+                            @foreach (var goal in _member.Goals)
+                            {
+                                <li><span style="flex: 1">@goal.Description</span><Badge Tone="@(goal.Status == GoalStatus.Achieved ? "success" : "")">@goal.Status</Badge></li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+
+            <AuthorizeView Policy="@Permissions.GymMembersManage">
+                <div class="if-card" style="margin-top: 16px">
+                    <div class="if-card-head"><h2>Data and privacy</h2></div>
+                    <p class="if-muted if-small">Erase this member's personal and training data on request. Invoices and payments are kept for accounting under an anonymous name. This cannot be undone.</p>
+                    <button class="if-btn danger" disabled="@_busy" @onclick="() => _confirmDelete = true">Delete personal data</button>
+                </div>
+            </AuthorizeView>
+        }
+        else if (_tab == "Billing")
+        {
+            <div class="if-table-wrap">
+                <table class="if-table">
+                    <thead>
+                        <tr><th>Invoice</th><th>Period</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @if (_member.RecentInvoices.Count == 0)
+                        {
+                            <tr><td colspan="6" class="if-empty">No invoices yet.</td></tr>
+                        }
+                        @foreach (var invoice in _member.RecentInvoices)
+                        {
+                            <tr>
+                                <td class="if-mono">@invoice.Number</td>
+                                <td class="if-small">@GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</td>
+                                <td>@GymFormat.Date(invoice.DueDate)</td>
+                                <td><Badge Tone="@GymFormat.Tone(invoice.Status)">@invoice.Status</Badge></td>
+                                <td class="num">@GymFormat.Money(invoice.Amount, invoice.Currency)</td>
+                                <td>
+                                    @if (invoice.Status is InvoiceStatus.Open or InvoiceStatus.Overdue)
+                                    {
+                                        <AuthorizeView Policy="@Permissions.GymBillingManage">
+                                            <div class="if-row" style="justify-content: flex-end">
+                                                <button class="if-btn sm" disabled="@_busy" @onclick="() => RemindAsync(invoice)">Remind</button>
+                                                <button class="if-btn sm primary" disabled="@_busy" @onclick="() => PayCashAsync(invoice)">Record cash</button>
+                                            </div>
+                                        </AuthorizeView>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else if (_tab == "Training")
+        {
+            <div class="if-grid-2">
+                <div class="if-card">
+                    <div class="if-card-head">
+                        <h2>Routines</h2>
+                        <AuthorizeView Policy="@Permissions.GymRoutinesManage">
+                            <button class="if-btn sm primary" @onclick="() => _assigning = true">+ Assign routine</button>
+                        </AuthorizeView>
+                    </div>
+                    @if (_member.Routines.Count == 0)
+                    {
+                        <div class="if-empty">No routines yet.</div>
+                    }
+                    else
+                    {
+                        <ul class="if-list">
+                            @foreach (var routine in _member.Routines)
+                            {
+                                <li>
+                                    <div style="flex: 1">
+                                        <strong>@routine.Name</strong>
+                                        <div class="if-muted if-small">@routine.DayCount day(s) · @routine.Source · @GymFormat.Date(routine.CreatedAtUtc)</div>
+                                    </div>
+                                    <Badge Tone="@(routine.IsActive ? "success" : "")">@(routine.IsActive ? "Active" : "Archived")</Badge>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+
+                <div class="if-card">
+                    <div class="if-card-head"><h2>Progress</h2></div>
+                    @if (_progress is null)
+                    {
+                        <p class="if-muted">@(_progressError ?? "Loading…")</p>
+                    }
+                    else
+                    {
+                        <div class="if-grid" style="grid-template-columns: repeat(3, 1fr)">
+                            <div><div class="if-stat-label">Workouts (30d)</div><strong>@_progress.WorkoutsLast30Days</strong></div>
+                            <div><div class="if-stat-label">Weekly streak</div><strong>@_progress.WeeklyStreak</strong></div>
+                            <div><div class="if-stat-label">Weight</div><strong>@(_progress.CurrentWeightKg is { } w ? $"{w} kg" : "—")</strong></div>
+                        </div>
+                        <div style="margin-top: 12px">
+                            <LineChart Points="@_weight" Unit=" kg" AriaLabel="Weight trend" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (_tab == "Visits")
+        {
+            <div class="if-card">
+                @if (_member.RecentCheckIns.Count == 0)
+                {
+                    <div class="if-empty">No visits yet.</div>
+                }
+                else
+                {
+                    <ul class="if-list">
+                        @foreach (var visit in _member.RecentCheckIns)
+                        {
+                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.SelfCheckIn ? "Self check-in" : "Front desk")</span></li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
+    }
+</div>
+
+<Modal @bind-Open="_freezing" Title="Freeze membership">
+    <ChildContent>
+        <p class="if-muted">Billing pauses during the freeze and the paid period is extended by the same number of days.</p>
+        <div class="if-field">
+            <label>Frozen until</label>
+            <input type="date" @bind="_freeze.Until" />
+        </div>
+        <div class="if-field">
+            <label>Reason (optional)</label>
+            <input @bind="_freeze.Reason" placeholder="Travel, injury…" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _freezing = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="FreezeAsync">Freeze</button>
+    </Footer>
+</Modal>
+
+<Modal @bind-Open="_editing" Title="Edit member">
+    <ChildContent>
+        <div class="if-form-grid">
+            <div class="if-field"><label>Full name</label><input @bind="_edit.FullName" /></div>
+            <div class="if-field"><label>Phone</label><input @bind="_edit.Phone" /></div>
+            <div class="if-field"><label>Date of birth</label><input type="date" @bind="_edit.DateOfBirth" /></div>
+            <div class="if-field"><label>Gender</label><input @bind="_edit.Gender" /></div>
+            <div class="if-field"><label>Height (cm)</label><input type="number" @bind="_edit.HeightCm" /></div>
+            <div class="if-field"><label>Emergency contact</label><input @bind="_edit.EmergencyContact" /></div>
+        </div>
+        <div class="if-field"><label>Notes (staff only)</label><textarea rows="3" @bind="_edit.Notes"></textarea></div>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _editing = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="SaveEditAsync">Save</button>
+    </Footer>
+</Modal>
+
+<Modal @bind-Open="_confirmDelete" Title="Delete personal data?">
+    <ChildContent>
+        <p>This permanently erases @(_member?.Summary.FullName)'s profile, routines, workouts, measurements and goals, and removes their app access. Invoices are kept anonymously.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmDelete = false">Keep</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="AnonymizeAsync">Delete data</button>
+    </Footer>
+</Modal>
+
+<Modal @bind-Open="_assigning" Title="Assign a routine" Wide="true">
+    <ChildContent>
+        <RoutineBuilder @ref="_builder" />
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _assigning = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="AssignAsync">Assign and notify member</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public int MemberId { get; set; }
+
+    private MemberDetailDto? _member;
+    private ProgressSummaryDto? _progress;
+    private string? _progressError;
+    private List<ChartPoint> _weight = [];
+    private List<MembershipPlanDto> _plans = [];
+    private string _currency = "";
+    private int _planId;
+    private string _tab = "Overview";
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    private bool _freezing;
+    private FreezeMemberRequest _freeze = new() { Until = DateOnly.FromDateTime(DateTime.Today.AddDays(14)) };
+    private bool _editing;
+    private UpdateMemberRequest _edit = new();
+    private bool _confirmDelete;
+    private bool _assigning;
+    private RoutineBuilder? _builder;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var plans = await Gym.GetPlansAsync(includeArchived: true);
+        _plans = plans.Data ?? [];
+        _currency = _plans.FirstOrDefault()?.Currency ?? "";
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetMemberAsync(MemberId);
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _member = result.Data!;
+        _planId = _member.Summary.MembershipPlanId ?? _plans.FirstOrDefault(x => x.IsActive)?.Id ?? 0;
+
+        var progress = await Gym.GetMemberProgressAsync(MemberId);
+
+        if (progress.Success)
+        {
+            _progress = progress.Data;
+            _weight = _progress!.Metrics
+                .Where(x => x.WeightKg.HasValue)
+                .OrderBy(x => x.RecordedOn)
+                .Select(x => new ChartPoint(GymFormat.ShortDate(x.RecordedOn), (double)x.WeightKg!.Value))
+                .ToList();
+        }
+        else
+        {
+            _progressError = progress.StatusCode == 403
+                ? "Progress tracking is part of the Coaching module."
+                : progress.ErrorMessage;
+        }
+    }
+
+    private async Task RunAsync(Func<Task<ServiceResult<MemberSummaryDto>>> action, string success)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await action();
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _message = success;
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private Task ApproveAsync() =>
+        RunAsync(() => Gym.ApproveMemberAsync(MemberId, _planId == 0 ? null : _planId), "Approved. The first invoice was issued and the member was notified.");
+
+    private Task RejectAsync() => RunAsync(() => Gym.RejectMemberAsync(MemberId), "Join request declined.");
+
+    private Task UnfreezeAsync() => RunAsync(() => Gym.UnfreezeMemberAsync(MemberId), "Membership is active again.");
+
+    private Task CancelAsync() => RunAsync(() => Gym.CancelMemberAsync(MemberId), "Membership cancelled. Future invoices were voided.");
+
+    private Task ReactivateAsync() => RunAsync(() => Gym.ReactivateMemberAsync(MemberId), "Membership reactivated.");
+
+    private Task ChangePlanAsync() => RunAsync(() => Gym.ChangePlanAsync(MemberId, _planId), "Plan changed. It applies from the next invoice.");
+
+    private async Task FreezeAsync()
+    {
+        _freezing = false;
+        await RunAsync(() => Gym.FreezeMemberAsync(MemberId, _freeze), $"Membership frozen until {GymFormat.Date(_freeze.Until)}.");
+    }
+
+    private void OpenEdit()
+    {
+        _edit = new UpdateMemberRequest
+        {
+            FullName = _member!.Summary.FullName,
+            Phone = _member.Summary.Phone,
+            DateOfBirth = _member.DateOfBirth,
+            Gender = _member.Gender,
+            HeightCm = _member.HeightCm,
+            EmergencyContact = _member.EmergencyContact,
+            Notes = _member.Notes
+        };
+        _editing = true;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        _editing = false;
+        await RunAsync(() => Gym.UpdateMemberAsync(MemberId, _edit), "Profile saved.");
+    }
+
+    private async Task AnonymizeAsync()
+    {
+        _busy = true;
+        var result = await Gym.AnonymizeMemberAsync(MemberId);
+        _busy = false;
+        _confirmDelete = false;
+
+        if (result.Success)
+            Navigation.NavigateTo("/members");
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task RemindAsync(InvoiceDto invoice)
+    {
+        _busy = true;
+        var result = await Gym.SendReminderAsync(invoice.Id);
+        _busy = false;
+
+        _message = result.Success ? $"Reminder for {invoice.Number} sent." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private async Task PayCashAsync(InvoiceDto invoice)
+    {
+        _busy = true;
+        var result = await Gym.RecordPaymentAsync(invoice.Id, new RecordPaymentRequest { Amount = invoice.Amount, Method = PaymentMethod.Cash });
+        _busy = false;
+
+        if (result.Success)
+        {
+            _message = $"Cash payment of {GymFormat.Money(invoice.Amount, invoice.Currency)} recorded for {invoice.Number}.";
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task AssignAsync()
+    {
+        var request = _builder?.Build();
+
+        if (request is null)
+            return;
+
+        _busy = true;
+        var result = await Gym.AssignRoutineAsync(MemberId, request);
+        _busy = false;
+
+        if (result.Success)
+        {
+            _assigning = false;
+            _message = $"Routine '{result.Data!.Name}' assigned. The member was notified.";
+            await LoadAsync();
+        }
+        else
+        {
+            _builder!.Error = result.ErrorMessage;
+        }
+    }
+}

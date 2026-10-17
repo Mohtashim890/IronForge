@@ -1,0 +1,256 @@
+@page "/billing/invoices"
+@attribute [Authorize(Policy = Permissions.GymBillingRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Invoices | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Invoices &amp; payments</h1>
+            <p>Invoices are issued automatically before each billing date. Card payments arrive through the member app.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-tabs">
+        <button class="@(_tab == "invoices" ? "active" : "")" @onclick='() => _tab = "invoices"'>Invoices</button>
+        <button class="@(_tab == "payments" ? "active" : "")" @onclick="ShowPaymentsAsync">Payments received</button>
+    </div>
+
+    @if (_tab == "invoices")
+    {
+        <div class="if-toolbar">
+            @foreach (var (label, status) in StatusFilters)
+            {
+                <button class="m-chip @(_query.Status == status ? "active" : "")" @onclick="() => FilterAsync(status)">@label</button>
+            }
+            <span class="if-spacer"></span>
+            <input class="if-input" placeholder="Search number or member" @bind="_query.Search" @bind:event="oninput" @onkeyup="SearchAsync" />
+        </div>
+
+        @if (_invoices is null)
+        {
+            <div class="if-loading">Loading invoices…</div>
+        }
+        else if (_invoices.Items.Count == 0)
+        {
+            <div class="if-card if-empty">No invoices match.</div>
+        }
+        else
+        {
+            <div class="if-table-wrap">
+                <table class="if-table">
+                    <thead>
+                        <tr><th>Invoice</th><th>Member</th><th>Period</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var invoice in _invoices.Items)
+                        {
+                            <tr>
+                                <td class="if-mono">@invoice.Number</td>
+                                <td><a href="@($"/members/{invoice.MemberId}")">@invoice.MemberName</a></td>
+                                <td class="if-small">@GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</td>
+                                <td>
+                                    @GymFormat.Date(invoice.DueDate)
+                                    @if (invoice.DaysOverdue > 0)
+                                    {
+                                        <div class="if-small" style="color: var(--if-danger)">@invoice.DaysOverdue day(s) late</div>
+                                    }
+                                </td>
+                                <td><Badge Tone="@GymFormat.Tone(invoice.Status)">@invoice.Status</Badge></td>
+                                <td class="num">@GymFormat.Money(invoice.Amount, invoice.Currency)</td>
+                                <td>
+                                    @if (invoice.Status is InvoiceStatus.Open or InvoiceStatus.Overdue)
+                                    {
+                                        <AuthorizeView Policy="@Permissions.GymBillingManage">
+                                            <div class="if-row" style="justify-content: flex-end; flex-wrap: nowrap">
+                                                <button class="if-btn sm" disabled="@_busy" @onclick="() => RemindAsync(invoice)">Remind</button>
+                                                <button class="if-btn sm" disabled="@_busy" @onclick="() => OpenPayment(invoice)">Record payment</button>
+                                                <button class="if-btn sm ghost" disabled="@_busy" title="Void" @onclick="() => VoidAsync(invoice)">Void</button>
+                                            </div>
+                                        </AuthorizeView>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="if-pager">
+                <span>@_invoices.TotalCount invoice(s)</span>
+                <div class="if-row">
+                    <button class="if-btn sm" disabled="@(_query.Page <= 1)" @onclick="() => PageAsync(-1)">← Previous</button>
+                    <button class="if-btn sm" disabled="@(_query.Page * _query.PageSize >= _invoices.TotalCount)" @onclick="() => PageAsync(1)">Next →</button>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        @if (_payments is null)
+        {
+            <div class="if-loading">Loading payments…</div>
+        }
+        else
+        {
+            <div class="if-table-wrap">
+                <table class="if-table">
+                    <thead>
+                        <tr><th>Date</th><th>Member</th><th>Invoice</th><th>Method</th><th class="num">Amount</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var payment in _payments.Items)
+                        {
+                            <tr>
+                                <td>@GymFormat.DateTime(payment.PaidAtUtc)</td>
+                                <td><a href="@($"/members/{payment.MemberId}")">@payment.MemberName</a></td>
+                                <td class="if-mono">@payment.InvoiceNumber</td>
+                                <td>@payment.Method <span class="if-muted if-small">(@payment.Provider)</span></td>
+                                <td class="num">@GymFormat.Money(payment.Amount, payment.Currency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>
+
+<Modal @bind-Open="_paying" Title="@($"Record payment for {_payInvoice?.Number}")">
+    <ChildContent>
+        <p>@_payInvoice?.MemberName · <strong>@(_payInvoice is null ? "" : GymFormat.Money(_payInvoice.Amount, _payInvoice.Currency))</strong></p>
+        <div class="if-form-grid">
+            <div class="if-field">
+                <label>Method</label>
+                <select @bind="_payment.Method">
+                    <option value="@PaymentMethod.Cash">Cash</option>
+                    <option value="@PaymentMethod.BankTransfer">Bank transfer</option>
+                </select>
+            </div>
+            <div class="if-field">
+                <label>Reference (optional)</label>
+                <input @bind="_payment.Reference" placeholder="Receipt no." />
+            </div>
+        </div>
+        <p class="if-muted if-small">Payments cover the invoice in full; partial payments are not supported.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _paying = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="RecordAsync">Record payment</button>
+    </Footer>
+</Modal>
+
+@code {
+    private static readonly (string Label, InvoiceStatus? Status)[] StatusFilters =
+    [
+        ("All", null),
+        ("Open", InvoiceStatus.Open),
+        ("Overdue", InvoiceStatus.Overdue),
+        ("Paid", InvoiceStatus.Paid),
+        ("Void", InvoiceStatus.Void)
+    ];
+
+    private readonly InvoiceQuery _query = new() { PageSize = 25 };
+    private PagedResult<InvoiceDto>? _invoices;
+    private PagedResult<PaymentDto>? _payments;
+    private string _tab = "invoices";
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    private bool _paying;
+    private InvoiceDto? _payInvoice;
+    private RecordPaymentRequest _payment = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetInvoicesAsync(_query);
+
+        if (result.Success)
+            _invoices = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task FilterAsync(InvoiceStatus? status)
+    {
+        _query.Status = status;
+        _query.Page = 1;
+        await LoadAsync();
+    }
+
+    private async Task SearchAsync(KeyboardEventArgs e)
+    {
+        _query.Page = 1;
+        await LoadAsync();
+    }
+
+    private async Task PageAsync(int delta)
+    {
+        _query.Page += delta;
+        await LoadAsync();
+    }
+
+    private async Task ShowPaymentsAsync()
+    {
+        _tab = "payments";
+        var result = await Gym.GetPaymentsAsync(1, 50);
+        _payments = result.Data;
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private void OpenPayment(InvoiceDto invoice)
+    {
+        _payInvoice = invoice;
+        _payment = new RecordPaymentRequest { Amount = invoice.Amount, Method = PaymentMethod.Cash };
+        _paying = true;
+    }
+
+    private async Task RecordAsync()
+    {
+        _busy = true;
+        var result = await Gym.RecordPaymentAsync(_payInvoice!.Id, _payment);
+        _busy = false;
+        _paying = false;
+
+        _message = result.Success ? $"Payment recorded for {_payInvoice.Number}." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+
+    private async Task RemindAsync(InvoiceDto invoice)
+    {
+        _busy = true;
+        var result = await Gym.SendReminderAsync(invoice.Id);
+        _busy = false;
+
+        _message = result.Success ? $"Reminder sent to {invoice.MemberName}." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private async Task VoidAsync(InvoiceDto invoice)
+    {
+        _busy = true;
+        var result = await Gym.VoidInvoiceAsync(invoice.Id);
+        _busy = false;
+
+        _message = result.Success ? $"{invoice.Number} voided." : null;
+        _error = result.Success ? null : result.ErrorMessage;
+
+        await LoadAsync();
+    }
+}

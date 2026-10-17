@@ -12,11 +12,15 @@ namespace IronForge.Application.Auth.Models
             {
                 TenantRoles.Admin =>
                 [
-                    Permissions.ProductsRead,
-                    Permissions.ProductsCreate,
-                    Permissions.ProductsUpdate,
-                    Permissions.ProductsDelete,
-                    Permissions.ProductsManageAll,
+                    Permissions.GymMembersRead,
+                    Permissions.GymMembersManage,
+                    Permissions.GymPlansManage,
+                    Permissions.GymBillingRead,
+                    Permissions.GymBillingManage,
+                    Permissions.GymCheckInsManage,
+                    Permissions.GymRoutinesManage,
+                    Permissions.GymNotificationsSend,
+                    Permissions.GymSettingsManage,
 
                     Permissions.AgentsCreate,
                     Permissions.AgentsRead,
@@ -37,21 +41,22 @@ namespace IronForge.Application.Auth.Models
                     Permissions.MembersManage
                 ],
 
-                // "User" is the legacy name of the Member role.
-                TenantRoles.Member or "User" =>
+                // Front-desk and coaching staff: no billing, settings or staff management.
+                TenantRoles.Trainer =>
                 [
-                    Permissions.ProductsRead,
-                    Permissions.ProductsCreate,
-                    Permissions.ProductsUpdate,
+                    Permissions.GymMembersRead,
+                    Permissions.GymCheckInsManage,
+                    Permissions.GymRoutinesManage,
 
-                    Permissions.AuditRead
+                    Permissions.AgentsRead
                 ],
 
-                TenantRoles.Viewer =>
+                // A gym member: self-service on their own profile only.
+                TenantRoles.Member =>
                 [
-                    Permissions.ProductsRead,
-
-                    Permissions.AuditRead
+                    Permissions.GymSelfRead,
+                    Permissions.GymSelfWorkoutsWrite,
+                    Permissions.GymSelfPayments
                 ],
 
                 _ =>

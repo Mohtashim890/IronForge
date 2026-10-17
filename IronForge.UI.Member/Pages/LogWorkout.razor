@@ -1,0 +1,161 @@
+@page "/workouts/log"
+@attribute [Authorize]
+@inject MemberApiClient Me
+@inject NavigationManager Navigation
+
+<PageTitle>Log workout | IronForge</PageTitle>
+
+<p><a href="/routines" class="if-small">← Training</a></p>
+<h1 style="font-size: 1.4rem">Log a workout</h1>
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+@if (_dayName is not null)
+{
+    <p class="if-muted">Following <strong>@_dayName</strong>. Adjust reps and weights to what you actually did.</p>
+}
+
+<div class="m-card">
+    <div class="if-form-grid">
+        <div class="if-field">
+            <label>Date</label>
+            <input type="date" @bind="_request.PerformedOn" />
+        </div>
+        <div class="if-field">
+            <label>Duration (minutes)</label>
+            <input type="number" min="1" @bind="_request.DurationMinutes" />
+        </div>
+    </div>
+</div>
+
+@foreach (var group in _sets.GroupBy(x => x.ExerciseId))
+{
+    var exerciseId = group.Key;
+
+    <div class="m-card">
+        <div class="if-row" style="margin-bottom: 6px">
+            <strong style="flex: 1">@Name(exerciseId)</strong>
+            <button class="if-btn sm ghost" @onclick="() => AddSet(exerciseId)">+ Set</button>
+        </div>
+        @{ var number = 0; }
+        @foreach (var set in group)
+        {
+            number++;
+            <div class="if-row" style="flex-wrap: nowrap; margin-bottom: 6px">
+                <span class="if-muted if-small" style="width: 44px">Set @number</span>
+                <input class="if-input" type="number" min="1" @bind="set.Reps" style="width: 80px" aria-label="Reps" />
+                <span class="if-small if-muted">reps</span>
+                <input class="if-input" type="number" min="0" step="0.5" @bind="set.WeightKg" style="width: 90px" aria-label="Weight" />
+                <span class="if-small if-muted">kg</span>
+                <button class="if-btn sm ghost" @onclick="() => _sets.Remove(set)" aria-label="Remove set">✕</button>
+            </div>
+        }
+    </div>
+}
+
+<div class="m-card">
+    <div class="if-field">
+        <label>Add an exercise</label>
+        <select @onchange="AddExercise">
+            <option value="">Choose…</option>
+            @foreach (var group in _library.GroupBy(x => x.MuscleGroup))
+            {
+                <optgroup label="@group.Key">
+                    @foreach (var exercise in group)
+                    {
+                        <option value="@exercise.Id">@exercise.Name</option>
+                    }
+                </optgroup>
+            }
+        </select>
+    </div>
+    <div class="if-field">
+        <label>Notes</label>
+        <input @bind="_request.Notes" placeholder="How did it feel?" />
+    </div>
+</div>
+
+<button class="if-btn primary block" disabled="@(_saving || _sets.Count == 0)" @onclick="SaveAsync">@(_saving ? "Saving…" : "Save workout")</button>
+
+@code {
+    [SupplyParameterFromQuery(Name = "day")] public int? DayId { get; set; }
+
+    private readonly LogWorkoutRequest _request = new() { PerformedOn = DateOnly.FromDateTime(DateTime.Today), DurationMinutes = 60 };
+    private readonly List<LogWorkoutSetRequest> _sets = [];
+    private List<ExerciseDto> _library = [];
+    private string? _dayName;
+    private bool _saving;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var library = await Me.GetExercisesAsync();
+
+        if (!library.Success)
+        {
+            _error = library.ErrorMessage;
+            return;
+        }
+
+        _library = library.Data!;
+
+        if (DayId is not { } dayId)
+            return;
+
+        // Prefill from the routine day.
+        var routines = await Me.GetRoutinesAsync();
+        var day = routines.Data?.SelectMany(x => x.Days).FirstOrDefault(x => x.Id == dayId);
+
+        if (day is null)
+            return;
+
+        _request.RoutineDayId = day.Id;
+        _dayName = day.Name;
+
+        foreach (var exercise in day.Exercises)
+        {
+            var reps = int.TryParse(exercise.Reps.Split('-')[0], out var parsed) ? parsed : 10;
+
+            for (var i = 0; i < exercise.Sets; i++)
+            {
+                _sets.Add(new LogWorkoutSetRequest { ExerciseId = exercise.ExerciseId, Reps = reps, WeightKg = exercise.TargetWeightKg });
+            }
+        }
+    }
+
+    private string Name(int exerciseId) => _library.FirstOrDefault(x => x.Id == exerciseId)?.Name ?? $"Exercise {exerciseId}";
+
+    private void AddSet(int exerciseId)
+    {
+        var last = _sets.LastOrDefault(x => x.ExerciseId == exerciseId);
+        var index = last is null ? _sets.Count : _sets.IndexOf(last) + 1;
+
+        _sets.Insert(index, new LogWorkoutSetRequest { ExerciseId = exerciseId, Reps = last?.Reps ?? 10, WeightKg = last?.WeightKg });
+    }
+
+    private void AddExercise(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            _sets.Add(new LogWorkoutSetRequest { ExerciseId = id, Reps = 10 });
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _request.Sets = _sets.Where(x => x.Reps > 0).ToList();
+
+        var result = await Me.LogWorkoutAsync(_request);
+
+        _saving = false;
+
+        if (result.Success)
+            Navigation.NavigateTo("/workouts?saved=1");
+        else
+            _error = result.ErrorMessage;
+    }
+}

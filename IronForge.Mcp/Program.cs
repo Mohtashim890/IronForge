@@ -1,10 +1,10 @@
+﻿using IronForge.Infrastructure;
 using IronForge.Mcp.Tools;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Governance.Policies;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Auditing.AgentTools;
-using IronForge.Application.Products.AgentTools;
 using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Delegations;
@@ -16,8 +16,6 @@ using IronForge.Application.Execution;
 using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
-using IronForge.Application.Products.Services;
-using IronForge.Application.Products.Tools.Products;
 using IronForge.Application.Tenants.Services;
 using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Infrastructure.Data;
@@ -119,10 +117,8 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITenantService, TenantService>();
 builder.Services.AddScoped<ITenantEntitlementService, TenantEntitlementService>();
-builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
 builder.Services.AddScoped<IUserAuthorizationService, UserAuthorizationService>();
-builder.Services.AddScoped<IProductAuthorizationService, ProductAuthorizationService>();
 builder.Services.AddScoped<IAgentAuthorizationService, AgentAuthorizationService>();
 builder.Services.AddScoped<IEffectiveAgentAuthorizationService, EffectiveAgentAuthorizationService>();
 builder.Services.AddScoped<IAgentDelegationService, AgentDelegationService>();
@@ -132,13 +128,11 @@ builder.Services.AddScoped<IMcpAuthorizationService, McpAuthorizationService>();
 
 // The agent tool catalogue and governance, shared with the API: MCP calls are
 // checked against the same tool definitions, bindings and policies.
-builder.Services.AddScoped<IAgentTool, GetProductsAgentTool>();
-builder.Services.AddScoped<IAgentTool, GetProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, CreateProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, UpdateProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, DeleteProductAgentTool>();
 builder.Services.AddScoped<IAgentTool, SearchAuditEventsAgentTool>();
 builder.Services.AddScoped<IAgentToolRegistry, AgentToolRegistry>();
+
+// Gym domain services and their agent tools (no background jobs here).
+builder.Services.AddGymPlatform(builder.Configuration);
 builder.Services.AddScoped<IAgentDefinitionProvider, DatabaseAgentDefinitionProvider>();
 builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
 builder.Services.AddScoped<IAgentPolicy, UserPermissionPolicy>();
@@ -166,11 +160,6 @@ builder.Services.AddScoped<IAgentApprovalStore, DBAgentApprovalStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 
-builder.Services.AddScoped<IGetProductsTool, GetProductsTool>();
-builder.Services.AddScoped<IGetProductTool, GetProductTool>();
-builder.Services.AddScoped<ICreateProductTool, CreateProductTool>();
-builder.Services.AddScoped<IUpdateProductTool, UpdateProductTool>();
-builder.Services.AddScoped<IDeleteProductTool, DeleteProductTool>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {

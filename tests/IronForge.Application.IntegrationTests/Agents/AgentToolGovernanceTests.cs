@@ -1,14 +1,13 @@
 ﻿using System.Text.Json;
+using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Models;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.Models;
-using IronForge.Application.Entities;
-using IronForge.Application.IntegrationTests.Infrastructure;
-using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Auth.Services;
-using IronForge.Application.Products.Services;
-using IronForge.Application.Tenants.Services;
+using IronForge.Application.Entities;
+using IronForge.Application.Gym.Common;
+using IronForge.Application.IntegrationTests.Infrastructure;
 using IronForge.Infrastructure.Persistence;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Subscriptions;
@@ -25,8 +24,8 @@ public sealed class AgentToolGovernanceTests
 {
     private const int UserId = 1;
 
-    private static readonly string ProductAgentId =
-        AgentTemplates.ProductAgent.Definition.AgentId;
+    private static readonly string GymAdminId =
+        AgentTemplates.GymAdmin.Definition.AgentId;
 
     public AgentToolGovernanceTests(
         PostgreSqlTestDatabase database) : base(database)
@@ -41,49 +40,49 @@ public sealed class AgentToolGovernanceTests
     public async Task Governance_DeniesTool_WhenTheUserLacksItsPermission(
         AgentGovernanceExecutionMode mode)
     {
-        // The Product Agent holds products.create; a Viewer does not.
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        // The Gym Admin Agent holds gym.billing.manage; a Trainer does not.
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var decision = await AsInternalAgent(tenantId, TenantRoles.Viewer, async s =>
+        var decision = await AsInternalAgent(tenantId, TenantRoles.Trainer, async s =>
         {
-            var definition = await s.AgentDefinitions.GetRequiredAsync(ProductAgentId);
+            var definition = await s.AgentDefinitions.GetRequiredAsync(GymAdminId);
 
             return await s.Governance.EvaluateAsync(
                 Identity(AgentType.Internal),
-                s.ToolRegistry.GetEffectivePolicy(definition, "create_product"),
+                s.ToolRegistry.GetEffectivePolicy(definition, "send_payment_reminder"),
                 new AgentGovernanceContext
                 {
-                    ToolName = "create_product",
-                    Arguments = new Dictionary<string, object?> { ["price"] = 10m },
+                    ToolName = "send_payment_reminder",
+                    Arguments = new Dictionary<string, object?> { ["invoiceId"] = 1 },
                     ExecutionMode = mode
                 });
         });
 
         Assert.Equal(AgentGovernanceDecisionType.Deny, decision.Decision);
-        Assert.Contains("You do not have permission 'products.create'", decision.Reason);
+        Assert.Contains("You do not have permission 'gym.billing.manage'", decision.Reason);
     }
 
     [Fact]
-    public async Task Governance_ForMember_AllowsReadsAndRequiresApprovalForWrites()
+    public async Task Governance_ForAdmin_AllowsReadsAndRequiresApprovalForActions()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var (read, write) = await AsInternalAgent(tenantId, TenantRoles.Member, async s =>
+        var (read, write) = await AsInternalAgent(tenantId, TenantRoles.Admin, async s =>
         {
-            var definition = await s.AgentDefinitions.GetRequiredAsync(ProductAgentId);
+            var definition = await s.AgentDefinitions.GetRequiredAsync(GymAdminId);
 
             var readDecision = await s.Governance.EvaluateAsync(
                 Identity(AgentType.Internal),
-                s.ToolRegistry.GetEffectivePolicy(definition, "get_products"),
-                new AgentGovernanceContext { ToolName = "get_products" });
+                s.ToolRegistry.GetEffectivePolicy(definition, "search_members"),
+                new AgentGovernanceContext { ToolName = "search_members" });
 
             var writeDecision = await s.Governance.EvaluateAsync(
                 Identity(AgentType.Internal),
-                s.ToolRegistry.GetEffectivePolicy(definition, "create_product"),
+                s.ToolRegistry.GetEffectivePolicy(definition, "send_payment_reminder"),
                 new AgentGovernanceContext
                 {
-                    ToolName = "create_product",
-                    Arguments = new Dictionary<string, object?> { ["price"] = 10m }
+                    ToolName = "send_payment_reminder",
+                    Arguments = new Dictionary<string, object?> { ["invoiceId"] = 1 }
                 });
 
             return (readDecision, writeDecision);
@@ -93,17 +92,50 @@ public sealed class AgentToolGovernanceTests
         Assert.Equal(AgentGovernanceDecisionType.ApprovalRequired, write.Decision);
     }
 
+    [Fact]
+    public async Task Governance_CashPaymentAboveTheAgentLimit_IsDenied()
+    {
+        // The Gym Admin template limits record_cash_payment to 2,000.
+        var tenantId = await SeedTenantWithGymAdminAsync();
+
+        var decision = await AsInternalAgent(tenantId, TenantRoles.Admin, async s =>
+        {
+            var definition = await s.AgentDefinitions.GetRequiredAsync(GymAdminId);
+
+            return await s.Governance.EvaluateAsync(
+                Identity(AgentType.Internal),
+                s.ToolRegistry.GetEffectivePolicy(definition, "record_cash_payment"),
+                new AgentGovernanceContext
+                {
+                    ToolName = "record_cash_payment",
+                    Arguments = new Dictionary<string, object?> { ["invoiceId"] = 1, ["amount"] = 2500m }
+                });
+        });
+
+        Assert.Equal(AgentGovernanceDecisionType.Deny, decision.Decision);
+        Assert.Contains("exceeds the maximum allowed amount 2000", decision.Reason);
+    }
+
     [Theory]
-    [InlineData(TenantRoles.Viewer, new[] { "get_product", "get_products" })]
-    [InlineData(TenantRoles.Member, new[] { "create_product", "get_product", "get_products", "update_product" })]
-    [InlineData(TenantRoles.Admin, new[] { "create_product", "delete_product", "get_product", "get_products", "update_product" })]
+    [InlineData(TenantRoles.Member, new string[0])]
+    [InlineData(TenantRoles.Trainer, new[]
+    {
+        "get_attendance_summary", "get_dashboard_summary", "get_member_details",
+        "list_expiring_memberships", "search_members"
+    })]
+    [InlineData(TenantRoles.Admin, new[]
+    {
+        "freeze_membership", "get_attendance_summary", "get_dashboard_summary", "get_member_details",
+        "get_revenue_summary", "list_expiring_memberships", "list_overdue_invoices",
+        "record_cash_payment", "search_members", "send_announcement", "send_payment_reminder"
+    })]
     public async Task ModelIsOnlyOfferedToolsTheUserMayUse(string role, string[] expectedTools)
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
         var offered = await AsInternalAgent(tenantId, role, async s =>
         {
-            var definition = await s.AgentDefinitions.GetRequiredAsync(ProductAgentId);
+            var definition = await s.AgentDefinitions.GetRequiredAsync(GymAdminId);
 
             return s.ToolRegistry
                 .CreateModelTools(definition, Identity(AgentType.Internal))
@@ -116,19 +148,32 @@ public sealed class AgentToolGovernanceTests
     }
 
     [Fact]
-    public async Task ProductCollectionAccess_ForInternalAgent_AlsoRequiresTheUsersPermission()
+    public async Task GymAccess_ForInternalAgent_AlsoRequiresTheUsersPermission()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var asViewer = await AsInternalAgent(tenantId, TenantRoles.Viewer, s =>
-            ProductAuthorization(s).AuthorizeCollectionAsync(Permissions.ProductsCreate));
+        var asTrainer = await AsInternalAgent(tenantId, TenantRoles.Trainer, s =>
+            GymAccess(s).AuthorizeAsync(Permissions.GymBillingRead));
 
-        var asMember = await AsInternalAgent(tenantId, TenantRoles.Member, s =>
-            ProductAuthorization(s).AuthorizeCollectionAsync(Permissions.ProductsCreate));
+        var asAdmin = await AsInternalAgent(tenantId, TenantRoles.Admin, s =>
+            GymAccess(s).AuthorizeAsync(Permissions.GymBillingRead));
 
-        Assert.False(asViewer.Allowed);
-        Assert.Equal("User does not have the required permission.", asViewer.Reason);
-        Assert.True(asMember.Allowed);
+        Assert.False(asTrainer.Allowed);
+        Assert.Equal("You do not have permission for this action.", asTrainer.Reason);
+        Assert.True(asAdmin.Allowed);
+    }
+
+    [Fact]
+    public async Task GymAccess_ForInternalAgent_RequiresTheAgentsPermission()
+    {
+        // An Admin may assign routines, but the Gym Admin Agent has no routine tool.
+        var tenantId = await SeedTenantWithGymAdminAsync();
+
+        var result = await AsInternalAgent(tenantId, TenantRoles.Admin, s =>
+            GymAccess(s).AuthorizeAsync(Permissions.GymRoutinesManage));
+
+        Assert.False(result.Allowed);
+        Assert.Equal("Internal agent does not have the required permission.", result.Reason);
     }
 
     // ---- 2. MCP calls go through the same governance -------------------------
@@ -136,11 +181,11 @@ public sealed class AgentToolGovernanceTests
     [Fact]
     public async Task External_ReadToolBoundToTheAgent_IsAllowed()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsRead], s =>
+        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
             s.ExternalAgentTools.AuthorizeAsync(
-                "get_products",
+                "search_members",
                 new Dictionary<string, object?>()));
 
         Assert.True(result.Allowed, result.Reason);
@@ -149,12 +194,12 @@ public sealed class AgentToolGovernanceTests
     [Fact]
     public async Task External_ToolThatNeedsApproval_IsRefused()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsCreate], s =>
+        var result = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
             s.ExternalAgentTools.AuthorizeAsync(
-                "create_product",
-                McpArguments("""{ "name": "Desk", "price": 10 }""")));
+                "send_payment_reminder",
+                McpArguments("""{ "invoiceId": 1 }""")));
 
         Assert.False(result.Allowed);
         Assert.Contains("requires human approval, which is not available over MCP", result.Reason);
@@ -163,38 +208,37 @@ public sealed class AgentToolGovernanceTests
     [Fact]
     public async Task External_AmountLimit_AppliesToMcpArguments()
     {
-        // The Product Agent template limits create_product to 10,000.
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsCreate], s =>
+        var result = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
             s.ExternalAgentTools.AuthorizeAsync(
-                "create_product",
-                McpArguments("""{ "name": "Server rack", "price": 50000 }""")));
+                "record_cash_payment",
+                McpArguments("""{ "invoiceId": 1, "amount": 50000 }""")));
 
         Assert.False(result.Allowed);
-        Assert.Contains("exceeds the maximum allowed price 10000", result.Reason);
+        Assert.Contains("exceeds the maximum allowed amount 2000", result.Reason);
     }
 
     [Fact]
     public async Task External_ToolNotBoundToTheAgent_IsRefused()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, ProductAgentId, ["get_products"]);
+        await SeedAgentAsync(tenantId, GymAdminId, ["search_members"]);
 
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsRead], s =>
+        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
             s.ExternalAgentTools.AuthorizeAsync(
-                "get_product",
-                McpArguments("""{ "id": 1 }""")));
+                "get_member_details",
+                McpArguments("""{ "memberId": 1 }""")));
 
         Assert.False(result.Allowed);
-        Assert.Equal($"Tool 'get_product' is not enabled for agent '{ProductAgentId}'.", result.Reason);
+        Assert.Equal($"Tool 'get_member_details' is not enabled for agent '{GymAdminId}'.", result.Reason);
     }
 
     [Fact]
     public async Task External_ToolOfDisabledModule_IsRefused()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, ProductAgentId, ["search_audit_events"]);
+        await SeedAgentAsync(tenantId, GymAdminId, ["search_audit_events"]);
 
         var result = await AsExternalAgent(tenantId, [Permissions.AuditRead], s =>
             s.ExternalAgentTools.AuthorizeAsync(
@@ -208,24 +252,24 @@ public sealed class AgentToolGovernanceTests
     [Fact]
     public async Task External_ScopeNotDelegated_IsDeniedByTheUserPolicy()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        // Only products.read was delegated; the agent itself may delete.
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsRead], s =>
+        // Only gym.members.read was delegated; the agent itself may freeze.
+        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
             s.ExternalAgentTools.AuthorizeAsync(
-                "delete_product",
-                McpArguments("""{ "id": 1 }""")));
+                "freeze_membership",
+                McpArguments("""{ "memberId": 1, "until": "2030-01-01" }""")));
 
         Assert.False(result.Allowed);
-        Assert.Contains("You do not have permission 'products.delete'", result.Reason);
+        Assert.Contains("You do not have permission 'gym.members.manage'", result.Reason);
     }
 
     [Fact]
     public async Task External_UnknownTool_IsRefused()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var result = await AsExternalAgent(tenantId, [Permissions.ProductsRead], s =>
+        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
             s.ExternalAgentTools.AuthorizeAsync(
                 "drop_database",
                 new Dictionary<string, object?>()));
@@ -235,13 +279,20 @@ public sealed class AgentToolGovernanceTests
     }
 
     [Theory]
-    [InlineData(new[] { "products.read" }, new[] { "get_product", "get_products" })]
-    // create/delete need approval, which MCP cannot provide; update was not delegated.
-    [InlineData(new[] { "products.read", "products.create", "products.delete" }, new[] { "get_product", "get_products" })]
+    [InlineData(new[] { "gym.members.read" }, new[]
+    {
+        "get_attendance_summary", "get_dashboard_summary", "get_member_details",
+        "list_expiring_memberships", "search_members"
+    })]
+    // Reminders and cash payments need approval, which MCP cannot provide.
+    [InlineData(new[] { "gym.billing.read", "gym.billing.manage" }, new[]
+    {
+        "get_revenue_summary", "list_overdue_invoices"
+    })]
     [InlineData(new string[0], new string[0])]
     public async Task External_ListsOnlyToolsItCanActuallyCall(string[] scopes, string[] expected)
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
         var tools = await AsExternalAgent(tenantId, scopes, async s =>
             (await s.ExternalAgentTools.GetCallableToolsAsync())
@@ -255,27 +306,27 @@ public sealed class AgentToolGovernanceTests
     [Fact]
     public async Task External_ToolSchemaIsTheCatalogueSchema()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var getProduct = await AsExternalAgent(tenantId, [Permissions.ProductsRead], async s =>
+        var details = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], async s =>
             (await s.ExternalAgentTools.GetCallableToolsAsync())
-                .Single(x => x.Name == "get_product"));
+                .Single(x => x.Name == "get_member_details"));
 
-        Assert.True(getProduct.JsonSchema.GetProperty("properties").TryGetProperty("id", out _));
+        Assert.True(details.JsonSchema.GetProperty("properties").TryGetProperty("memberId", out _));
     }
 
     [Fact]
     public async Task External_InvokingAToolThatIsNotCallable_IsRefused()
     {
-        var tenantId = await SeedTenantWithProductAgentAsync();
+        var tenantId = await SeedTenantWithGymAdminAsync();
 
-        var (success, _, error) = await AsExternalAgent(tenantId, [Permissions.ProductsCreate], s =>
+        var (success, _, error) = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
             s.ExternalAgentTools.InvokeAsync(
-                "create_product",
-                McpArguments("""{ "name": "Desk", "price": 10 }""")));
+                "send_payment_reminder",
+                McpArguments("""{ "invoiceId": 1 }""")));
 
         Assert.False(success);
-        Assert.Equal("Tool 'create_product' is not available to this agent.", error);
+        Assert.Equal("Tool 'send_payment_reminder' is not available to this agent.", error);
     }
 
     // ---- Helpers ---------------------------------------------------------------
@@ -283,8 +334,8 @@ public sealed class AgentToolGovernanceTests
     private static AgentIdentity Identity(AgentType type) =>
         new()
         {
-            AgentId = ProductAgentId,
-            Name = ProductAgentId,
+            AgentId = GymAdminId,
+            Name = GymAdminId,
             Version = "1.0",
             Type = type
         };
@@ -294,17 +345,14 @@ public sealed class AgentToolGovernanceTests
         JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)!
             .ToDictionary(x => x.Key, x => (object?)x.Value);
 
-    private static ProductAuthorizationService ProductAuthorization(TestServiceFactory s)
-    {
-        var userAuthorization = new UserAuthorizationService(s.ContextAccessor);
-
-        return new ProductAuthorizationService(
+    private static GymAccessService GymAccess(TestServiceFactory s) =>
+        new(
             s.ContextAccessor,
-            userAuthorization,
-            effectiveAgentAuthorization: null!,
+            new UserAuthorizationService(s.ContextAccessor),
             new AgentAuthorizationService(s.AgentPermissions),
-            new TenantAuthorizationService(s.ContextAccessor));
-    }
+            effectiveAgentAuthorization: null!,
+            new EfRepository<MemberProfile>(s.Db),
+            s.Entitlements);
 
     /// <summary>A signed-in user with a tenant role, chatting with the internal agent.</summary>
     private Task<T> AsInternalAgent<T>(
@@ -348,13 +396,13 @@ public sealed class AgentToolGovernanceTests
         return await action(services);
     }
 
-    private async Task<int> SeedTenantWithProductAgentAsync()
+    private async Task<int> SeedTenantWithGymAdminAsync()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
 
         await using var db = Database.CreateDbContext();
 
-        db.Agents.Add(AgentTemplates.ProductAgent.CreateAgent(tenantId, DateTime.UtcNow));
+        db.Agents.Add(AgentTemplates.GymAdmin.CreateAgent(tenantId, DateTime.UtcNow));
         await db.SaveChangesAsync();
 
         return tenantId;
@@ -366,7 +414,7 @@ public sealed class AgentToolGovernanceTests
 
         var tenant = new Tenant
         {
-            Name = "Acme",
+            Name = "Acme Gym",
             Slug = $"acme-{Guid.NewGuid():N}",
             IsActive = true,
             CreatedAtUtc = DateTime.UtcNow,

@@ -1,5 +1,4 @@
-﻿@page "/"
-@page "/login"
+﻿@page "/login"
 
 @layout AuthLayout
 
@@ -13,6 +12,7 @@
 @inject IAuthService AuthService
 @inject AuthenticationStateProvider AuthenticationStateProvider
 @inject NavigationManager Navigation
+@inject ClientAppProfile Profile
 
 <div class="login-page">
 
@@ -32,7 +32,7 @@
             </div>
 
             <div class="login-brand-subtitle">
-                Agentic Workspace
+                @Profile.AppName
             </div>
 
         </div>
@@ -44,7 +44,12 @@
                 <h1>Welcome back</h1>
 
                 <p>
-                    Sign in to continue to your workspace.
+                    @(Profile.Audience switch
+                    {
+                        ClientAudience.Member => "Sign in to train, track and pay with your gym.",
+                        ClientAudience.Platform => "Sign in to operate the IronForge platform.",
+                        _ => "Sign in to manage your gym."
+                    })
                 </p>
 
             </div>
@@ -70,7 +75,7 @@
                 <DataAnnotationsValidator />
 
                 <div class="login-field">
-                <label for="username">Username</label>
+                <label for="username">Email or username</label>
 
                 <div class="login-input-wrapper">
                     <span class="login-input-icon" aria-hidden="true">
@@ -89,7 +94,7 @@
                                @bind-Value="_model.Username"
                                class="login-input"
                                autocomplete="username"
-                               placeholder="Enter your username" />
+                               placeholder="you@example.com" />
                 </div>
 
                 <ValidationMessage For="@(() => _model.Username)" />
@@ -158,6 +163,15 @@
 
             </EditForm>
 
+            <div class="login-links">
+                <a href="/forgot-password">Forgot your password?</a>
+
+                @if (Profile.Audience == ClientAudience.Member)
+                {
+                    <a href="/join">New member? Join your gym with its code</a>
+                }
+            </div>
+
             <div class="login-security-note">
 
                 <span class="security-dot"></span>
@@ -169,7 +183,7 @@
         </div>
 
         <div class="login-footer">
-            IronForge · Agentic SaaS Platform
+            IronForge · Agentic Gym Platform
         </div>
 
     </div>
@@ -195,12 +209,32 @@
 
         if (authenticationState.User.Identity?.IsAuthenticated == true)
         {
-            Navigation.NavigateTo(
-               "/select-tenant",
-               forceLoad: false);
+            await ContinueAsync();
+        }
+    }
 
+    /// <summary>
+    /// The platform app works without a gym: operators go straight in.
+    /// The gym apps continue with choosing a gym.
+    /// </summary>
+    private async Task ContinueAsync()
+    {
+        if (Profile.Audience != ClientAudience.Platform)
+        {
+            Navigation.NavigateTo("/select-tenant", forceLoad: false);
             return;
         }
+
+        var state = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+        if (state.User.HasClaim("permission", IronForge.Shared.Authorization.Permissions.PlatformTenantsManage))
+        {
+            Navigation.NavigateTo(Profile.HomeRoute, forceLoad: false);
+            return;
+        }
+
+        await AuthService.LogoutAsync();
+        _errorMessage = "This account is not a platform operator.";
     }
 
     private void TogglePasswordVisibility()
@@ -232,9 +266,7 @@
                 return;
             }
 
-            Navigation.NavigateTo(
-               "/select-tenant",
-               forceLoad: false);
+            await ContinueAsync();
 
             return;
         }

@@ -1,4 +1,4 @@
-{
+﻿{
   "solution": {
     "path": "IronForge.slnx",
     "projects": [
@@ -9,6 +9,10 @@
       "IronForge.Mcp\\IronForge.Mcp.csproj",
       "IronForge.Migrator\\IronForge.Migrator.csproj",
       "IronForge.Shared\\IronForge.Shared.csproj",
+      "IronForge.Platform\\IronForge.Platform.csproj",
+      "IronForge.UI.Admin\\IronForge.UI.Admin.csproj",
+      "IronForge.UI.Member\\IronForge.UI.Member.csproj",
+      "IronForge.UI.Platform\\IronForge.UI.Platform.csproj",
       "IronForge.Web\\IronForge.Web.csproj",
       "tests\\IronForge.Application.IntegrationTests\\IronForge.Application.IntegrationTests.csproj",
       "tests\\IronForge.Application.Tests\\IronForge.Application.Tests.csproj"

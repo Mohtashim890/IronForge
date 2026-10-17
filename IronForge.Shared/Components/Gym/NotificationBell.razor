@@ -1,0 +1,49 @@
+@using IronForge.Shared.Services.Gym
+@implements IDisposable
+@inject NotificationsApiClient Notifications
+
+@* Unread-notification badge; polls once a minute while visible. *@
+<a href="@Href" class="if-bell @CssClass" aria-label="Notifications (@_count unread)">
+    <svg viewBox="0 0 24 24" aria-hidden="true" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+        <path d="M10 21h4" />
+    </svg>
+    @if (_count > 0)
+    {
+        <span class="if-bell-count">@(_count > 99 ? "99+" : _count.ToString())</span>
+    }
+</a>
+
+@code {
+    private int _count;
+    private Timer? _timer;
+
+    [Parameter] public string Href { get; set; } = "/notifications";
+
+    [Parameter] public string? CssClass { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+
+        _timer = new Timer(
+            _ => InvokeAsync(RefreshAsync),
+            null,
+            TimeSpan.FromSeconds(60),
+            TimeSpan.FromSeconds(60));
+    }
+
+    /// <summary>Lets pages (e.g. after marking all read) update the badge immediately.</summary>
+    public async Task RefreshAsync()
+    {
+        var result = await Notifications.GetUnreadCountAsync();
+
+        if (result.Success)
+        {
+            _count = result.Data!.Count;
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

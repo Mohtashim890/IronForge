@@ -1,0 +1,152 @@
+﻿@inherits LayoutComponentBase
+
+@inject IAuthService AuthService
+@inject ClientAppProfile Profile
+@inject NavigationManager Navigation
+
+<div class="ironforge-shell @(_mobileMenuOpen ? "mobile-menu-open" : "")">
+
+    <aside class="ironforge-sidebar">
+        <NavMenu GymName="@_gymName" />
+    </aside>
+
+    @if (_mobileMenuOpen)
+    {
+        <button type="button"
+                class="mobile-menu-backdrop"
+                aria-label="Close navigation"
+                @onclick="CloseMobileMenu">
+        </button>
+    }
+
+    <div class="ironforge-main">
+
+        <header class="ironforge-topbar">
+
+            <div class="topbar-mobile-menu">
+                <button class="mobile-menu-button"
+                        type="button"
+                        aria-label="Toggle navigation"
+                        aria-expanded="@_mobileMenuOpen"
+                        @onclick="ToggleMobileMenu">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+            </div>
+
+            <div class="topbar-title">
+                <span class="topbar-page-title">@(string.IsNullOrWhiteSpace(_gymName) ? "IronForge" : _gymName)</span>
+            </div>
+
+            <div class="topbar-actions">
+
+                @if (_allowed && _gym is not null)
+                {
+                    <NotificationBell Href="/notifications" CssClass="icon-button" />
+                }
+
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="user-menu">
+                            <div class="user-avatar">@GymFormat.Initials(context.User.Identity?.Name)</div>
+
+                            <div class="user-info">
+                                <span class="user-name">@(context.User.Identity?.Name ?? "User")</span>
+                                <span class="user-role">@(_gym?.Role ?? "Account")</span>
+                            </div>
+
+                            <button type="button" class="if-btn ghost sm" title="Switch gym" @onclick="SwitchGym">⇄</button>
+                            <button type="button" class="if-btn sm" @onclick="SignOutAsync">Sign out</button>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+
+            </div>
+
+        </header>
+
+        <main class="ironforge-content" @onclick="CloseMobileMenu">
+            @if (_loading)
+            {
+                <div class="if-loading">Loading…</div>
+            }
+            else if (!_allowed)
+            {
+                <div class="if-page">
+                    <div class="if-card" style="max-width: 560px; margin: 40px auto; text-align: center">
+                        <h2 style="margin-top: 0">Use the IronForge app</h2>
+                        <p class="if-muted">@Profile.WrongAppMessage</p>
+                        <button type="button" class="if-btn primary" @onclick="SignOutAsync">Sign out</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @* Also renders the router's redirect to sign-in when signed out. *@
+                @Body
+            }
+        </main>
+
+    </div>
+
+</div>
+
+@code
+{
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private bool _mobileMenuOpen;
+    private bool _loading = true;
+    private bool _allowed;
+    private ActiveTenant? _gym;
+    private string? _gymName;
+
+    // A layout instance survives navigation, so the checks run for every page
+    // (OnParametersSet), not only once.
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = AuthenticationState is null ? null : (await AuthenticationState).User;
+
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            // Signed out: let the router's redirect (the body) run.
+            _gym = null;
+            _allowed = true;
+            _loading = false;
+            return;
+        }
+
+        var gym = await AuthService.GetActiveTenantAsync();
+
+        if (gym is null)
+        {
+            // Signed in but no gym chosen yet.
+            _loading = true;
+            Navigation.NavigateTo("/select-tenant");
+            return;
+        }
+
+        if (_gym?.TenantId != gym.TenantId)
+        {
+            var gyms = await AuthService.GetMyTenantsAsync();
+            _gymName = gyms.Data?.FirstOrDefault(x => x.TenantId == gym.TenantId)?.TenantName;
+        }
+
+        _gym = gym;
+        _allowed = Profile.AcceptsRole(gym.Role);
+        _loading = false;
+    }
+
+    private void ToggleMobileMenu() => _mobileMenuOpen = !_mobileMenuOpen;
+
+    private void CloseMobileMenu() => _mobileMenuOpen = false;
+
+    private void SwitchGym() => Navigation.NavigateTo("/select-tenant");
+
+    private async Task SignOutAsync()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+}

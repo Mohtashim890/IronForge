@@ -7,11 +7,15 @@
     <Project Path="IronForge.Mcp/IronForge.Mcp.csproj" />
     <Project Path="IronForge.Migrator/IronForge.Migrator.csproj" />
     <Project Path="IronForge.Shared/IronForge.Shared.csproj" />
+    <Project Path="IronForge.Platform/IronForge.Platform.csproj" />
+    <Project Path="IronForge.UI.Admin/IronForge.UI.Admin.csproj" />
+    <Project Path="IronForge.UI.Member/IronForge.UI.Member.csproj" />
+    <Project Path="IronForge.UI.Platform/IronForge.UI.Platform.csproj" />
     <Project Path="IronForge.Web/IronForge.Web.csproj" />
   </Folder>
   <Folder Name="/client/">
     <Project Path="IronForge/IronForge.csproj">
-      <Deploy Solution="Debug|*" />
+      <Deploy Solution="Release|*" />
     </Project>
   </Folder>
   <Folder Name="/tests/">

@@ -56,7 +56,7 @@ public sealed class AuthServiceTenantTests
     {
         var seed = await SeedAsync(
             userRole: PlatformRoles.PlatformAdmin,
-            roleInA: TenantRoles.Viewer);
+            roleInA: TenantRoles.Trainer);
 
         var login = await LoginAsync(seed.Username);
 
@@ -70,9 +70,9 @@ public sealed class AuthServiceTenantTests
         var inA = await SelectTenantAsync(seed, seed.TenantA, login.RefreshToken);
 
         Assert.NotNull(inA);
-        AssertTenantToken(inA!.AccessToken, seed.TenantA, TenantRoles.Viewer);
+        AssertTenantToken(inA!.AccessToken, seed.TenantA, TenantRoles.Trainer);
         Assert.Contains(Permissions.PlatformTenantsManage, PermissionsOf(inA.AccessToken));
-        Assert.DoesNotContain(Permissions.ProductsCreate, PermissionsOf(inA.AccessToken));
+        Assert.DoesNotContain(Permissions.GymBillingManage, PermissionsOf(inA.AccessToken));
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class AuthServiceTenantTests
         Assert.NotNull(inA);
         AssertTenantToken(inA!.AccessToken, seed.TenantA, "Member");
         Assert.DoesNotContain(PermissionsOf(inA.AccessToken), x => x == Permissions.AgentsCreate);
-        Assert.Contains(PermissionsOf(inA.AccessToken), x => x == Permissions.ProductsRead);
+        Assert.Contains(PermissionsOf(inA.AccessToken), x => x == Permissions.GymSelfRead);
 
         // Switching tenant with the rotated refresh token picks up that tenant's role.
         var inB = await SelectTenantAsync(seed, seed.TenantB, inA.RefreshToken);

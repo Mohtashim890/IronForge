@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace IronForge.Infrastructure.Data
 {
-    public class IronForgeDbContext : DbContext
+    public partial class IronForgeDbContext : DbContext
     {
         private readonly IExecutionContextAccessor _executionContext;
         public IronForgeDbContext(DbContextOptions<IronForgeDbContext> options, IExecutionContextAccessor executionContext) : base(options)
@@ -13,7 +13,6 @@ namespace IronForge.Infrastructure.Data
         }
 
         private int? CurrentTenantId => _executionContext.Current?.TenantId;
-        public DbSet<Product> Products => Set<Product>();
         public DbSet<User> Users => Set<User>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         public DbSet<Agent> Agents => Set<Agent>();
@@ -36,6 +35,8 @@ namespace IronForge.Infrastructure.Data
             ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            ConfigureGym(modelBuilder);
 
             modelBuilder.Entity<AgentMcpClientAuthorization>(entity =>
             {
@@ -564,32 +565,6 @@ namespace IronForge.Infrastructure.Data
                 .HasForeignKey(rt => rt.TenantId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Product>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.Name)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.Price)
-                    .HasPrecision(18, 2);
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasOne<User>()
-                    .WithMany()
-                    .HasForeignKey(x => x.OwnerUserId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasQueryFilter(p =>
-                    CurrentTenantId.HasValue &&
-                    p.TenantId == CurrentTenantId.Value);
-            });
-
             modelBuilder.Entity<TenantMembership>(entity =>
             {
                 entity.HasKey(x => new
@@ -716,6 +691,11 @@ namespace IronForge.Infrastructure.Data
 
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
+                .IsUnique();
+
+            // One account per email: invitations, joining and password reset find accounts by email.
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
                 .IsUnique();
 
             modelBuilder.Entity<User>()

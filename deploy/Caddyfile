@@ -1,4 +1,17 @@
+(security_headers) {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+}
+
+# Gym admin dashboard.
 mohtashim.dev {
+    import security_headers
     reverse_proxy ironforge-web:8080
 }
 
@@ -6,14 +19,24 @@ www.mohtashim.dev {
     redir https://mohtashim.dev{uri} permanent
 }
 
+# Platform operator console.
+platform.mohtashim.dev {
+    import security_headers
+    reverse_proxy ironforge-platform:8080
+}
+
 mcp-client.mohtashim.dev {
+    import security_headers
     reverse_proxy ironforge-mcp-client:8080
 }
 
 mcp.mohtashim.dev {
-	reverse_proxy ironforge-mcp:8080
+    import security_headers
+    reverse_proxy ironforge-mcp:8080
 }
 
+# API (mobile app, web apps, Stripe webhooks, payment pages).
 api.mohtashim.dev {
-	reverse_proxy ironforge-api:8080
+    import security_headers
+    reverse_proxy ironforge-api:8080
 }

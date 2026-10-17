@@ -1,0 +1,125 @@
+﻿@inject GymApiClient Gym
+
+@* Builds a routine from the exercise library: days, each with exercises, sets and reps. *@
+
+@if (Error is not null)
+{
+    <div class="if-alert error">@Error</div>
+}
+
+<div class="if-form-grid">
+    <div class="if-field">
+        <label>Routine name</label>
+        <input @bind="_name" placeholder="e.g. Beginner full body" />
+    </div>
+    <div class="if-field">
+        <label>Goal</label>
+        <input @bind="_goal" placeholder="e.g. Build strength" />
+    </div>
+</div>
+
+<div class="if-field">
+    <label>Notes for the member</label>
+    <input @bind="_notes" placeholder="Warm up for 10 minutes first…" />
+</div>
+
+@for (var d = 0; d < _days.Count; d++)
+{
+    var day = _days[d];
+    var dayIndex = d;
+
+    <div class="if-card" style="margin-bottom: 12px; padding: 14px">
+        <div class="if-row" style="margin-bottom: 8px">
+            <strong>Day @(dayIndex + 1)</strong>
+            <input class="if-input" style="max-width: 240px" @bind="day.Name" />
+            <span class="if-spacer"></span>
+            @if (_days.Count > 1)
+            {
+                <button class="if-btn sm ghost" @onclick="() => _days.RemoveAt(dayIndex)">Remove day</button>
+            }
+        </div>
+
+        @foreach (var exercise in day.Exercises)
+        {
+            <div class="if-row" style="margin-bottom: 6px; flex-wrap: nowrap">
+                <select class="if-input" @bind="exercise.ExerciseId" style="flex: 2">
+                    <option value="0">Choose exercise</option>
+                    @foreach (var group in _library.GroupBy(x => x.MuscleGroup))
+                    {
+                        <optgroup label="@group.Key">
+                            @foreach (var item in group)
+                            {
+                                <option value="@item.Id">@item.Name</option>
+                            }
+                        </optgroup>
+                    }
+                </select>
+                <input class="if-input" type="number" min="1" max="10" @bind="exercise.Sets" style="width: 70px" title="Sets" />
+                <span class="if-muted">×</span>
+                <input class="if-input" @bind="exercise.Reps" style="width: 80px" title="Reps" />
+                <button class="if-btn sm ghost" title="Remove" @onclick="() => day.Exercises.Remove(exercise)">✕</button>
+            </div>
+        }
+
+        <button class="if-btn sm" @onclick="() => AddExercise(day)">+ Exercise</button>
+    </div>
+}
+
+@if (_days.Count < 7)
+{
+    <button class="if-btn sm" @onclick="AddDay">+ Add day</button>
+}
+
+@code {
+    private string _name = "";
+    private string _goal = "";
+    private string _notes = "";
+    private List<ExerciseDto> _library = [];
+    private readonly List<SaveRoutineDayRequest> _days = [];
+
+    public string? Error { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Gym.GetExercisesAsync();
+
+        if (result.Success)
+            _library = result.Data!;
+        else
+            Error = result.ErrorMessage;
+
+        AddDay();
+    }
+
+    private static void AddExercise(SaveRoutineDayRequest day) =>
+        day.Exercises.Add(new SaveRoutineExerciseRequest { Sets = 3, Reps = "8-12" });
+
+    private void AddDay() =>
+        _days.Add(new SaveRoutineDayRequest
+        {
+            Name = $"Day {_days.Count + 1}",
+            Exercises = [new SaveRoutineExerciseRequest { Sets = 3, Reps = "8-12" }]
+        });
+
+    /// <summary>The request, or null (with <see cref="Error"/> set) when it is incomplete.</summary>
+    public SaveRoutineRequest? Build()
+    {
+        Error = null;
+
+        foreach (var day in _days)
+        {
+            day.Exercises.RemoveAll(x => x.ExerciseId == 0);
+        }
+
+        if (string.IsNullOrWhiteSpace(_name))
+            Error = "Give the routine a name.";
+        else if (_days.Any(x => x.Exercises.Count == 0))
+            Error = "Every day needs at least one exercise.";
+
+        StateHasChanged();
+
+        return Error is null
+            ? new SaveRoutineRequest { Name = _name, Goal = _goal, Notes = _notes, Days = _days }
+            : null;
+    }
+}

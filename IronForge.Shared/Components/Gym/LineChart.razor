@@ -1,0 +1,72 @@
+﻿@using System.Globalization
+
+@* A dependency-free SVG line chart with an area fill; the y-axis fits the data. *@
+<div class="if-chart" role="img" aria-label="@AriaLabel">
+    @if (Points.Count < 2)
+    {
+        <div class="if-empty">Not enough data for a chart yet.</div>
+    }
+    else
+    {
+        <svg viewBox="0 0 @Width @(Height + 22)" preserveAspectRatio="none">
+            @for (var i = 0; i < 4; i++)
+            {
+                var y = Pad + (Height - 2 * Pad) * i / 3.0;
+                var value = Max - (Max - Min) * i / 3.0;
+                <line class="grid" x1="28" x2="@Width" y1="@F(y)" y2="@F(y)" />
+                @Svg.Text("axis", 0, y + 3, "start", value.ToString("0.#", CultureInfo.InvariantCulture))
+            }
+
+            <path class="area" d="@AreaPath" />
+            <path class="line" d="@LinePath" />
+
+            @for (var i = 0; i < Points.Count; i++)
+            {
+                var (x, y) = Position(i);
+                <circle class="dot" cx="@F(x)" cy="@F(y)" r="3">
+                    <title>@Points[i].Label: @Points[i].Value.ToString("0.##", CultureInfo.InvariantCulture)@Unit</title>
+                </circle>
+
+                @if (i == 0 || i == Points.Count - 1 || Points.Count <= 8 || i % (int)Math.Ceiling(Points.Count / 6.0) == 0)
+                {
+                    @Svg.Text("axis", x, Height + 15, "middle", Points[i].Label)
+                }
+            }
+        </svg>
+    }
+</div>
+
+@code {
+    private const int Width = 600;
+    private const int Pad = 10;
+
+    [Parameter, EditorRequired] public IReadOnlyList<ChartPoint> Points { get; set; } = [];
+
+    [Parameter] public int Height { get; set; } = 160;
+
+    [Parameter] public string Unit { get; set; } = "";
+
+    [Parameter] public string AriaLabel { get; set; } = "Line chart";
+
+    private double Min => Points.Min(x => x.Value) - Spread * 0.1;
+
+    private double Max => Points.Max(x => x.Value) + Spread * 0.1;
+
+    private double Spread => Math.Max(1, Points.Max(x => x.Value) - Points.Min(x => x.Value));
+
+    private (double X, double Y) Position(int index)
+    {
+        var x = 36 + (Width - 44) * index / (double)(Points.Count - 1);
+        var y = Pad + (Height - 2 * Pad) * (1 - (Points[index].Value - Min) / (Max - Min));
+
+        return (x, y);
+    }
+
+    private string LinePath =>
+        string.Join(" ", Points.Select((_, i) => $"{(i == 0 ? "M" : "L")}{F(Position(i).X)},{F(Position(i).Y)}"));
+
+    private string AreaPath =>
+        $"{LinePath} L{F(Position(Points.Count - 1).X)},{Height - Pad} L{F(Position(0).X)},{Height - Pad} Z";
+
+    private static string F(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+}

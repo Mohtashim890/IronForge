@@ -275,21 +275,21 @@ public sealed class TenantOnboardingTests
         var invite = await AsTenantAdmin(tenantId, adminId, s =>
             s.Invitations.CreateForCurrentTenantAsync(new CreateTenantInvitationRequest
             {
-                Email = "viewer@acme.com",
-                Role = "viewer"
+                Email = "trainer@acme.com",
+                Role = "trainer"
             }));
 
         Assert.True(invite.Success, invite.ErrorMessage);
-        Assert.Equal(TenantRoles.Viewer, invite.Data!.Invitation.Role);
+        Assert.Equal(TenantRoles.Trainer, invite.Data!.Invitation.Role);
 
         var open = await AsTenantAdmin(tenantId, adminId, s => s.Invitations.ListForCurrentTenantAsync());
-        Assert.Contains(open.Data!, x => x.Email == "viewer@acme.com");
+        Assert.Contains(open.Data!, x => x.Email == "trainer@acme.com");
 
         var revoked = await AsTenantAdmin(tenantId, adminId, s =>
             s.Invitations.RevokeForCurrentTenantAsync(invite.Data.Invitation.InvitationId));
         Assert.True(revoked.Success, revoked.ErrorMessage);
 
-        var accept = await AcceptAsync(invite.Data.Token, "acme-viewer");
+        var accept = await AcceptAsync(invite.Data.Token, "acme-trainer");
         Assert.False(accept.Success);
     }
 
@@ -330,18 +330,19 @@ public sealed class TenantOnboardingTests
         var memberId = await AddMemberAsync(tenantId, adminId, "member@acme.com", "acme-member");
 
         var changed = await AsTenantAdmin(tenantId, adminId, s =>
-            s.Members.UpdateRoleAsync(memberId, TenantRoles.Viewer));
+            s.Members.UpdateRoleAsync(memberId, TenantRoles.Trainer));
 
         Assert.True(changed.Success, changed.ErrorMessage);
-        Assert.Equal(TenantRoles.Viewer, changed.Data!.Role);
+        Assert.Equal(TenantRoles.Trainer, changed.Data!.Role);
 
         var token = await SignInToTenantAsync("acme-member", tenantId);
 
         Assert.Equal(
-            TenantRoles.Viewer,
+            TenantRoles.Trainer,
             new JwtSecurityTokenHandler().ReadJwtToken(token).Claims
                 .Single(x => x.Type == ClaimTypes.Role).Value);
-        Assert.DoesNotContain(Permissions.ProductsCreate, PermissionsOf(token));
+        Assert.DoesNotContain(Permissions.GymBillingManage, PermissionsOf(token));
+        Assert.Contains(Permissions.GymCheckInsManage, PermissionsOf(token));
     }
 
     [Fact]
@@ -444,16 +445,16 @@ public sealed class TenantOnboardingTests
     }
 
     [Fact]
-    public async Task Viewer_CannotManageMembers()
+    public async Task Trainer_CannotManageStaff()
     {
         var (tenantId, adminId) = await OnboardAsync("acme");
-        var viewerId = await AddMemberAsync(tenantId, adminId, "viewer@acme.com", "acme-viewer", TenantRoles.Viewer);
+        var trainerId = await AddMemberAsync(tenantId, adminId, "trainer@acme.com", "acme-trainer", TenantRoles.Trainer);
 
-        var viewerPermissions = RolePermissions.GetPermissions(TenantRoles.Viewer);
+        var trainerPermissions = RolePermissions.GetPermissions(TenantRoles.Trainer);
 
-        var list = await AsUser(tenantId, viewerId, viewerPermissions, s => s.Members.ListAsync());
-        var change = await AsUser(tenantId, viewerId, viewerPermissions, s =>
-            s.Members.UpdateRoleAsync(adminId, TenantRoles.Viewer));
+        var list = await AsUser(tenantId, trainerId, trainerPermissions, s => s.Members.ListAsync());
+        var change = await AsUser(tenantId, trainerId, trainerPermissions, s =>
+            s.Members.UpdateRoleAsync(adminId, TenantRoles.Trainer));
 
         Assert.Equal(403, list.StatusCode);
         Assert.Equal(403, change.StatusCode);
@@ -603,7 +604,7 @@ public sealed class TenantOnboardingTests
             DelegationId = Guid.NewGuid(),
             TenantId = tenantId,
             UserId = userId,
-            AgentId = AgentTemplates.ProductAgent.Definition.AgentId,
+            AgentId = AgentTemplates.GymAdmin.Definition.AgentId,
             ClientId = "mcp-client",
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30)

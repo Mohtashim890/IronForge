@@ -5,6 +5,8 @@ using IronForge.Application.Commons;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
+using IronForge.Application.Gym.Members;
+using IronForge.Application.Gym.Notifications;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Tenants;
@@ -69,6 +71,9 @@ public sealed class TenantInvitationService : ITenantInvitationService
     private readonly IExecutionContextAccessor _executionContext;
     private readonly IAuditService _auditService;
     private readonly InvitationOptions _options;
+    private readonly IRepository<MemberProfile> _memberProfiles;
+    private readonly IGymDirectory _gymDirectory;
+    private readonly INotificationService _notifications;
 
     public TenantInvitationService(
         ITenantInvitationStore invitations,
@@ -80,8 +85,14 @@ public sealed class TenantInvitationService : ITenantInvitationService
         IUserAuthorizationService authorization,
         IExecutionContextAccessor executionContext,
         IAuditService auditService,
-        IOptions<InvitationOptions> options)
+        IOptions<InvitationOptions> options,
+        IRepository<MemberProfile> memberProfiles,
+        IGymDirectory gymDirectory,
+        INotificationService notifications)
     {
+        _memberProfiles = memberProfiles;
+        _gymDirectory = gymDirectory;
+        _notifications = notifications;
         _invitations = invitations;
         _tenants = tenants;
         _users = users;
@@ -225,11 +236,11 @@ public sealed class TenantInvitationService : ITenantInvitationService
 
         var normalizedEmail = InvitationToken.NormalizeEmail(email);
 
-        var tenantExists = await _tenants.AnyAsync(
+        var tenant = await _tenants.FirstOrDefaultAsync(
             x => x.Id == tenantId,
             cancellationToken);
 
-        if (!tenantExists)
+        if (tenant is null)
         {
             return ServiceResult<TenantInvitationLinkDto>.Fail(
                 "Tenant was not found.",
@@ -283,6 +294,27 @@ public sealed class TenantInvitationService : ITenantInvitationService
 
         _invitations.Add(invitation);
 
+        var acceptUrl = BuildAcceptUrl(token);
+
+        _notifications.Queue(
+            tenantId: null,
+            [new NotificationRecipient(null, normalizedEmail, null)],
+            new NotificationMessage
+            {
+                Type = Shared.Models.Gym.NotificationType.System,
+                Title = $"You're invited to join {tenant.Name}",
+                Body = canonicalRole == TenantRoles.Member
+                    ? $"{tenant.Name} invited you to the IronForge app, where you can track your workouts, " +
+                      "see your membership and pay your invoices.\n\n" +
+                      $"The invitation expires in {_options.LifetimeDays} days."
+                    : $"You have been invited to {tenant.Name} on IronForge as {canonicalRole}.\n\n" +
+                      $"The invitation expires in {_options.LifetimeDays} days.",
+                SendEmail = true,
+                GymName = tenant.Name,
+                EmailActionText = "Accept invitation",
+                EmailActionUrl = acceptUrl
+            });
+
         await _invitations.SaveChangesAsync(cancellationToken);
 
         await _auditService.RecordAsync(
@@ -300,7 +332,7 @@ public sealed class TenantInvitationService : ITenantInvitationService
             {
                 Invitation = Map(invitation, now),
                 Token = token,
-                AcceptUrl = BuildAcceptUrl(token)
+                AcceptUrl = acceptUrl
             });
     }
 
@@ -454,6 +486,11 @@ public sealed class TenantInvitationService : ITenantInvitationService
             membership.IsActive = true;
         }
 
+        if (invitation.Role == TenantRoles.Member)
+        {
+            await LinkMemberProfileAsync(invitation, user, now, cancellationToken);
+        }
+
         invitation.AcceptedAtUtc = now;
         invitation.AcceptedByUserId = user.Id;
 
@@ -480,6 +517,44 @@ public sealed class TenantInvitationService : ITenantInvitationService
                 Role = invitation.Role,
                 AccountCreated = accountCreated
             });
+    }
+
+    /// <summary>
+    /// A gym member invitation links the account to the profile staff
+    /// created for that email; without one, a Pending profile waits for approval.
+    /// </summary>
+    private async Task LinkMemberProfileAsync(
+        TenantInvitation invitation,
+        User user,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var profile = await _gymDirectory.FindUnlinkedMemberByEmailTrackedAsync(
+            invitation.TenantId,
+            invitation.Email,
+            cancellationToken);
+
+        if (profile is not null)
+        {
+            profile.UserId = user.Id;
+            return;
+        }
+
+        if (await _gymDirectory.FindMemberByEmailAsync(invitation.TenantId, invitation.Email, cancellationToken) is not null)
+        {
+            // Already linked (e.g. a second invitation): nothing to do.
+            return;
+        }
+
+        _memberProfiles.Add(new MemberProfile
+        {
+            TenantId = invitation.TenantId,
+            UserId = user.Id,
+            FullName = user.Username,
+            Email = invitation.Email,
+            Status = Shared.Models.Gym.MemberStatus.Pending,
+            JoinedAtUtc = now
+        });
     }
 
     private async Task<(TenantInvitation? Invitation, Tenant? Tenant, string Error)>

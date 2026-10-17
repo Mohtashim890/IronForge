@@ -1,0 +1,61 @@
+﻿@using System.Globalization
+
+@* A dependency-free SVG bar chart; scales to its container. *@
+<div class="if-chart" role="img" aria-label="@AriaLabel">
+    @if (Points.Count == 0)
+    {
+        <div class="if-empty">No data yet.</div>
+    }
+    else
+    {
+        <svg viewBox="0 0 @Width @(Height + 22)" preserveAspectRatio="none">
+            @for (var i = 0; i < 4; i++)
+            {
+                var y = Height - Height * i / 3.0;
+                <line class="grid" x1="0" x2="@Width" y1="@F(y)" y2="@F(y)" />
+            }
+
+            @for (var i = 0; i < Points.Count; i++)
+            {
+                var point = Points[i];
+                var slot = (double)Width / Points.Count;
+                var barWidth = Math.Max(2, slot * 0.62);
+                var x = slot * i + (slot - barWidth) / 2;
+                var h = Max <= 0 ? 0 : point.Value / Max * (Height - 14);
+                var y = Height - h;
+
+                <rect class="bar @(point.Muted ? "muted" : "")" x="@F(x)" y="@F(y)" width="@F(barWidth)" height="@F(Math.Max(h, 0.5))" rx="3">
+                    <title>@point.Label: @(Format?.Invoke(point.Value) ?? point.Value.ToString("N0", CultureInfo.InvariantCulture))</title>
+                </rect>
+
+                @if (ShowValues && point.Value > 0)
+                {
+                    @Svg.Text("value", x + barWidth / 2, y - 3, "middle", Format?.Invoke(point.Value) ?? point.Value.ToString("N0", CultureInfo.InvariantCulture))
+                }
+
+                @if (Points.Count <= 16 || i % (int)Math.Ceiling(Points.Count / 12.0) == 0)
+                {
+                    @Svg.Text("axis", x + barWidth / 2, Height + 15, "middle", point.Label)
+                }
+            }
+        </svg>
+    }
+</div>
+
+@code {
+    private const int Width = 600;
+
+    [Parameter, EditorRequired] public IReadOnlyList<ChartPoint> Points { get; set; } = [];
+
+    [Parameter] public int Height { get; set; } = 160;
+
+    [Parameter] public bool ShowValues { get; set; }
+
+    [Parameter] public Func<double, string>? Format { get; set; }
+
+    [Parameter] public string AriaLabel { get; set; } = "Bar chart";
+
+    private double Max => Points.Count == 0 ? 0 : Points.Max(x => x.Value);
+
+    private static string F(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+}

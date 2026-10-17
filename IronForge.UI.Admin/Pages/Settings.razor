@@ -1,0 +1,201 @@
+@page "/settings"
+@attribute [Authorize(Policy = Permissions.GymSettingsManage)]
+@inject GymApiClient Gym
+@inject NavigationManager Navigation
+
+<PageTitle>Gym settings | IronForge</PageTitle>
+
+<div class="if-page" style="max-width: 980px">
+    <div class="if-page-head">
+        <div>
+            <h1>Gym settings</h1>
+            <p>Contact details, billing rules, joining and payments.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_settings is null)
+    {
+        <div class="if-loading">Loading settings…</div>
+    }
+    else
+    {
+        <div class="if-grid-2">
+            <div class="if-card">
+                <div class="if-card-head"><h2>Join code</h2></div>
+                <p class="if-muted if-small">New members enter this code in the IronForge app to request to join @_settings.GymName.</p>
+                <div style="font-size: 2rem; font-weight: 800; letter-spacing: 0.15em" class="if-mono">@_settings.JoinCode</div>
+                <button class="if-btn" style="margin-top: 10px" disabled="@_busy" @onclick="RegenerateAsync">Create a new code</button>
+                <p class="if-muted if-small">The old code stops working immediately.</p>
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head"><h2>Card payments</h2></div>
+                @if (_settings.PaymentsSimulated)
+                {
+                    <div class="if-alert info">Card payments run in <strong>demo mode</strong>: members see a test checkout and no money moves.</div>
+                }
+                else if (_settings.StripeConnected)
+                {
+                    <div class="if-alert success">Stripe is connected. Member payments go to your Stripe account.</div>
+                    <p class="if-small if-muted">Account: <span class="if-mono">@_settings.StripeConnectedAccountId</span></p>
+                }
+                else
+                {
+                    <p class="if-muted if-small">Connect a Stripe account so members can pay by card in the app. Until then, card payments go to the platform account.</p>
+                    <div class="if-row">
+                        <button class="if-btn primary" disabled="@_busy" @onclick="ConnectStripeAsync">Connect Stripe</button>
+                        @if (_settings.StripeConnectedAccountId is not null)
+                        {
+                            <button class="if-btn" disabled="@_busy" @onclick="RefreshStripeAsync">I finished onboarding</button>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="if-card" style="margin-top: 16px">
+            <div class="if-card-head"><h2>Gym details and billing rules</h2></div>
+
+            <div class="if-form-grid">
+                <div class="if-field"><label>Address</label><input @bind="_form.Address" /></div>
+                <div class="if-field"><label>Phone</label><input @bind="_form.Phone" /></div>
+                <div class="if-field"><label>Contact email</label><input type="email" @bind="_form.ContactEmail" /></div>
+                <div class="if-field"><label>Currency</label><input @bind="_form.Currency" maxlength="3" /></div>
+                <div class="if-field"><label>Time zone</label><input @bind="_form.TimeZoneId" placeholder="Asia/Karachi" /></div>
+            </div>
+
+            <div class="if-form-grid">
+                <div class="if-field">
+                    <label>Issue invoices this many days before the billing date</label>
+                    <input type="number" min="0" max="30" @bind="_form.InvoiceLeadDays" />
+                </div>
+                <div class="if-field">
+                    <label>Remind this many days before the due date</label>
+                    <input type="number" min="0" max="30" @bind="_form.ReminderDaysBeforeDue" />
+                </div>
+                <div class="if-field">
+                    <label>Remind again after the due date (days, comma-separated)</label>
+                    <input @bind="_afterDue" placeholder="1, 7" />
+                </div>
+                <div class="if-field">
+                    <label>Expire memberships unpaid for more than (days)</label>
+                    <input type="number" min="0" max="90" @bind="_form.GracePeriodDays" />
+                </div>
+            </div>
+
+            <button class="if-btn primary" disabled="@_busy" @onclick="SaveAsync">Save settings</button>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "stripe")] public string? StripeReturn { get; set; }
+
+    private GymSettingsDto? _settings;
+    private UpdateGymSettingsRequest _form = new();
+    private string _afterDue = "";
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = StripeReturn == "return"
+            ? await Gym.RefreshStripeAsync()
+            : await Gym.GetSettingsAsync();
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        Apply(result.Data!);
+
+        if (StripeReturn == "return")
+        {
+            _message = _settings!.StripeConnected
+                ? "Stripe is connected. Members can now pay by card."
+                : "Stripe onboarding is not complete yet. Finish it to accept card payments.";
+        }
+    }
+
+    private void Apply(GymSettingsDto settings)
+    {
+        _settings = settings;
+        _form = new UpdateGymSettingsRequest
+        {
+            Address = settings.Address,
+            Phone = settings.Phone,
+            ContactEmail = settings.ContactEmail,
+            Currency = settings.Currency,
+            TimeZoneId = settings.TimeZoneId,
+            InvoiceLeadDays = settings.InvoiceLeadDays,
+            ReminderDaysBeforeDue = settings.ReminderDaysBeforeDue,
+            ReminderDaysAfterDue = settings.ReminderDaysAfterDue,
+            GracePeriodDays = settings.GracePeriodDays
+        };
+        _afterDue = string.Join(", ", settings.ReminderDaysAfterDue);
+    }
+
+    private async Task SaveAsync()
+    {
+        _form.ReminderDaysAfterDue = _afterDue
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => int.TryParse(x, out var day) ? day : 0)
+            .Where(x => x > 0)
+            .ToList();
+
+        await RunAsync(() => Gym.UpdateSettingsAsync(_form), "Settings saved.");
+    }
+
+    private Task RegenerateAsync() => RunAsync(Gym.RegenerateJoinCodeAsync, "New join code created.");
+
+    private Task RefreshStripeAsync() => RunAsync(Gym.RefreshStripeAsync, "Stripe status updated.");
+
+    private async Task ConnectStripeAsync()
+    {
+        _busy = true;
+        var result = await Gym.ConnectStripeAsync();
+        _busy = false;
+
+        if (result.Success)
+            Navigation.NavigateTo(result.Data!.Url, forceLoad: true);
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task RunAsync(Func<CancellationToken, Task<ServiceResult<GymSettingsDto>>> action, string success)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await action(default);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            Apply(result.Data!);
+            _message = success;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private Task RunAsync(Func<Task<ServiceResult<GymSettingsDto>>> action, string success) =>
+        RunAsync(_ => action(), success);
+}

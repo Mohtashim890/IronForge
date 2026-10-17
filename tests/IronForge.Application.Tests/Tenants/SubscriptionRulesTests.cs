@@ -3,7 +3,7 @@ using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Auditing.AgentTools;
 using IronForge.Application.Entities;
-using IronForge.Application.Products.AgentTools;
+using IronForge.Application.Gym.AgentTools;
 using IronForge.Shared.Subscriptions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -12,20 +12,23 @@ namespace IronForge.Application.Tests.Tenants;
 
 public class SubscriptionRulesTests
 {
-    private static readonly IAgentTool[] Catalogue =
-    [
-        new GetProductsAgentTool(null!),
-        new GetProductAgentTool(null!),
-        new CreateProductAgentTool(null!),
-        new UpdateProductAgentTool(null!),
-        new DeleteProductAgentTool(null!),
-        new SearchAuditEventsAgentTool(null!, null!)
-    ];
+    /// <summary>The real catalogue; only descriptors are read, so dependencies are null.</summary>
+    public static IAgentTool[] Catalogue() =>
+        GymAgentToolCatalog.Types
+            .Select(type =>
+            {
+                var constructor = type.GetConstructors().Single();
+
+                return (IAgentTool)constructor.Invoke(
+                    constructor.GetParameters().Select(_ => (object?)null).ToArray());
+            })
+            .Append(new SearchAuditEventsAgentTool(null!, null!))
+            .ToArray();
 
     [Fact]
     public void AgentTemplates_DeclareExactlyTheModulesOfTheirTools()
     {
-        var moduleByTool = Catalogue.ToDictionary(
+        var moduleByTool = Catalogue().ToDictionary(
             x => x.Descriptor.Name,
             x => x.Descriptor.Module);
 
@@ -41,6 +44,14 @@ public class SubscriptionRulesTests
     }
 
     [Fact]
+    public void ToolNamesAreUnique()
+    {
+        var names = Catalogue().Select(x => x.Descriptor.Name).ToList();
+
+        Assert.Equal(names.Count, names.Distinct().Count());
+    }
+
+    [Fact]
     public void EveryPlanAndToolUsesKnownModules()
     {
         Assert.All(
@@ -48,7 +59,7 @@ public class SubscriptionRulesTests
             module => Assert.NotNull(PlatformModules.Find(module)));
 
         Assert.All(
-            Catalogue,
+            Catalogue(),
             tool => Assert.NotNull(PlatformModules.Find(tool.Descriptor.Module)));
     }
 
@@ -63,6 +74,33 @@ public class SubscriptionRulesTests
     }
 
     [Fact]
+    public void EveryPlanRunsTheGymAndItsAdminAgent()
+    {
+        Assert.All(SubscriptionPlans.All, plan =>
+        {
+            Assert.Contains(PlatformModules.GymCore, plan.Modules);
+            Assert.Contains(PlatformModules.GymBilling, plan.Modules);
+            Assert.All(AgentTemplates.GymAdmin.Modules, module => Assert.Contains(module, plan.Modules));
+        });
+    }
+
+    [Fact]
+    public void Starter_HasNoCoaching_SoNoFitnessCoach()
+    {
+        Assert.DoesNotContain(PlatformModules.GymCoaching, SubscriptionPlans.Starter.Modules);
+        Assert.Contains(PlatformModules.GymCoaching, SubscriptionPlans.Professional.Modules);
+        Assert.Contains(PlatformModules.GymCoaching, AgentTemplates.FitnessCoach.Modules);
+    }
+
+    [Fact]
+    public void ApprovalTools_AreNotLowRisk()
+    {
+        Assert.All(
+            Catalogue().Where(x => x.Descriptor.RequiresApproval),
+            tool => Assert.NotEqual(AgentRiskLevel.Low, tool.Descriptor.RiskLevel));
+    }
+
+    [Fact]
     public void ToolRegistry_RejectsToolWithUnknownModule()
     {
         var tool = new Mock<IAgentTool>();
@@ -72,7 +110,7 @@ public class SubscriptionRulesTests
             Name = "typo_tool",
             Description = "A tool whose module was mistyped.",
             RequiredPermission = "x.read",
-            Module = "prodcts"
+            Module = "gym.cor"
         });
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
@@ -82,7 +120,7 @@ public class SubscriptionRulesTests
                 Mock.Of<IronForge.Application.Auth.Services.IUserAuthorizationService>(),
                 NullLogger<AgentToolRegistry>.Instance));
 
-        Assert.Contains("unknown module 'prodcts'", exception.Message);
+        Assert.Contains("unknown module 'gym.cor'", exception.Message);
     }
 
     [Fact]
@@ -95,7 +133,13 @@ public class SubscriptionRulesTests
         };
 
         Assert.Equal(
-            [PlatformModules.Audit, PlatformModules.Products],
+            new[]
+            {
+                PlatformModules.Audit,
+                PlatformModules.GymBilling,
+                PlatformModules.GymCore,
+                PlatformModules.GymEngagement
+            }.Order(),
             tenant.GetEnabledModules().Order());
     }
 

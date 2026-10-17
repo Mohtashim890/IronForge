@@ -1,0 +1,80 @@
+@page "/routines/{RoutineId:int}"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>Routine | IronForge</PageTitle>
+
+<p><a href="/routines" class="if-small">← Training</a></p>
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+@if (_routine is not null)
+{
+    <h1 style="font-size: 1.4rem; margin-bottom: 4px">@_routine.Name</h1>
+    <p class="if-muted if-small">@(_routine.Goal)</p>
+
+    @if (!string.IsNullOrWhiteSpace(_routine.Notes))
+    {
+        <div class="if-alert info">@_routine.Notes</div>
+    }
+
+    @foreach (var day in _routine.Days)
+    {
+        <div class="m-card">
+            <div class="if-row" style="margin-bottom: 8px">
+                <strong style="flex: 1">Day @day.DayNumber · @day.Name</strong>
+                <a class="if-btn sm primary" href="@($"/workouts/log?day={day.Id}")">Start</a>
+            </div>
+            <ul class="if-list">
+                @foreach (var exercise in day.Exercises)
+                {
+                    <li>
+                        <div style="flex: 1">
+                            <strong>@exercise.ExerciseName</strong>
+                            <div class="if-small if-muted">@exercise.MuscleGroup @(exercise.Notes is null ? "" : $"· {exercise.Notes}")</div>
+                        </div>
+                        <span class="if-small">
+                            @exercise.Sets × @exercise.Reps
+                            @if (exercise.TargetWeightKg is { } kg)
+                            {
+                                <span> @@ @kg kg</span>
+                            }
+                        </span>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+
+    <button class="if-btn block" @onclick="ToggleAsync">@(_routine.IsActive ? "Archive this routine" : "Make active again")</button>
+}
+
+@code {
+    [Parameter] public int RoutineId { get; set; }
+
+    private RoutineDto? _routine;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var result = await Me.GetRoutineAsync(RoutineId);
+
+        if (result.Success)
+            _routine = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task ToggleAsync()
+    {
+        var result = await Me.SetRoutineActiveAsync(RoutineId, !_routine!.IsActive);
+
+        if (result.Success)
+            _routine = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+}

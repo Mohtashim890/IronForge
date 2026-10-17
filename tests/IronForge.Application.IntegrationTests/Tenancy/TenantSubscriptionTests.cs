@@ -1,4 +1,4 @@
-using IronForge.Application.Agents.Runtime;
+﻿using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
 using IronForge.Application.Entities;
@@ -48,9 +48,11 @@ public sealed class TenantSubscriptionTests
             tenant.TrialEndsAtUtc!.Value,
             DateTime.UtcNow.AddDays(13),
             DateTime.UtcNow.AddDays(15));
-        Assert.Equal([PlatformModules.Products], tenant.EnabledModules);
+        Assert.Equal(
+            new[] { PlatformModules.GymBilling, PlatformModules.GymCore, PlatformModules.GymEngagement },
+            tenant.EnabledModules);
 
-        // The Insights agent needs the audit module, which Starter lacks.
+        // The coach needs coaching and Insights needs audit; Starter has neither.
         await using var db = Database.CreateDbContext();
 
         var agentIds = await db.Agents
@@ -59,7 +61,12 @@ public sealed class TenantSubscriptionTests
             .Select(x => x.AgentId)
             .ToListAsync();
 
-        Assert.Equal([AgentTemplates.ProductAgent.Definition.AgentId], agentIds);
+        Assert.Equal([AgentTemplates.GymAdmin.Definition.AgentId], agentIds);
+
+        // Every gym starts with its settings and a join code.
+        var settings = await db.GymSettings.SingleAsync(x => x.TenantId == tenant.TenantId);
+        Assert.Equal(8, settings.JoinCode.Length);
+        Assert.Equal("PKR", settings.Currency);
     }
 
     [Fact]
@@ -84,14 +91,14 @@ public sealed class TenantSubscriptionTests
             {
                 Plan = SubscriptionPlans.Starter.Id,
                 SubscriptionStatus = SubscriptionStatus.Active,
-                // products is already in Starter; audit is the add-on.
-                AddOnModules = [PlatformModules.Audit, PlatformModules.Products]
+                // gym.core is already in Starter; audit is the add-on.
+                AddOnModules = [PlatformModules.Audit, PlatformModules.GymCore]
             }));
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal([PlatformModules.Audit], result.Data!.AddOnModules);
         Assert.Equal(
-            [PlatformModules.Audit, PlatformModules.Products],
+            new[] { PlatformModules.Audit, PlatformModules.GymBilling, PlatformModules.GymCore, PlatformModules.GymEngagement },
             result.Data.EnabledModules);
     }
 
@@ -141,7 +148,8 @@ public sealed class TenantSubscriptionTests
         var professionalCatalogue = await AsTenantAdmin(professional, s => s.AgentManagement.GetToolCatalogAsync());
 
         Assert.DoesNotContain(starterCatalogue.Data!, x => x.Name == AuditTool);
-        Assert.All(starterCatalogue.Data!, x => Assert.Equal(PlatformModules.Products, x.Module));
+        Assert.All(starterCatalogue.Data!, x => Assert.Contains(x.Module, SubscriptionPlans.Starter.Modules));
+        Assert.DoesNotContain(starterCatalogue.Data!, x => x.Name == "log_workout");
 
         Assert.Contains(professionalCatalogue.Data!, x => x.Name == AuditTool);
     }
@@ -150,7 +158,7 @@ public sealed class TenantSubscriptionTests
     public async Task ToolEditor_RejectsToolOutsideTheSubscription()
     {
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, "analyst", "get_products");
+        await SeedAgentAsync(tenantId, "analyst", "search_members");
 
         var result = await AsTenantAdmin(tenantId, s => s.AgentManagement.UpdateToolsAsync(
             "analyst",
@@ -158,7 +166,7 @@ public sealed class TenantSubscriptionTests
             {
                 Tools =
                 [
-                    new AgentToolBindingDto { ToolName = "get_products" },
+                    new AgentToolBindingDto { ToolName = "search_members" },
                     new AgentToolBindingDto { ToolName = AuditTool }
                 ]
             }));
@@ -173,12 +181,12 @@ public sealed class TenantSubscriptionTests
         var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
 
         // A binding made earlier, e.g. before a downgrade.
-        await SeedAgentAsync(tenantId, "analyst", "get_products", AuditTool);
+        await SeedAgentAsync(tenantId, "analyst", "search_members", AuditTool);
 
         var onStarter = await AsTenantAdmin(tenantId, s =>
             s.AgentDefinitions.GetRequiredAsync("analyst"));
 
-        Assert.Equal(["get_products"], onStarter.Tools.Select(x => x.ToolName));
+        Assert.Equal(["search_members"], onStarter.Tools.Select(x => x.ToolName));
 
         await AsPlatformAdmin(s => s.Provisioning.UpdateSubscriptionAsync(
             tenantId,
@@ -192,7 +200,7 @@ public sealed class TenantSubscriptionTests
         var withAddOn = await AsTenantAdmin(tenantId, s =>
             s.AgentDefinitions.GetRequiredAsync("analyst"));
 
-        Assert.Equal(["get_products", AuditTool], withAddOn.Tools.Select(x => x.ToolName));
+        Assert.Equal(["search_members", AuditTool], withAddOn.Tools.Select(x => x.ToolName));
     }
 
     // ---- Quota -------------------------------------------------------------
@@ -314,7 +322,9 @@ public sealed class TenantSubscriptionTests
             Slug = slug,
             AdminEmail = $"admin@{slug}.com",
             Plan = plan,
-            TrialDays = trialDays
+            TrialDays = trialDays,
+            Currency = "PKR",
+            TimeZoneId = "Asia/Karachi"
         };
 
     private static string[] AdminPermissions() =>
