@@ -16,6 +16,7 @@ using IronForge.Application.Execution;
 using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
+using IronForge.Application.Tenants.Invitations;
 using IronForge.Application.Tenants.Services;
 using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Infrastructure.Data;
@@ -78,6 +79,7 @@ builder.Services.AddDbContext<IronForgeDbContext>(
 builder.Services.AddScoped(
     typeof(IRepository<>),
     typeof(EfRepository<>));
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
 builder.Services
     .AddAuthentication(
@@ -133,6 +135,11 @@ builder.Services.AddScoped<IAgentToolRegistry, AgentToolRegistry>();
 
 // Gym domain services and their agent tools (no background jobs here).
 builder.Services.AddGymPlatform(builder.Configuration);
+// MemberService invites members, so the invitation flow is needed here too.
+builder.Services.Configure<InvitationOptions>(
+    builder.Configuration.GetSection(InvitationOptions.SectionName));
+builder.Services.AddScoped<ITenantInvitationService, TenantInvitationService>();
+builder.Services.AddScoped<ITenantInvitationStore, TenantInvitationStore>();
 builder.Services.AddScoped<IAgentDefinitionProvider, DatabaseAgentDefinitionProvider>();
 builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
 builder.Services.AddScoped<IAgentPolicy, UserPermissionPolicy>();
