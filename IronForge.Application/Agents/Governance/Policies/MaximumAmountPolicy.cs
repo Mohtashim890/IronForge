@@ -4,8 +4,15 @@ using IronForge.Application.Agents.Models;
 
 namespace IronForge.Application.Agents.Governance.Policies;
 
+/// <summary>
+/// Denies a call whose monetary argument exceeds the tool's maximum.
+/// The amount is read from the first argument named in
+/// <see cref="AmountArgumentNames"/>.
+/// </summary>
 public class MaximumAmountPolicy : IAgentPolicy
 {
+    public static readonly IReadOnlyList<string> AmountArgumentNames = ["amount", "price"];
+
     public ValueTask<AgentGovernanceDecision?> EvaluateAsync(
         AgentIdentity agent,
         AgentToolPolicy toolPolicy,
@@ -24,9 +31,19 @@ public class MaximumAmountPolicy : IAgentPolicy
             return null;
         }
 
-        if (!context.Arguments.TryGetValue(
-                "price",
-                out var priceValue))
+        object? priceValue = null;
+        var found = false;
+
+        foreach (var name in AmountArgumentNames)
+        {
+            if (context.Arguments.TryGetValue(name, out priceValue))
+            {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found)
         {
             return new AgentGovernanceDecision
             {
@@ -34,7 +51,7 @@ public class MaximumAmountPolicy : IAgentPolicy
                     AgentGovernanceDecisionType.Deny,
 
                 Reason =
-                    "A price is required for this operation.",
+                    "An amount is required for this operation.",
 
                 RiskLevel =
                     toolPolicy.RiskLevel,
@@ -58,7 +75,7 @@ public class MaximumAmountPolicy : IAgentPolicy
                     AgentGovernanceDecisionType.Deny,
 
                 Reason =
-                    "The requested price could not be validated.",
+                    "The requested amount could not be validated.",
 
                 RiskLevel =
                     toolPolicy.RiskLevel,
@@ -76,8 +93,8 @@ public class MaximumAmountPolicy : IAgentPolicy
                     AgentGovernanceDecisionType.Deny,
 
                 Reason =
-                    $"The requested price {price} exceeds " +
-                    $"the maximum allowed price " +
+                    $"The requested amount {price} exceeds " +
+                    $"the maximum allowed amount " +
                     $"{toolPolicy.MaximumAmount.Value}.",
 
                 RiskLevel =

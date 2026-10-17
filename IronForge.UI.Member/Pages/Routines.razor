@@ -1,0 +1,71 @@
+@page "/routines"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>Training | IronForge</PageTitle>
+
+<div class="if-row">
+    <h1 style="font-size: 1.4rem; margin: 0">Training</h1>
+    <span class="if-spacer"></span>
+    <a class="if-btn sm" href="/workouts">History</a>
+    <a class="if-btn sm primary" href="/workouts/log">+ Log workout</a>
+</div>
+
+@if (_error is not null)
+{
+    <div class="if-alert @(_upgrade ? "info" : "error")" style="margin-top: 12px">@_error</div>
+}
+
+@if (_routines is not null)
+{
+    <div class="m-section-title">Your routines</div>
+
+    @if (_routines.Count == 0)
+    {
+        <div class="m-card">
+            <p style="margin-top: 0">No routines yet. Your trainer can assign one, or the AI coach can design one with you.</p>
+            <a class="if-btn primary block" href="/coach">Plan a routine with the coach</a>
+        </div>
+    }
+
+    @foreach (var routine in _routines)
+    {
+        <a class="m-card" href="@($"/routines/{routine.Id}")" style="display: block; text-decoration: none; color: inherit; @(routine.IsActive ? "" : "opacity: 0.6")">
+            <div class="if-row">
+                <strong style="flex: 1">@routine.Name</strong>
+                <Badge Tone="@(routine.Source == RoutineSource.Trainer ? "info" : "accent")">@SourceLabel(routine)</Badge>
+            </div>
+            <div class="if-small if-muted">@routine.Days.Count day(s) · @(routine.Goal ?? "")</div>
+            <div class="if-small" style="margin-top: 6px">@string.Join(" · ", routine.Days.Select(x => x.Name))</div>
+        </a>
+    }
+}
+
+@code {
+    private List<RoutineDto>? _routines;
+    private string? _error;
+    private bool _upgrade;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Me.GetRoutinesAsync();
+
+        if (result.Success)
+        {
+            _routines = result.Data!;
+            return;
+        }
+
+        _upgrade = result.StatusCode == 403;
+        _error = _upgrade
+            ? "Routines and workout tracking aren't part of your gym's plan yet."
+            : result.ErrorMessage;
+    }
+
+    private static string SourceLabel(RoutineDto routine) => routine.Source switch
+    {
+        RoutineSource.Trainer => $"by {routine.AssignedBy ?? "your trainer"}",
+        RoutineSource.Ai => "AI coach",
+        _ => "yours"
+    };
+}

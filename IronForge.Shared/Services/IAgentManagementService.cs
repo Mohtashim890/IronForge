@@ -28,12 +28,12 @@ namespace IronForge.Shared.Services
             string agentId,
             CancellationToken cancellationToken = default);
 
-        Task<ServiceResult<AgentDto>> UpdatePermissionsAsync(
-            string agentId,
-            UpdateAgentPermissionsRequest request,
-            CancellationToken cancellationToken = default);
 
         Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
+            CancellationToken cancellationToken = default);
+
+        Task<ServiceResult<AgentDto>> DetachAsync(
+            string agentId,
             CancellationToken cancellationToken = default);
 
         Task<ServiceResult<AgentDto>> UpdateToolsAsync(

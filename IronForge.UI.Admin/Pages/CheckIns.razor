@@ -1,0 +1,161 @@
+@page "/checkins"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Check-ins | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Front desk</h1>
+            <p>Check members in and see who has been training.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-grid-2">
+        <AuthorizeView Policy="@Permissions.GymCheckInsManage">
+            <div class="if-card">
+                <div class="if-card-head"><h2>Check in</h2></div>
+                <input class="if-input" placeholder="Type a member's name, email or phone" @bind="_search" @bind:event="oninput" @onkeyup="SearchAsync" />
+
+                <ul class="if-list" style="margin-top: 8px">
+                    @foreach (var member in _matches)
+                    {
+                        <li>
+                            <span class="if-avatar">@GymFormat.Initials(member.FullName)</span>
+                            <div style="flex: 1">
+                                <strong>@member.FullName</strong>
+                                <div class="if-small if-muted">@(member.PlanName ?? "No plan")</div>
+                            </div>
+                            <Badge Tone="@GymFormat.Tone(member.Status)">@member.Status</Badge>
+                            <button class="if-btn sm primary" disabled="@_busy" @onclick="() => CheckInAsync(member)">Check in</button>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </AuthorizeView>
+
+        <div class="if-card">
+            <div class="if-card-head">
+                <h2>Last 30 days</h2>
+                @if (_attendance is not null)
+                {
+                    <span class="if-muted if-small">@_attendance.TotalCheckIns visits · @_attendance.UniqueMembers members</span>
+                }
+            </div>
+            @if (_attendance is not null)
+            {
+                <BarChart Points="@_byDay" AriaLabel="Check-ins per day" Height="140" />
+                <p class="if-small if-muted" style="margin-top: 10px">
+                    Busiest day: <strong>@(_attendance.BusiestDayOfWeek ?? "—")</strong>
+                    · Busiest hour: <strong>@(_attendance.BusiestHour is { } h ? $"{h:00}:00" : "—")</strong>
+                </p>
+            }
+        </div>
+    </div>
+
+    <div class="if-grid-2" style="margin-top: 16px">
+        <div class="if-card">
+            <div class="if-card-head"><h2>Recent visits</h2></div>
+            <ul class="if-list">
+                @foreach (var visit in _recent)
+                {
+                    <li>
+                        <a href="@($"/members/{visit.MemberId}")" style="flex: 1">@visit.MemberName</a>
+                        <span class="if-muted if-small">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <div class="if-card">
+            <div class="if-card-head"><h2>Active members who haven't visited</h2></div>
+            @if (_attendance is null || _attendance.InactiveMembers.Count == 0)
+            {
+                <div class="if-empty">Everyone came in this month. 🎉</div>
+            }
+            else
+            {
+                <ul class="if-list">
+                    @foreach (var member in _attendance.InactiveMembers.Take(10))
+                    {
+                        <li>
+                            <a href="@($"/members/{member.Id}")" style="flex: 1">@member.FullName</a>
+                            <span class="if-muted if-small">last visit @(member.LastCheckInUtc is { } at ? GymFormat.Ago(at) : "never")</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string _search = "";
+    private List<MemberSummaryDto> _matches = [];
+    private List<CheckInDto> _recent = [];
+    private AttendanceSummaryDto? _attendance;
+    private List<ChartPoint> _byDay = [];
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _recent = (await Gym.GetCheckInsAsync(20)).Data ?? [];
+
+        var attendance = await Gym.GetAttendanceAsync(30);
+        _attendance = attendance.Data;
+        _byDay = _attendance?.ByDay.Select(x => new ChartPoint(x.Day.ToString("dd"), x.Count)).ToList() ?? [];
+    }
+
+    private async Task SearchAsync(KeyboardEventArgs e)
+    {
+        if (_search.Trim().Length < 2)
+        {
+            _matches = [];
+            return;
+        }
+
+        var result = await Gym.GetMembersAsync(new MemberQuery { Search = _search.Trim(), PageSize = 8 });
+        _matches = result.Data?.Items ?? [];
+    }
+
+    private async Task CheckInAsync(MemberSummaryDto member)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await Gym.CheckInAsync(member.Id);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _message = $"✓ {member.FullName} checked in at {result.Data!.CheckedInAtUtc.ToLocalTime():HH:mm}.";
+            _search = "";
+            _matches = [];
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+}

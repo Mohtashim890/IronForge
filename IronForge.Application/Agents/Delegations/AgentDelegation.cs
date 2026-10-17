@@ -4,6 +4,9 @@ public class AgentDelegation
 {
     public Guid DelegationId { get; set; }
 
+    /// <summary>The tenant the delegation was created in. It is only valid there.</summary>
+    public int TenantId { get; set; }
+
     public int UserId { get; set; }
 
     public string AgentId { get; set; } = "";

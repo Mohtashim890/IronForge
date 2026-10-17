@@ -28,7 +28,8 @@ namespace IronForge.Application.Auditing.Services
             string? resourceId = null,
             string? reason = null,
             string? metadataJson = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int? tenantId = null)
         {
             var context = _executionContext.Current;
 
@@ -40,7 +41,9 @@ namespace IronForge.Application.Auditing.Services
 
             var auditEvent = new AuditEvent
             {
-                TenantId = context?.TenantId,
+                // An explicit tenant is used by flows that run without a tenant
+                // context (provisioning, invitation acceptance).
+                TenantId = tenantId ?? context?.TenantId,
 
                 OccurredAtUtc = DateTime.UtcNow,
 

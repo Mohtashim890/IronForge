@@ -2,18 +2,30 @@
 
 <Microsoft.AspNetCore.Components.Authorization.CascadingAuthenticationState>
     <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)"
-            AdditionalAssemblies="new[]{typeof(IronForge.Shared.Pages.Products).Assembly}">
+            AdditionalAssemblies="new[] { typeof(IronForge.Shared.Pages.Login).Assembly, typeof(IronForge.UI.Admin.Pages.Dashboard).Assembly }">
         <Found Context="routeData">
-            <Microsoft.AspNetCore.Components.Authorization.AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(IronForge.Shared.Components.Layout.MainLayout)">
+            <Microsoft.AspNetCore.Components.Authorization.AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(IronForge.UI.Admin.Layout.MainLayout)">
                 <NotAuthorized>
-                    <RedirectToLogin />
+                    @if (context.User.Identity?.IsAuthenticated == true)
+                    {
+                        <div class="if-page" style="padding: 40px 16px">
+                            <div class="if-card" style="max-width: 520px; margin: 0 auto; text-align: center">
+                                <h2 style="margin-top: 0">Not available for your role</h2>
+                                <p class="if-muted">Ask a gym admin if you need access to this page.</p>
+                                <a class="if-btn" href="/dashboard">Back to the dashboard</a>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <RedirectToLogin />
+                    }
                 </NotAuthorized>
                 <Authorizing>
-                    <p>Checking authorization...</p>
+                    <p class="if-loading" style="padding: 24px">Checking authorization...</p>
                 </Authorizing>
             </Microsoft.AspNetCore.Components.Authorization.AuthorizeRouteView>
             <FocusOnNavigate RouteData="routeData" Selector="h1" />
         </Found>
     </Router>
 </Microsoft.AspNetCore.Components.Authorization.CascadingAuthenticationState>
-

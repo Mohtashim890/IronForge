@@ -1,9 +1,10 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+﻿FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 WORKDIR /src
 
 COPY ["IronForge.Web/IronForge.Web.csproj", "IronForge.Web/"]
 COPY ["IronForge.Shared/IronForge.Shared.csproj", "IronForge.Shared/"]
+COPY ["IronForge.UI.Admin/IronForge.UI.Admin.csproj", "IronForge.UI.Admin/"]
 
 RUN dotnet restore "IronForge.Web/IronForge.Web.csproj"
 

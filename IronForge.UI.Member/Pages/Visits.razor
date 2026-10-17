@@ -1,0 +1,40 @@
+@page "/visits"
+@attribute [Authorize]
+@inject MemberApiClient Me
+
+<PageTitle>My visits | IronForge</PageTitle>
+
+<p><a href="/me" class="if-small">← Me</a></p>
+<h1 style="font-size: 1.4rem">My visits</h1>
+
+@if (_visits is null)
+{
+    <div class="if-loading">Loading…</div>
+}
+else if (_visits.Count == 0)
+{
+    <div class="m-card if-empty">No visits yet. Check in at the front desk when you arrive.</div>
+}
+else
+{
+    <div class="m-card">
+        <ul class="if-list">
+            @foreach (var visit in _visits)
+            {
+                <li>
+                    <span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
+                    <span class="if-muted if-small">@GymFormat.Ago(visit.CheckedInAtUtc)</span>
+                </li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    private List<CheckInDto>? _visits;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _visits = (await Me.GetCheckInsAsync()).Data ?? [];
+    }
+}

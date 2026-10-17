@@ -1,0 +1,48 @@
+.approval-summary {
+    min-width: 0;
+}
+
+.approval-summary-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    text-transform: capitalize;
+}
+
+.approval-risk {
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: #fef3f2;
+    color: #b42318;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: none;
+}
+
+.approval-approved {
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: #ecfdf3;
+    color: #067647;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: none;
+}
+
+.approval-summary-meta {
+    margin-top: 0.3rem;
+    color: #667085;
+    font-size: 0.82rem;
+}
+
+.approval-arguments {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    background: #f9fafb;
+    color: #344054;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}

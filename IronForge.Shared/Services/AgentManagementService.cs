@@ -201,49 +201,6 @@ namespace IronForge.Shared.Services
             }
         }
 
-        public async Task<ServiceResult<AgentDto>> UpdatePermissionsAsync(
-            string agentId,
-            UpdateAgentPermissionsRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                using var response = await _httpClient.PutAsJsonAsync(
-                    $"api/agent/{Uri.EscapeDataString(agentId)}/permissions",
-                    request,
-                    cancellationToken);
-
-                if (!response.IsSuccessStatusCode)
-                    return ServiceResult<AgentDto>.Fail(
-                        await GetErrorMessageAsync(
-                            response,
-                            "Unable to update agent permissions."),
-                        (int)response.StatusCode);
-
-                var agent = await response.Content.ReadFromJsonAsync<AgentDto>(
-                    cancellationToken: cancellationToken);
-
-                return agent is null
-                    ? ServiceResult<AgentDto>.Fail(
-                        "The API returned an invalid agent response.",
-                        (int)HttpStatusCode.InternalServerError)
-                    : ServiceResult<AgentDto>.Ok(agent);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (HttpRequestException)
-            {
-                return ServiceResult<AgentDto>.Fail("Unable to connect to the API.");
-            }
-            catch (Exception)
-            {
-                return ServiceResult<AgentDto>.Fail(
-                    "An unexpected error occurred while updating agent permissions.");
-            }
-        }
-
         public async Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
             CancellationToken cancellationToken = default)
         {
@@ -274,6 +231,46 @@ namespace IronForge.Shared.Services
             {
                 return ServiceResult<List<AgentToolCatalogItemDto>>.Fail(
                     "An unexpected error occurred while loading the tool catalogue.");
+            }
+        }
+
+        public async Task<ServiceResult<AgentDto>> DetachAsync(
+            string agentId,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var response = await _httpClient.PostAsync(
+                    $"api/agent/{Uri.EscapeDataString(agentId)}/detach",
+                    content: null,
+                    cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                    return ServiceResult<AgentDto>.Fail(
+                        await GetErrorMessageAsync(response, "Unable to detach the agent."),
+                        (int)response.StatusCode);
+
+                var agent = await response.Content.ReadFromJsonAsync<AgentDto>(
+                    cancellationToken: cancellationToken);
+
+                return agent is null
+                    ? ServiceResult<AgentDto>.Fail(
+                        "The API returned an invalid agent response.",
+                        (int)HttpStatusCode.InternalServerError)
+                    : ServiceResult<AgentDto>.Ok(agent);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (HttpRequestException)
+            {
+                return ServiceResult<AgentDto>.Fail("Unable to connect to the API.");
+            }
+            catch (Exception)
+            {
+                return ServiceResult<AgentDto>.Fail(
+                    "An unexpected error occurred while detaching the agent.");
             }
         }
 

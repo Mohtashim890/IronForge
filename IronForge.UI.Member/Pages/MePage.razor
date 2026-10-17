@@ -1,0 +1,47 @@
+@page "/me"
+@attribute [Authorize]
+@inject MemberApiClient Me
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Me | IronForge</PageTitle>
+
+@if (_me is not null)
+{
+    <div class="m-card" style="text-align: center">
+        <span class="if-avatar" style="width: 64px; height: 64px; font-size: 1.4rem">@GymFormat.Initials(_me.FullName)</span>
+        <h2 style="margin: 10px 0 2px; font-size: 1.2rem">@_me.FullName</h2>
+        <div class="if-muted if-small">@_me.Email</div>
+        <div style="margin-top: 8px"><Badge Tone="@GymFormat.Tone(_me.Status)">@_me.Status</Badge></div>
+    </div>
+}
+
+<div class="m-card">
+    <a class="m-link-row" href="/membership"><span>💳 Membership &amp; payments</span><span>›</span></a>
+    <a class="m-link-row" href="/visits"><span>✓ My visits</span><span>›</span></a>
+    <a class="m-link-row" href="/workouts"><span>📒 Workout history</span><span>›</span></a>
+    <a class="m-link-row" href="/notifications"><span>🔔 Notifications</span><span>›</span></a>
+    <a class="m-link-row" href="/profile"><span>✎ Edit profile</span><span>›</span></a>
+</div>
+
+<div class="m-card">
+    <button class="m-link-row" style="width: 100%; border: 0; background: none; padding: 14px 0" @onclick="SwitchGym"><span>⇄ Switch gym</span><span>›</span></button>
+    <button class="m-link-row" style="width: 100%; border: 0; background: none; padding: 14px 0; color: var(--if-danger)" @onclick="SignOutAsync"><span>Sign out</span><span></span></button>
+</div>
+
+@code {
+    private MyMembershipDto? _me;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _me = (await Me.GetMembershipAsync()).Data;
+    }
+
+    private void SwitchGym() => Navigation.NavigateTo("/select-tenant");
+
+    private async Task SignOutAsync()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+}

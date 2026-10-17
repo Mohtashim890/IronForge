@@ -1,0 +1,112 @@
+@page "/"
+@attribute [Authorize(Policy = Permissions.PlatformTenantsManage)]
+@using IronForge.Shared.Models.Tenants
+@inject PlatformApiClient Platform
+
+<PageTitle>Overview | IronForge Platform</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <div class="if-eyebrow">Platform</div>
+            <h1>Overview</h1>
+            <p>Gyms, members and AI usage across IronForge.</p>
+        </div>
+        <a class="if-btn primary" href="/tenants">Manage gyms</a>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_data is null)
+    {
+        @if (_error is null)
+        {
+            <div class="if-loading">Loading…</div>
+        }
+    }
+    else
+    {
+        <div class="if-grid">
+            <StatTile Label="Gyms" Value="@_data.TenantCount.ToString()" Sub="@($"{_data.ActiveTenants} active · {_data.TrialTenants} trial")" Tone="accent" />
+            <StatTile Label="Active gym members" Value="@_data.ActiveGymMembers.ToString("N0")" Sub="@($"{_data.StaffAccounts} staff accounts")" Tone="success" />
+            <StatTile Label="AI tokens this month" Value="@GymFormat.Compact(_data.TokensThisMonth)" Tone="info" />
+            <StatTile Label="Needs attention" Value="@((_data.PastDueTenants + _data.SuspendedTenants).ToString())" Sub="@($"{_data.PastDueTenants} past due · {_data.SuspendedTenants} suspended")" Tone="danger" />
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head"><h2>AI tokens, last 30 days</h2></div>
+                <BarChart Points="@_tokens" Format="@(v => GymFormat.Compact((long)v))" AriaLabel="Tokens per day" />
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head"><h2>Gyms by plan</h2></div>
+                <ul class="if-list">
+                    @foreach (var plan in _data.TenantsByPlan)
+                    {
+                        <li><span style="flex: 1">@PlanLabels.NameOf(plan.Plan)</span><strong>@plan.Tenants</strong></li>
+                    }
+                </ul>
+            </div>
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head"><h2>Trials ending this week</h2></div>
+                @if (_data.TrialsEndingSoon.Count == 0)
+                {
+                    <div class="if-empty">No trials end in the next 7 days.</div>
+                }
+                <ul class="if-list">
+                    @foreach (var tenant in _data.TrialsEndingSoon)
+                    {
+                        <li>
+                            <a href="@($"/tenants/{tenant.TenantId}")" style="flex: 1">@tenant.Name</a>
+                            <span class="if-small if-muted">ends @GymFormat.Date(tenant.TrialEndsAtUtc)</span>
+                        </li>
+                    }
+                </ul>
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head"><h2>Past due</h2></div>
+                @if (_data.PastDue.Count == 0)
+                {
+                    <div class="if-empty">Every gym is paid up.</div>
+                }
+                <ul class="if-list">
+                    @foreach (var tenant in _data.PastDue)
+                    {
+                        <li>
+                            <a href="@($"/tenants/{tenant.TenantId}")" style="flex: 1">@tenant.Name</a>
+                            <Badge Tone="warning">Past due</Badge>
+                        </li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private PlatformOverviewDto? _data;
+    private List<ChartPoint> _tokens = [];
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Platform.GetOverviewAsync();
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _data = result.Data;
+        _tokens = _data!.TokensByDay.Select(x => new ChartPoint(x.Day.ToString("dd"), x.Tokens)).ToList();
+    }
+}

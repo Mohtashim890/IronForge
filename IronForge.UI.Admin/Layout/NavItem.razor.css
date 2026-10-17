@@ -1,0 +1,35 @@
+.nav-item {
+    padding: 0.1rem 0.75rem;
+}
+
+    .nav-item ::deep .nav-link {
+        width: 100%;
+        min-height: 2.5rem;
+        padding: 0.55rem 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: #cfd4dc;
+        background: transparent;
+        border: none;
+        border-radius: 0.5rem;
+        text-decoration: none;
+        font-size: 0.92rem;
+    }
+
+        .nav-item ::deep .nav-link:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: white;
+        }
+
+    .nav-item ::deep a.active {
+        background: rgba(232, 89, 12, 0.22);
+        color: white;
+        box-shadow: inset 3px 0 0 #e8590c;
+    }
+
+.nav-icon {
+    width: 1.25rem;
+    min-width: 1.25rem;
+    text-align: center;
+}

@@ -1,3 +1,4 @@
+﻿using IronForge.Shared.Subscriptions;
 using System.ComponentModel;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
@@ -14,7 +15,7 @@ namespace IronForge.Application.Auditing.AgentTools;
 ///
 /// Governance checks the agent's audit.read permission; this tool also
 /// checks the user's, because AuditQueryService itself does not. The agent's
-/// effective access is therefore user ∩ agent, like the product tools.
+/// effective access is therefore user ∩ agent, like the gym tools.
 /// </summary>
 public sealed class SearchAuditEventsAgentTool : AgentTool
 {
@@ -38,15 +39,16 @@ public sealed class SearchAuditEventsAgentTool : AgentTool
             Name = "search_audit_events",
             Description =
                 "Searches the organisation's audit trail (newest first): sign-ins, " +
-                "authorization decisions, product changes, agent runs, approvals and tool calls.",
+                "authorization decisions, membership and billing events, announcements, agent runs and approvals.",
             RequiredPermission = Permissions.AuditRead,
+            Module = PlatformModules.Audit,
             RiskLevel = AgentRiskLevel.Low
         };
 
     protected override Delegate Handler => ExecuteAsync;
 
     private async Task<object> ExecuteAsync(
-        [Description("Optional category: Authentication, Authorization, Product, Agent, Approval, Tool, Workflow, Delegation or Tenant.")]
+        [Description("Optional category: Authentication, Authorization, Agent, Approval, Tool, Workflow, Delegation, Tenant, Membership, Billing, Coaching or Notification.")]
         string? category = null,
         [Description("Optional outcome: Succeeded, Failed or Denied.")]
         string? outcome = null,

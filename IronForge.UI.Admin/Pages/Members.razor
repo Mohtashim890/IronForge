@@ -1,0 +1,299 @@
+@page "/members"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+@inject NavigationManager Navigation
+
+<PageTitle>Members | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Members</h1>
+            <p>Everyone with a membership at your gym.</p>
+        </div>
+        <AuthorizeView Policy="@Permissions.GymMembersManage">
+            <button class="if-btn primary" type="button" @onclick="OpenAdd">+ Add member</button>
+        </AuthorizeView>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-toolbar">
+        <input class="if-input" placeholder="Search name, email or phone" @bind="_query.Search" @bind:event="oninput" @onkeyup="SearchKeyAsync" />
+        <select class="if-input" @onchange="StatusChangedAsync">
+            <option value="" selected="@(_query.Status is null)">All statuses</option>
+            @foreach (var status in Enum.GetValues<MemberStatus>())
+            {
+                <option value="@status" selected="@(_query.Status == status)">@status</option>
+            }
+        </select>
+        <select class="if-input" @onchange="PlanChangedAsync">
+            <option value="">All plans</option>
+            @foreach (var plan in _plans)
+            {
+                <option value="@plan.Id">@plan.Name</option>
+            }
+        </select>
+        <label class="if-row if-small">
+            <input type="checkbox" @bind="_query.OverdueOnly" @bind:after="ReloadAsync" /> Overdue only
+        </label>
+    </div>
+
+    @if (_page is null)
+    {
+        <div class="if-loading">Loading members…</div>
+    }
+    else if (_page.Items.Count == 0)
+    {
+        <div class="if-card if-empty">No members match these filters.</div>
+    }
+    else
+    {
+        <div class="if-table-wrap">
+            <table class="if-table">
+                <thead>
+                    <tr>
+                        <th>Member</th>
+                        <th>Status</th>
+                        <th>Plan</th>
+                        <th>Paid through</th>
+                        <th class="num">Outstanding</th>
+                        <th>Last visit</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var member in _page.Items)
+                    {
+                        <tr class="clickable" @onclick="() => Open(member.Id)">
+                            <td>
+                                <div class="if-row" style="flex-wrap: nowrap">
+                                    <span class="if-avatar">@GymFormat.Initials(member.FullName)</span>
+                                    <div>
+                                        <strong>@member.FullName</strong>
+                                        <div class="if-muted if-small">
+                                            @member.Email
+                                            @if (!member.HasAppAccount)
+                                            {
+                                                <span title="No app account yet"> · no app</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><Badge Tone="@GymFormat.Tone(member.Status)">@member.Status</Badge></td>
+                            <td>@(member.PlanName ?? "—")</td>
+                            <td>@GymFormat.Date(member.PaidThrough)</td>
+                            <td class="num">
+                                @if (member.OutstandingAmount > 0)
+                                {
+                                    <span style="color: var(--if-danger); font-weight: 600">@GymFormat.Money(member.OutstandingAmount, _currency)</span>
+                                }
+                                else
+                                {
+                                    <span class="if-muted">—</span>
+                                }
+                            </td>
+                            <td class="if-small if-muted">@(member.LastCheckInUtc is { } at ? GymFormat.Ago(at) : "never")</td>
+                            <td @onclick:stopPropagation="true">
+                                @if (member.Status == MemberStatus.Active)
+                                {
+                                    <AuthorizeView Policy="@Permissions.GymCheckInsManage">
+                                        <button class="if-btn sm" type="button" disabled="@(_busyId == member.Id)" @onclick="() => CheckInAsync(member)">Check in</button>
+                                    </AuthorizeView>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="if-pager">
+            <span>@_page.TotalCount member(s)</span>
+            <div class="if-row">
+                <button class="if-btn sm" type="button" disabled="@(_query.Page <= 1)" @onclick="() => GoToAsync(_query.Page - 1)">← Previous</button>
+                <span>Page @_query.Page of @Math.Max(1, (int)Math.Ceiling(_page.TotalCount / (double)_query.PageSize))</span>
+                <button class="if-btn sm" type="button" disabled="@(_query.Page * _query.PageSize >= _page.TotalCount)" @onclick="() => GoToAsync(_query.Page + 1)">Next →</button>
+            </div>
+        </div>
+    }
+</div>
+
+<Modal @bind-Open="_adding" Title="Add a member">
+    <ChildContent>
+        @if (_addError is not null)
+        {
+            <div class="if-alert error">@_addError</div>
+        }
+
+        <div class="if-form-grid">
+            <div class="if-field">
+                <label>Full name</label>
+                <input @bind="_new.FullName" />
+            </div>
+            <div class="if-field">
+                <label>Email</label>
+                <input type="email" @bind="_new.Email" />
+            </div>
+            <div class="if-field">
+                <label>Phone</label>
+                <input @bind="_new.Phone" />
+            </div>
+            <div class="if-field">
+                <label>Plan</label>
+                <select @bind="_new.MembershipPlanId">
+                    <option value="0">Choose a plan</option>
+                    @foreach (var plan in _plans.Where(x => x.IsActive))
+                    {
+                        <option value="@plan.Id">@plan.Name — @GymFormat.Money(plan.Price, plan.Currency) @GymFormat.Interval(plan.BillingInterval)</option>
+                    }
+                </select>
+            </div>
+            <div class="if-field">
+                <label>Start date</label>
+                <input type="date" @bind="_new.StartDate" />
+            </div>
+        </div>
+
+        <label class="if-row if-small">
+            <input type="checkbox" @bind="_new.SendAppInvitation" />
+            Email an invitation to the IronForge app
+        </label>
+        <p class="if-muted if-small">The first invoice is issued right away and due on the start date.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" type="button" @onclick="() => _adding = false">Cancel</button>
+        <button class="if-btn primary" type="button" disabled="@_saving" @onclick="AddAsync">@(_saving ? "Adding…" : "Add member")</button>
+    </Footer>
+</Modal>
+
+@code {
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusFilter { get; set; }
+
+    private readonly MemberQuery _query = new() { PageSize = 25 };
+    private PagedResult<MemberSummaryDto>? _page;
+    private List<MembershipPlanDto> _plans = [];
+    private string _currency = "";
+    private string? _error;
+    private string? _message;
+    private int? _busyId;
+
+    private bool _adding;
+    private bool _saving;
+    private string? _addError;
+    private CreateMemberRequest _new = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Enum.TryParse<MemberStatus>(StatusFilter, out var status))
+            _query.Status = status;
+
+        var plans = await Gym.GetPlansAsync(includeArchived: true);
+        _plans = plans.Data ?? [];
+        _currency = _plans.FirstOrDefault()?.Currency ?? "";
+
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        var result = await Gym.GetMembersAsync(_query);
+
+        if (result.Success)
+        {
+            _page = result.Data;
+            _error = null;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task SearchKeyAsync(KeyboardEventArgs e)
+    {
+        _query.Page = 1;
+        await ReloadAsync();
+    }
+
+    private async Task StatusChangedAsync(ChangeEventArgs e)
+    {
+        _query.Status = Enum.TryParse<MemberStatus>(e.Value?.ToString(), out var status) ? status : null;
+        _query.Page = 1;
+        await ReloadAsync();
+    }
+
+    private async Task PlanChangedAsync(ChangeEventArgs e)
+    {
+        _query.MembershipPlanId = int.TryParse(e.Value?.ToString(), out var id) ? id : null;
+        _query.Page = 1;
+        await ReloadAsync();
+    }
+
+    private async Task GoToAsync(int page)
+    {
+        _query.Page = page;
+        await ReloadAsync();
+    }
+
+    private void Open(int memberId) => Navigation.NavigateTo($"/members/{memberId}");
+
+    private async Task CheckInAsync(MemberSummaryDto member)
+    {
+        _busyId = member.Id;
+        _message = null;
+        _error = null;
+
+        var result = await Gym.CheckInAsync(member.Id);
+
+        _busyId = null;
+
+        if (result.Success)
+        {
+            _message = $"{member.FullName} checked in at {result.Data!.CheckedInAtUtc.ToLocalTime():HH:mm}.";
+            await ReloadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private void OpenAdd()
+    {
+        _new = new CreateMemberRequest { StartDate = DateOnly.FromDateTime(DateTime.Today), SendAppInvitation = true };
+        _addError = null;
+        _adding = true;
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_new.FullName) || string.IsNullOrWhiteSpace(_new.Email) || _new.MembershipPlanId == 0)
+        {
+            _addError = "Enter a name, an email and a plan.";
+            return;
+        }
+
+        _saving = true;
+        var result = await Gym.CreateMemberAsync(_new);
+        _saving = false;
+
+        if (!result.Success)
+        {
+            _addError = result.ErrorMessage;
+            return;
+        }
+
+        _adding = false;
+        Navigation.NavigateTo($"/members/{result.Data!.Id}");
+    }
+}

@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace IronForge.Shared.Models.Agents
+﻿namespace IronForge.Shared.Models.Agents
 {
     public static class AgentIds
     {
-        public const string ProductAgent = "product-agent";
+        public const string FitnessCoach = "fitness-coach";
+        public const string GymAdmin = "gym-admin";
         public const string InsightsAgent = "insights-agent";
     }
 }

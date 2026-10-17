@@ -88,6 +88,14 @@ jobs:
             --configuration Release
             --no-restore
             --output ./artifacts/web
+
+      - name: Publish Platform
+        run: >
+            dotnet publish
+            ./IronForge.Platform/IronForge.Platform.csproj
+            --configuration Release
+            --no-restore
+            --output ./artifacts/platform
             
       - name: Publish MCP
         run: >
@@ -135,6 +143,7 @@ jobs:
             docker compose build
             ironforge-api
             ironforge-web
+            ironforge-platform
             ironforge-mcp
             ironforge-mcp-client
             ironforge-migrator

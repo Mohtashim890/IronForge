@@ -1,4 +1,4 @@
-using IronForge.Application.Auditing.Models;
+﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
@@ -47,8 +47,12 @@ namespace IronForge.Application.Auth.Services
 
         public async Task<LoginResponse?> LoginAsync(LoginRequest request)
         {
+            var login = (request.Username ?? "").Trim();
+            var loginLower = login.ToLower();
+
+            // Members usually remember their email rather than a username.
             var user = await _users.FirstOrDefaultTrackedAsync(
-                x => x.Username == request.Username);
+                x => x.Username == login || x.Email.ToLower() == loginLower);
 
             if (user is null || !user.IsActive)
             {
@@ -204,9 +208,45 @@ namespace IronForge.Application.Auth.Services
                 return null;
             }
 
+            // A tenant-bound session is only renewed while the user still
+            // has access to that tenant. The role is re-read on every refresh,
+            // so membership role changes apply from the next access token.
+            string? tenantRole = null;
+
+            if (storedToken.TenantId.HasValue)
+            {
+                var (membership, denialReason) =
+                    await GetActiveTenantMembershipAsync(
+                        user.Id,
+                        storedToken.TenantId.Value);
+
+                if (membership == null)
+                {
+                    // The whole session is bound to this tenant; end it.
+                    await RevokeTokenFamilyAsync(
+                        storedToken.FamilyId);
+
+                    await _auditService.RecordAsync(
+                        AuditCategory.Authentication,
+                        "RefreshTokenRejected",
+                        AuditOutcome.Denied,
+                        actorType: AuditActorType.User,
+                        resourceType: "Tenant",
+                        resourceId: storedToken.TenantId.Value.ToString(),
+                        reason: denialReason);
+
+                    return null;
+                }
+
+                tenantRole = membership.Role;
+            }
+
             // Generate new access token
             var newAccessToken =
-                GenerateAccessToken(user, storedToken.TenantId);
+                GenerateAccessToken(
+                    user,
+                    storedToken.TenantId,
+                    tenantRole);
 
             // Generate new refresh token
             var newRefreshToken =
@@ -301,29 +341,20 @@ namespace IronForge.Application.Auth.Services
             if (storedToken.ExpiresAtUtc <= DateTime.UtcNow)
                 return null;
 
-            var membership =
-                await _tenantMemberships.FirstOrDefaultAsync(
-                    x =>
-                        x.TenantId == tenantId &&
-                        x.UserId == userId &&
-                        x.IsActive,
+            var (membership, _) =
+                await GetActiveTenantMembershipAsync(
+                    userId,
+                    tenantId,
                     cancellationToken);
 
             if (membership == null)
                 return null;
 
-            var tenant =
-                await _tenants.FirstOrDefaultAsync(
-                    x => x.Id == tenantId && x.IsActive,
-                    cancellationToken);
-
-            if (tenant == null)
-                return null;
-
             var newAccessToken =
                 GenerateAccessToken(
                     user,
-                    tenantId);
+                    tenantId,
+                    membership.Role);
 
             var newRefreshToken =
                 _refreshTokenService.GenerateToken();
@@ -363,26 +394,64 @@ namespace IronForge.Application.Auth.Services
             };
         }
 
-        public async Task<string> CreateTenantAccessTokenAsync(
-            int userId,
-            int tenantId,
-            CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Returns the user's membership when both the membership and the
+        /// tenant are active; otherwise the reason access is denied.
+        /// </summary>
+        private async Task<(TenantMembership? Membership, string? DenialReason)>
+            GetActiveTenantMembershipAsync(
+                int userId,
+                int tenantId,
+                CancellationToken cancellationToken = default)
         {
-            var user = await _users.FirstOrDefaultAsync(
-                x => x.Id == userId,
-                cancellationToken);
+            var membership =
+                await _tenantMemberships.FirstOrDefaultAsync(
+                    x =>
+                        x.TenantId == tenantId &&
+                        x.UserId == userId,
+                    cancellationToken);
 
-            if (user == null)
-                throw new InvalidOperationException(
-                    "User was not found.");
+            if (membership == null)
+                return (null, "User is not a member of the tenant.");
 
-            return GenerateAccessToken(
-                user,
-                tenantId);
+            if (!membership.IsActive)
+                return (null, "Tenant membership is inactive.");
+
+            var tenant =
+                await _tenants.FirstOrDefaultAsync(
+                    x => x.Id == tenantId,
+                    cancellationToken);
+
+            if (tenant == null)
+                return (null, "Tenant no longer exists.");
+
+            // Operator suspension and subscription state (trial, canceled).
+            var now = DateTime.UtcNow;
+
+            if (!tenant.HasAccess(now))
+                return (null, tenant.DescribeNoAccess(now));
+
+            return (membership, null);
         }
 
-        private string GenerateAccessToken(User user, int? tenantId = null)
+        /// <summary>
+        /// Role and permissions are tenant-scoped: they come from the user's
+        /// membership in the selected tenant (<paramref name="tenantRole"/>),
+        /// never from the account-wide User.Role. A token without a tenant
+        /// carries no role or permissions; it can only list and select tenants.
+        /// </summary>
+        private string GenerateAccessToken(
+            User user,
+            int? tenantId = null,
+            string? tenantRole = null)
         {
+            if (tenantId.HasValue &&
+                string.IsNullOrWhiteSpace(tenantRole))
+            {
+                throw new InvalidOperationException(
+                    "A tenant-scoped access token requires the tenant membership role.");
+            }
+
             var claims = new List<Claim>
             {
                 new Claim(
@@ -391,15 +460,7 @@ namespace IronForge.Application.Auth.Services
 
                 new Claim(
                     ClaimTypes.Name,
-                    user.Username),
-
-                new Claim(
-                    ClaimTypes.Role,
-                    user.Role),
-
-                new Claim(CustomClaimTypes.AgentId, "product-agent"),
-
-                new Claim(CustomClaimTypes.ClientId, "ironforge-test-client")
+                    user.Username)
             };
 
             if (tenantId.HasValue)
@@ -408,16 +469,31 @@ namespace IronForge.Application.Auth.Services
                     new Claim(
                         CustomClaimTypes.TenantId,
                         tenantId.Value.ToString()));
+
+                claims.Add(
+                    new Claim(
+                        ClaimTypes.Role,
+                        tenantRole!));
+
+                foreach (var permission in
+                    RolePermissions.GetPermissions(tenantRole!))
+                {
+                    claims.Add(
+                        new Claim(
+                            CustomClaimTypes.Permission,
+                            permission));
+                }
             }
 
-            var permissions =
-                RolePermissions.GetPermissions(user.Role);
-
-            foreach (var permission in permissions)
+            // Platform permissions follow the account, not the tenant. They are
+            // read from the database on every token, so a revoked platform role
+            // disappears at the next refresh.
+            foreach (var permission in
+                RolePermissions.GetPlatformPermissions(user.Role))
             {
                 claims.Add(
                     new Claim(
-                        "permission",
+                        CustomClaimTypes.Permission,
                         permission));
             }
 
@@ -439,48 +515,6 @@ namespace IronForge.Application.Auth.Services
 
             return new JwtSecurityTokenHandler()
                 .WriteToken(token);
-        }
-
-        public async Task<bool> RegisterAsync(
-            RegisterRequest request)
-        {
-            var usernameExists =
-                await _users.AnyAsync(
-                    u => u.Username == request.Username);
-
-            if (usernameExists)
-            {
-                return false;
-            }
-
-            var emailExists =
-                await _users.AnyAsync(
-                    u => u.Email == request.Email);
-
-            if (emailExists)
-            {
-                return false;
-            }
-
-            var user = new User
-            {
-                Username = request.Username,
-                Email = request.Email,
-                Role = "User",
-                IsActive = true,
-                CreatedAtUtc = DateTime.UtcNow
-            };
-
-            user.PasswordHash =
-                _passwordHasher.HashPassword(
-                    user,
-                    request.Password);
-
-            _users.Add(user);
-
-            await _users.SaveChangesAsync();
-
-            return true;
         }
     }
 }

@@ -5,5 +5,8 @@ public enum ExecutionSource
     Web,
     Maui,
     Mcp,
-    InternalAgent
+    InternalAgent,
+
+    /// <summary>Background jobs and anonymous system callbacks (payment webhooks).</summary>
+    Background
 }

@@ -1,0 +1,135 @@
+@page "/announcements"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Announcements | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Announcements</h1>
+            <p>Message your members in the app and by email.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-grid-2">
+        <AuthorizeView Policy="@Permissions.GymNotificationsSend">
+            <div class="if-card">
+                <div class="if-card-head"><h2>New announcement</h2></div>
+                <div class="if-field"><label>Title</label><input @bind="_form.Title" maxlength="150" /></div>
+                <div class="if-field"><label>Message</label><textarea rows="6" @bind="_form.Body" maxlength="4000"></textarea></div>
+                <div class="if-form-grid">
+                    <div class="if-field">
+                        <label>Send to</label>
+                        <select @bind="_form.Audience">
+                            <option value="@AnnouncementAudience.All">All members</option>
+                            <option value="@AnnouncementAudience.Active">Active members</option>
+                            <option value="@AnnouncementAudience.Overdue">Members with overdue invoices</option>
+                            <option value="@AnnouncementAudience.Plan">Members on a plan</option>
+                        </select>
+                    </div>
+                    @if (_form.Audience == AnnouncementAudience.Plan)
+                    {
+                        <div class="if-field">
+                            <label>Plan</label>
+                            <select @bind="_form.MembershipPlanId">
+                                @foreach (var plan in _plans)
+                                {
+                                    <option value="@plan.Id">@plan.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                </div>
+                <label class="if-row if-small"><input type="checkbox" @bind="_form.SendEmail" /> Also send by email</label>
+                <div style="margin-top: 14px">
+                    <button class="if-btn primary" disabled="@_sending" @onclick="SendAsync">@(_sending ? "Sending…" : "Send announcement")</button>
+                </div>
+            </div>
+        </AuthorizeView>
+
+        <div class="if-card">
+            <div class="if-card-head"><h2>Sent</h2></div>
+            @if (_sent.Count == 0)
+            {
+                <div class="if-empty">Nothing sent yet.</div>
+            }
+            else
+            {
+                <ul class="if-list">
+                    @foreach (var item in _sent)
+                    {
+                        <li style="align-items: flex-start">
+                            <div style="flex: 1">
+                                <strong>@item.Title</strong>
+                                <div class="if-small if-muted" style="white-space: pre-line">@item.Body</div>
+                                <div class="if-small" style="color: var(--if-subtle); margin-top: 4px">
+                                    @GymFormat.DateTime(item.SentAtUtc) · @item.SentBy · @item.Audience · @item.RecipientCount recipient(s)
+                                </div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreateAnnouncementRequest _form = new() { SendEmail = true };
+    private List<AnnouncementDto> _sent = [];
+    private List<MembershipPlanDto> _plans = [];
+    private bool _sending;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plans = (await Gym.GetPlansAsync()).Data ?? [];
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetAnnouncementsAsync();
+        _sent = result.Data ?? [];
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Title) || string.IsNullOrWhiteSpace(_form.Body))
+        {
+            _error = "Write a title and a message.";
+            return;
+        }
+
+        if (_form.Audience == AnnouncementAudience.Plan)
+            _form.MembershipPlanId ??= _plans.FirstOrDefault()?.Id;
+
+        _sending = true;
+        var result = await Gym.SendAnnouncementAsync(_form);
+        _sending = false;
+
+        if (result.Success)
+        {
+            _message = $"Sent to {result.Data!.RecipientCount} member(s).";
+            _error = null;
+            _form = new CreateAnnouncementRequest { SendEmail = true };
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+}

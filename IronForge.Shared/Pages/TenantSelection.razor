@@ -9,8 +9,9 @@
 @layout AuthLayout
 @inject IAuthService AuthService
 @inject NavigationManager Navigation
+@inject ClientAppProfile Profile
 
-<PageTitle>Select Workspace | IronForge</PageTitle>
+<PageTitle>Choose your gym | IronForge</PageTitle>
 
 <div class="tenant-selection-page">
     <div class="tenant-selection-brand">
@@ -24,7 +25,7 @@
             </div>
 
             <div class="tenant-selection-brand-subtitle">
-                Agentic Workspace
+                @Profile.AppName
             </div>
         </div>
     </div>
@@ -33,15 +34,13 @@
 
         <div class="tenant-selection-header">
             <span class="tenant-selection-eyebrow">
-                WORKSPACE
+                GYM
             </span>
 
-            <h1>Select your workspace</h1>
+            <h1>Choose your gym</h1>
 
             <p>
-                Choose the workspace you want to work in.
-                Your data and agent activity are isolated
-                by workspace.
+                Each gym's members, billing and agents are kept separate.
             </p>
         </div>
 
@@ -51,7 +50,7 @@
                 <div class="tenant-spinner"></div>
 
                 <span>
-                    Loading your workspaces...
+                    Loading your gyms...
                 </span>
             </div>
         }
@@ -77,12 +76,15 @@
                     !
                 </div>
 
-                <h2>No workspace available</h2>
+                <h2>No gym available</h2>
 
                 <p>
-                    Your account is not currently a member
-                    of any active workspace.
+                    @(hasOtherRoles
+                        ? Profile.WrongAppMessage
+                        : "Your account is not part of an active gym. Ask your gym for an invitation, or join with its code.")
                 </p>
+
+                <button type="button" class="if-btn" @onclick="SignOutAsync">Sign out</button>
             </div>
         }
         else
@@ -126,14 +128,15 @@
         @if (isSelecting)
         {
             <div class="tenant-selection-status">
-                Switching workspace...
+                Opening your gym...
             </div>
         }
+
 
     </div>
 
     <div class="tenant-selection-footer">
-        IronForge · Agentic SaaS Platform
+        IronForge · Agentic Gym Platform
     </div>
 
 </div>
@@ -141,6 +144,9 @@
 @code {
 
     private List<TenantMembership> tenants = new();
+
+    // The account has gyms, but none with a role this app serves.
+    private bool hasOtherRoles;
 
     private bool isLoading = true;
     private bool isSelecting;
@@ -170,7 +176,7 @@
                 errorMessage =
                     string.IsNullOrWhiteSpace(
                         result.ErrorMessage)
-                        ? "Unable to load your workspaces."
+                        ? "Unable to load your gyms."
                         : result.ErrorMessage;
 
                 tenants = new();
@@ -178,11 +184,16 @@
                 return;
             }
 
-            tenants =
-                result.Data ?? new();
+            var all = result.Data ?? new();
 
-            // One workspace:
-            // select it automatically.
+            // Staff use the web dashboard, members the mobile app.
+            tenants = all
+                .Where(x => Profile.AcceptsRole(x.Role))
+                .ToList();
+
+            hasOtherRoles = tenants.Count == 0 && all.Count > 0;
+
+            // One gym: select it automatically.
             if (tenants.Count == 1)
             {
                 await SelectTenantAsync(
@@ -217,20 +228,26 @@
                 errorMessage =
                     string.IsNullOrWhiteSpace(
                         result.ErrorMessage)
-                        ? "Unable to select this workspace."
+                        ? "Unable to open this gym."
                         : result.ErrorMessage;
 
                 return;
             }
 
             Navigation.NavigateTo(
-                "/dashboard",
+                Profile.HomeRoute,
                 forceLoad: false);
         }
         finally
         {
             isSelecting = false;
         }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login", forceLoad: false);
     }
 
     private static string GetTenantInitial(

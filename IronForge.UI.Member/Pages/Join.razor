@@ -1,0 +1,135 @@
+@page "/join"
+@layout IronForge.Shared.Components.Layout.AuthLayout
+@inject PublicApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Join your gym | IronForge</PageTitle>
+
+<div class="if-auth">
+    <div class="if-auth-card">
+        <div class="if-auth-brand"><span>⚒</span> IronForge</div>
+
+        @if (_error is not null)
+        {
+            <div class="if-alert error">@_error</div>
+        }
+
+        @if (_result is not null)
+        {
+            <h1>Request sent 🎉</h1>
+            <p>
+                Thanks! <strong>@_result.GymName</strong> will review your request.
+                Sign in as <strong>@_result.Username</strong> to follow its status; you'll get a notification once you're approved.
+            </p>
+            <a class="if-btn primary block" href="/login">Sign in</a>
+        }
+        else if (_gym is null)
+        {
+            <h1>Join your gym</h1>
+            <p>Enter the join code from your gym's front desk.</p>
+
+            <div class="if-field">
+                <label for="code">Join code</label>
+                <input id="code" class="if-mono" style="text-transform: uppercase; letter-spacing: 0.12em; font-size: 1.2rem" maxlength="20" @bind="_code" />
+            </div>
+            <button class="if-btn primary block" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="FindAsync">@(_busy ? "Looking…" : "Find my gym")</button>
+        }
+        else
+        {
+            <h1>@_gym.GymName</h1>
+            <p>@(_gym.Address ?? "Create your account to request a membership.")</p>
+
+            @if (_gym.Plans.Count > 0)
+            {
+                <div class="if-field">
+                    <label>Plan</label>
+                    @foreach (var plan in _gym.Plans)
+                    {
+                        <label class="if-row" style="border: 1px solid var(--if-border); border-radius: 10px; padding: 10px; margin-bottom: 6px; font-weight: 500; @(_request.MembershipPlanId == plan.Id ? "border-color: var(--if-accent)" : "")">
+                            <input type="radio" name="plan" checked="@(_request.MembershipPlanId == plan.Id)" @onchange="() => _request.MembershipPlanId = plan.Id" />
+                            <span style="flex: 1">@plan.Name</span>
+                            <strong>@GymFormat.Money(plan.Price, plan.Currency)</strong>
+                            <span class="if-muted if-small">@GymFormat.Interval(plan.BillingInterval)</span>
+                        </label>
+                    }
+                </div>
+            }
+
+            <div class="if-field"><label>Full name</label><input autocomplete="name" @bind="_request.FullName" /></div>
+            <div class="if-field"><label>Email</label><input type="email" autocomplete="email" @bind="_request.Email" /></div>
+            <div class="if-field"><label>Phone</label><input type="tel" autocomplete="tel" @bind="_request.Phone" /></div>
+            <div class="if-field"><label>Username</label><input autocomplete="username" @bind="_request.Username" /></div>
+            <div class="if-field"><label>Password (8+ characters)</label><input type="password" autocomplete="new-password" @bind="_request.Password" /></div>
+
+            <p class="if-muted if-small">Already have an IronForge account? Use its email, username and password to join with it.</p>
+
+            <button class="if-btn primary block" disabled="@_busy" @onclick="JoinAsync">@(_busy ? "Sending…" : "Request to join")</button>
+            <button class="if-btn ghost block" style="margin-top: 6px" @onclick="() => _gym = null">Use a different code</button>
+        }
+
+        <p class="if-small" style="margin-top: 18px; text-align: center"><a href="/login">Back to sign in</a></p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] public string? Code { get; set; }
+
+    private string _code = "";
+    private GymJoinPreviewDto? _gym;
+    private GymJoinRequest _request = new();
+    private GymJoinResultDto? _result;
+    private bool _busy;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Code))
+        {
+            _code = Code;
+            await FindAsync();
+        }
+    }
+
+    private async Task FindAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        var result = await Api.PreviewGymAsync(_code.Trim());
+
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _gym = result.Data;
+        _request = new GymJoinRequest { JoinCode = _code.Trim(), MembershipPlanId = _gym!.Plans.FirstOrDefault()?.Id };
+    }
+
+    private async Task JoinAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_request.FullName) ||
+            string.IsNullOrWhiteSpace(_request.Email) ||
+            string.IsNullOrWhiteSpace(_request.Username) ||
+            _request.Password.Length < 8)
+        {
+            _error = "Fill in your name, email, username and a password of at least 8 characters.";
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+
+        var result = await Api.JoinAsync(_request);
+
+        _busy = false;
+
+        if (result.Success)
+            _result = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+}

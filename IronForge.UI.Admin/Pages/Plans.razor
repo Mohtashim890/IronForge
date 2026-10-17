@@ -1,0 +1,145 @@
+@page "/plans"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Membership plans | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Membership plans</h1>
+            <p>What members can buy. Price changes apply from each member's next invoice.</p>
+        </div>
+        <AuthorizeView Policy="@Permissions.GymPlansManage">
+            <button class="if-btn primary" @onclick="() => Edit(null)">+ New plan</button>
+        </AuthorizeView>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_plans is null)
+    {
+        <div class="if-loading">Loading plans…</div>
+    }
+    else
+    {
+        <div class="if-grid">
+            @foreach (var plan in _plans)
+            {
+                <div class="if-card" style="@(plan.IsActive ? "" : "opacity: 0.6")">
+                    <div class="if-card-head">
+                        <h3>@plan.Name</h3>
+                        @if (!plan.IsActive)
+                        {
+                            <Badge>Archived</Badge>
+                        }
+                    </div>
+                    <div style="font-size: 1.6rem; font-weight: 800">@GymFormat.Money(plan.Price, plan.Currency)</div>
+                    <div class="if-muted if-small">@GymFormat.Interval(plan.BillingInterval)</div>
+                    <p class="if-small" style="min-height: 40px">@plan.Description</p>
+                    <div class="if-row">
+                        <span class="if-muted if-small">@plan.ActiveMemberCount active member(s)</span>
+                        <span class="if-spacer"></span>
+                        <AuthorizeView Policy="@Permissions.GymPlansManage">
+                            <button class="if-btn sm" @onclick="() => Edit(plan)">Edit</button>
+                        </AuthorizeView>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<Modal @bind-Open="_editing" Title="@(_editId is null ? "New plan" : "Edit plan")">
+    <ChildContent>
+        @if (_saveError is not null)
+        {
+            <div class="if-alert error">@_saveError</div>
+        }
+        <div class="if-field"><label>Name</label><input @bind="_form.Name" /></div>
+        <div class="if-field"><label>Description</label><textarea rows="2" @bind="_form.Description"></textarea></div>
+        <div class="if-form-grid">
+            <div class="if-field"><label>Price</label><input type="number" step="0.01" min="0" @bind="_form.Price" /></div>
+            <div class="if-field">
+                <label>Billing</label>
+                <select @bind="_form.BillingInterval">
+                    @foreach (var interval in Enum.GetValues<BillingInterval>())
+                    {
+                        <option value="@interval">@interval</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <label class="if-row if-small"><input type="checkbox" @bind="_form.IsActive" /> Available for new members</label>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _editing = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_saving" @onclick="SaveAsync">Save</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<MembershipPlanDto>? _plans;
+    private string? _error;
+    private bool _editing;
+    private bool _saving;
+    private string? _saveError;
+    private int? _editId;
+    private SaveMembershipPlanRequest _form = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetPlansAsync(includeArchived: true);
+
+        if (result.Success)
+            _plans = result.Data!.OrderByDescending(x => x.IsActive).ThenBy(x => x.Price).ToList();
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private void Edit(MembershipPlanDto? plan)
+    {
+        _editId = plan?.Id;
+        _form = plan is null
+            ? new SaveMembershipPlanRequest { BillingInterval = BillingInterval.Monthly, IsActive = true }
+            : new SaveMembershipPlanRequest
+            {
+                Name = plan.Name,
+                Description = plan.Description,
+                Price = plan.Price,
+                BillingInterval = plan.BillingInterval,
+                IsActive = plan.IsActive
+            };
+        _saveError = null;
+        _editing = true;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.Name))
+        {
+            _saveError = "Give the plan a name.";
+            return;
+        }
+
+        _saving = true;
+        var result = _editId is { } id
+            ? await Gym.UpdatePlanAsync(id, _form)
+            : await Gym.CreatePlanAsync(_form);
+        _saving = false;
+
+        if (!result.Success)
+        {
+            _saveError = result.ErrorMessage;
+            return;
+        }
+
+        _editing = false;
+        await LoadAsync();
+    }
+}

@@ -1,3 +1,10 @@
+﻿using IronForge.Infrastructure;
+using IronForge.Mcp.Tools;
+using IronForge.Application.Agents.Governance;
+using IronForge.Application.Agents.Governance.Policies;
+using IronForge.Application.Agents.Runtime;
+using IronForge.Application.Agents.Tools;
+using IronForge.Application.Auditing.AgentTools;
 using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Delegations;
@@ -9,9 +16,9 @@ using IronForge.Application.Execution;
 using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
-using IronForge.Application.Products.Services;
-using IronForge.Application.Products.Tools.Products;
+using IronForge.Application.Tenants.Invitations;
 using IronForge.Application.Tenants.Services;
+using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Infrastructure.Data;
 using IronForge.Infrastructure.Persistence;
 using IronForge.Mcp.Authorization;
@@ -60,53 +67,9 @@ builder.Services
             HttpServerSessionMode.Stateless;
     })
     .AddAuthorizationFilters()
-    .WithRequestFilters(requestFilters =>
-    {
-        requestFilters.AddCallToolFilter(next => async (context, cancellationToken) =>
-        {
-            var authorization =
-                context.Services
-                    ?.GetRequiredService<IMcpAuthorizationService>();
-
-            if (authorization is null)
-            {
-                return new CallToolResult
-                {
-                    IsError = true,
-                    Content =
-                    [
-                        new TextContentBlock
-                        {
-                            Text = "MCP authorization service is unavailable."
-                        }
-                    ]
-                };
-            }
-
-            var result =
-                await authorization.AuthorizeToolAsync(
-                    context.Params.Name,
-                    cancellationToken);
-
-            if (!result.Allowed)
-            {
-                return new CallToolResult
-                {
-                    IsError = true,
-                    Content =
-                    [
-                        new TextContentBlock
-                        {
-                            Text = result.Reason
-                        }
-                    ]
-                };
-            }
-
-            return await next(context, cancellationToken);
-        });
-    })
-    .WithToolsFromAssembly();
+    // Tools come from the shared agent tool catalogue, filtered per agent.
+    .WithListToolsHandler(McpCatalogueHandlers.ListToolsAsync)
+    .WithCallToolHandler(McpCatalogueHandlers.CallToolAsync);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<IronForgeDbContext>(
@@ -116,6 +79,7 @@ builder.Services.AddDbContext<IronForgeDbContext>(
 builder.Services.AddScoped(
     typeof(IRepository<>),
     typeof(EfRepository<>));
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
 builder.Services
     .AddAuthentication(
@@ -154,18 +118,39 @@ builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProv
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITenantService, TenantService>();
-builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ITenantEntitlementService, TenantEntitlementService>();
 builder.Services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
 builder.Services.AddScoped<IUserAuthorizationService, UserAuthorizationService>();
-builder.Services.AddScoped<IProductAuthorizationService, ProductAuthorizationService>();
 builder.Services.AddScoped<IAgentAuthorizationService, AgentAuthorizationService>();
 builder.Services.AddScoped<IEffectiveAgentAuthorizationService, EffectiveAgentAuthorizationService>();
 builder.Services.AddScoped<IAgentDelegationService, AgentDelegationService>();
 builder.Services.AddScoped<IAgentDelegationCredentialService, AgentDelegationCredentialService>();
 builder.Services.AddScoped<IAgentMcpClientAuthorizationService, AgentMcpClientAuthorizationService>();
 builder.Services.AddScoped<IMcpAuthorizationService, McpAuthorizationService>();
-builder.Services.AddSingleton<IMcpToolPermissionRegistry, McpToolPermissionRegistry>();
-builder.Services.AddScoped<IAgentPermissionRegistry, DatabaseAgentPermissionRegistry>();
+
+// The agent tool catalogue and governance, shared with the API: MCP calls are
+// checked against the same tool definitions, bindings and policies.
+builder.Services.AddScoped<IAgentTool, SearchAuditEventsAgentTool>();
+builder.Services.AddScoped<IAgentToolRegistry, AgentToolRegistry>();
+
+// Gym domain services and their agent tools (no background jobs here).
+builder.Services.AddGymPlatform(builder.Configuration);
+// MemberService invites members, so the invitation flow is needed here too.
+builder.Services.Configure<InvitationOptions>(
+    builder.Configuration.GetSection(InvitationOptions.SectionName));
+builder.Services.AddScoped<ITenantInvitationService, TenantInvitationService>();
+builder.Services.AddScoped<ITenantInvitationStore, TenantInvitationStore>();
+builder.Services.AddScoped<IAgentDefinitionProvider, DatabaseAgentDefinitionProvider>();
+builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
+builder.Services.AddScoped<IAgentPolicy, UserPermissionPolicy>();
+builder.Services.AddScoped<IAgentPolicy, AgentApprovalPolicy>();
+builder.Services.AddScoped<IAgentPolicy, MaximumAmountPolicy>();
+builder.Services.AddScoped<IExternalAgentToolService, ExternalAgentToolService>();
+// Derived from tool bindings; resolved lazily to avoid a cycle through the tools.
+builder.Services.AddScoped<IAgentPermissionRegistry>(services =>
+    new DatabaseAgentPermissionRegistry(
+        () => services.GetRequiredService<IAgentDefinitionProvider>(),
+        () => services.GetRequiredService<IAgentToolRegistry>()));
 builder.Services.AddScoped<IExecutionContextAccessor, ExecutionContextAccessor>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -182,11 +167,6 @@ builder.Services.AddScoped<IAgentApprovalStore, DBAgentApprovalStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 
-builder.Services.AddScoped<IGetProductsTool, GetProductsTool>();
-builder.Services.AddScoped<IGetProductTool, GetProductTool>();
-builder.Services.AddScoped<ICreateProductTool, CreateProductTool>();
-builder.Services.AddScoped<IUpdateProductTool, UpdateProductTool>();
-builder.Services.AddScoped<IDeleteProductTool, DeleteProductTool>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {

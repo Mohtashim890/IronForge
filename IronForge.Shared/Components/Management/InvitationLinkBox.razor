@@ -1,0 +1,43 @@
+@using IronForge.Shared.Models.Tenants
+
+@* Shows a freshly created invitation link. The token is not stored by the API,
+   so this is the only time the link can be copied. *@
+
+<div class="invitation-link-box" role="status">
+    <div class="invitation-link-heading">
+        <strong>Invitation link for @Link.Invitation.Email</strong>
+        <span>
+            Role @Link.Invitation.Role · valid until
+            @Link.Invitation.ExpiresAtUtc.ToLocalTime().ToString("g")
+        </span>
+    </div>
+
+    <div class="invitation-link-row">
+        <input class="form-control"
+               readonly
+               value="@Link.AcceptUrl"
+               aria-label="Invitation link" />
+
+        <button type="button"
+                class="btn btn-primary"
+                @onclick="OnCopy">
+            @(Copied ? "Copied" : "Copy link")
+        </button>
+    </div>
+
+    <p class="invitation-link-warning">
+        Copy it now: the link is shown only once. Anyone with the link can
+        accept the invitation, so share it only with this person.
+    </p>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public TenantInvitationLinkDto Link { get; set; } = new();
+
+    [Parameter]
+    public EventCallback OnCopy { get; set; }
+
+    [Parameter]
+    public bool Copied { get; set; }
+}

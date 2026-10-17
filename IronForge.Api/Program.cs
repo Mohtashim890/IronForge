@@ -1,11 +1,10 @@
-using IronForge.Api.Helpers;
+﻿using IronForge.Api.Helpers;
 using IronForge.Application.Agents;
 using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Governance.Policies;
-using IronForge.Application.Agents.Memory.AgentMemory;
 using IronForge.Application.Agents.Memory.Context;
 using IronForge.Application.Agents.Memory.ConversationSession;
 using IronForge.Application.Agents.Memory.Summarization;
@@ -25,11 +24,11 @@ using IronForge.Application.McpClients.Services;
 using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
-using IronForge.Application.Products.Services;
-using IronForge.Application.Products.AgentTools;
-using IronForge.Application.Products.Tools.Products;
 using IronForge.Application.Tenants.Services;
+using IronForge.Application.Tenants.Subscriptions;
+using IronForge.Application.Tenants.Invitations;
 using IronForge.Infrastructure.AI;
+using IronForge.Infrastructure;
 using IronForge.Infrastructure.Data;
 using IronForge.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -161,6 +160,14 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
+    .AddOptions<InvitationOptions>()
+    .Bind(
+        builder.Configuration.GetSection(
+            InvitationOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
     .AddOptions<ConversationContextOptions>()
     .Bind(
         builder.Configuration.GetSection(
@@ -198,24 +205,32 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<IValidateOptions<ConversationContextOptions>,ConversationContextOptionsValidator>();
 builder.Services.AddScoped<ITenantService, TenantService>();
-builder.Services.AddScoped<IProductService, ProductService>();
+builder.Services.AddScoped<ITenantEntitlementService, TenantEntitlementService>();
+builder.Services.AddScoped<ITenantProvisioningService, TenantProvisioningService>();
+builder.Services.AddScoped<IAgentTemplateRolloutService, AgentTemplateRolloutService>();
+builder.Services.AddScoped<ITemplateAgentStore, TemplateAgentStore>();
+builder.Services.AddScoped<ITenantMemberService, TenantMemberService>();
+builder.Services.AddScoped<ITenantInvitationService, TenantInvitationService>();
+builder.Services.AddScoped<ITenantInvitationStore, TenantInvitationStore>();
+builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<IAgentManagementService,AgentManagementService>();
 builder.Services.AddScoped<IMcpClientManagementService,McpClientManagementService>();
 builder.Services.AddScoped<IAgentMcpClientManagementService,AgentMcpClientManagementService>();
 builder.Services.AddScoped<IAgentDelegationService,AgentDelegationService>();
-builder.Services.AddScoped<IMemoryService, MemoryService>();
 
 
-builder.Services.AddScoped<IMemoryAuthorizationService, MemoryAuthorizationService>();
 builder.Services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
 builder.Services.AddScoped<IUserAuthorizationService, UserAuthorizationService>();
 builder.Services.AddScoped<IAgentManagementAuthorizationService, AgentManagementAuthorizationService>();
 builder.Services.AddScoped<IAgentMcpClientAuthorizationService,AgentMcpClientAuthorizationService>();
-builder.Services.AddScoped<IProductAuthorizationService, ProductAuthorizationService>();
 builder.Services.AddScoped<IAgentAuthorizationService, AgentAuthorizationService>();
 builder.Services.AddScoped<IEffectiveAgentAuthorizationService, EffectiveAgentAuthorizationService>();
 builder.Services.AddScoped<IAgentDelegationCredentialService, AgentDelegationCredentialService>();
-builder.Services.AddScoped<IAgentPermissionRegistry, DatabaseAgentPermissionRegistry>();
+// Derived from tool bindings; resolved lazily to avoid a cycle through the tools.
+builder.Services.AddScoped<IAgentPermissionRegistry>(services =>
+    new DatabaseAgentPermissionRegistry(
+        () => services.GetRequiredService<IAgentDefinitionProvider>(),
+        () => services.GetRequiredService<IAgentToolRegistry>()));
 builder.Services.AddScoped<IExecutionContextAccessor, ExecutionContextAccessor>();
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -240,6 +255,7 @@ builder.Services.AddScoped<IConversationSummaryPolicy, ConversationSummaryPolicy
 builder.Services.AddScoped<IConversationSummaryCoordinator, ConversationSummaryCoordinator>();
 builder.Services.AddScoped<IApprovedToolExecutionService, ApprovedToolExecutionService>();
 builder.Services.AddScoped<IApprovalExecutionAuthorizationService, ApprovalExecutionAuthorizationService>();
+builder.Services.AddScoped<IApprovalQueueService, ApprovalQueueService>();
 
 builder.Services.AddScoped<TelemetryContext>();
 builder.Services.AddSingleton(IronForgeActivitySource.Source);
@@ -251,24 +267,18 @@ builder.Services.AddScoped<IAuditQueryService, AuditQueryService>();
 builder.Services.AddScoped<IAgentApprovalStore, DBAgentApprovalStore>();
 builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 /* AI LLM Agents */
-builder.Services.AddScoped<IAgentService, AgentService>();
 builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
-builder.Services.AddScoped<IGetProductsTool, GetProductsTool>();
-builder.Services.AddScoped<IGetProductTool, GetProductTool>();
-builder.Services.AddScoped<ICreateProductTool, CreateProductTool>();
-builder.Services.AddScoped<IUpdateProductTool, UpdateProductTool>();
-builder.Services.AddScoped<IDeleteProductTool, DeleteProductTool>();
 
 // Agent tool catalogue: each tool declares its name, schema and default governance.
-builder.Services.AddScoped<IAgentTool, GetProductsAgentTool>();
-builder.Services.AddScoped<IAgentTool, GetProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, CreateProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, UpdateProductAgentTool>();
-builder.Services.AddScoped<IAgentTool, DeleteProductAgentTool>();
 builder.Services.AddScoped<IAgentTool, SearchAuditEventsAgentTool>();
 builder.Services.AddScoped<IAgentToolRegistry, AgentToolRegistry>();
+
+// Gym domain: services, agent tools, payments, email and background jobs.
+builder.Services.AddGymPlatform(builder.Configuration);
+builder.Services.AddGymBackgroundJobs(builder.Configuration);
+builder.Services.AddIronForgeRateLimiting();
+builder.Services.AddScoped<IPlatformInsightsService, PlatformInsightsService>();
 // Generic internal-agent runtime; agents are definitions, not classes.
-builder.Services.AddSingleton(AgentDefinitions.ProductAgent);
 builder.Services.AddScoped<IAgentDefinitionProvider, DatabaseAgentDefinitionProvider>();
 builder.Services.AddScoped<IAgentRuntime, AgentRuntime>();
 
@@ -281,18 +291,18 @@ builder.Services
 builder.Services.AddScoped<IAgentUsageStore, AgentUsageStore>();
 builder.Services.AddScoped<IAgentUsageRecorder, AgentUsageRecorder>();
 builder.Services.AddScoped<IAgentQuotaService, AgentQuotaService>();
-builder.Services.AddScoped<IProductAgent, ProductAgent>();
 
 // Policies
-builder.Services.AddScoped<IAgentPolicy, AgentPermissionPolicy>();
+// User first: when both fail, the user's missing permission is the clearer reason.
+builder.Services.AddScoped<IAgentPolicy, UserPermissionPolicy>();
 builder.Services.AddScoped<IAgentPolicy, AgentApprovalPolicy>();
 builder.Services.AddScoped<IAgentPolicy, MaximumAmountPolicy>();
 
 // Model profiles: one shared OpenAI connection, one cached client per profile.
 builder.Services.AddSingleton<IAgentChatClientFactory, OpenAIAgentChatClientFactory>();
 
-// Non-agent LLM callers (conversation summariser, legacy chat endpoints)
-// use the standard profile's client.
+// Non-agent LLM callers (the conversation summariser) use the standard
+// profile's client.
 builder.Services.AddSingleton<IChatClient>(services =>
     services
         .GetRequiredService<IAgentChatClientFactory>()
@@ -367,6 +377,8 @@ app.MapHealthChecks(
             check.Tags.Contains("ready")
     });
 
+app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -374,6 +386,26 @@ app.UseMiddleware<ExecutionContextMiddleware>();
 
 app.MapControllers();
 
-//await DbSeeder.SeedAsync(app.Services);
+if (!app.Environment.IsDevelopment() &&
+    app.Services.GetRequiredService<IronForge.Application.Gym.Billing.IPaymentGateway>().IsSimulated)
+{
+    // Fine for a demo deployment; real gyms need Stripe keys (Stripe__SecretKey).
+    app.Logger.LogWarning("Card payments are SIMULATED: no Stripe keys are configured, so no money is collected.");
+}
+
+// Local demo: migrate and seed on startup (appsettings.Development.json Seed:Demo).
+if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("Seed:Demo"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+
+    var db = scope.ServiceProvider.GetRequiredService<IronForgeDbContext>();
+    await db.Database.MigrateAsync();
+
+    await new IronForge.Infrastructure.Data.Seeding.DemoDataSeeder(
+            db,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>(),
+            app.Logger)
+        .SeedAsync();
+}
 
 app.Run();

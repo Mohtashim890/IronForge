@@ -1,4 +1,5 @@
-﻿using IronForge.Application.Auditing.Models;
+﻿using System.Text.Json.Serialization;
+using IronForge.Application.Auditing.Models;
 
 namespace IronForge.Application.Auditing.DTOs
 {
@@ -7,10 +8,13 @@ namespace IronForge.Application.Auditing.DTOs
         public long Id { get; set; }
         public DateTime OccurredAtUtc { get; set; }
 
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         public AuditCategory Category { get; set; }
         public string Action { get; set; } = "";
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         public AuditOutcome Outcome { get; set; }
 
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         public AuditActorType ActorType { get; set; }
 
         public int? UserId { get; set; }

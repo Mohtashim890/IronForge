@@ -1,0 +1,132 @@
+@page "/catalog"
+@attribute [Authorize(Policy = Permissions.PlatformTenantsManage)]
+@using IronForge.Shared.Models.Tenants
+@inject PlatformApiClient Platform
+@inject IPlatformTenantService Tenants
+
+<PageTitle>Plans &amp; agents | IronForge Platform</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Plans &amp; agents</h1>
+            <p>What each subscription includes, and the AI agents every gym gets. Defined in code; locked for v1.</p>
+        </div>
+        <button class="if-btn primary" disabled="@_rolling" @onclick="RolloutAsync">@(_rolling ? "Rolling out…" : "Roll out agent templates")</button>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_data is not null)
+    {
+        <div class="if-grid">
+            @foreach (var plan in _data.Plans)
+            {
+                <div class="if-card">
+                    <div class="if-card-head">
+                        <h3>@plan.Name</h3>
+                        @if (plan.IsDefault)
+                        {
+                            <Badge Tone="accent">Default</Badge>
+                        }
+                    </div>
+                    <p class="if-small if-muted">@plan.TenantCount gym(s)</p>
+                    <ul class="if-small" style="padding-left: 18px">
+                        @foreach (var module in plan.Modules)
+                        {
+                            <li>@PlanLabels.ModuleName(module)</li>
+                        }
+                    </ul>
+                    <div class="if-small"><strong>AI budget:</strong> @(plan.MonthlyAgentTokenLimit is { } l ? $"{GymFormat.Compact(l)} tokens / month" : "unlimited")</div>
+                    <div class="if-small"><strong>Models:</strong> @string.Join(", ", plan.ModelProfiles)</div>
+                </div>
+            }
+        </div>
+
+        <h2 style="font-size: 1.15rem; margin: 24px 0 12px">Agent templates</h2>
+        <div class="if-grid-2">
+            @foreach (var template in _data.AgentTemplates)
+            {
+                <div class="if-card">
+                    <div class="if-card-head">
+                        <h3>@template.Name <span class="if-muted if-small">v@(template.Version)</span></h3>
+                        @if (template.OutdatedTenants > 0)
+                        {
+                            <Badge Tone="warning">@template.OutdatedTenants outdated</Badge>
+                        }
+                    </div>
+                    <p class="if-small">@template.Description</p>
+                    <div class="if-small"><strong>For:</strong> @(template.AllowedRoles.Count == 0 ? "everyone" : string.Join(", ", template.AllowedRoles))</div>
+                    <div class="if-small"><strong>Needs:</strong> @string.Join(", ", template.Modules.Select(PlanLabels.ModuleName))</div>
+                    <div class="if-small"><strong>Installed in:</strong> @template.InstalledTenants gym(s)</div>
+                    <div style="margin-top: 8px">
+                        @foreach (var tool in template.Tools)
+                        {
+                            <span class="if-badge" style="margin: 0 4px 4px 0">@tool</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        <h2 style="font-size: 1.15rem; margin: 24px 0 12px">Modules</h2>
+        <div class="if-table-wrap">
+            <table class="if-table">
+                <thead><tr><th>Module</th><th>Id</th><th>Description</th></tr></thead>
+                <tbody>
+                    @foreach (var module in _data.Modules)
+                    {
+                        <tr><td><strong>@module.Name</strong></td><td class="if-mono">@module.Id</td><td>@module.Description</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <p class="if-muted if-small" style="margin-top: 12px">Model profiles configured on the API: @string.Join(", ", _data.ModelProfiles)</p>
+    }
+</div>
+
+@code {
+    private PlatformCatalogDto? _data;
+    private bool _rolling;
+    private string? _error;
+    private string? _message;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Platform.GetCatalogAsync();
+
+        if (result.Success)
+            _data = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task RolloutAsync()
+    {
+        _rolling = true;
+        var result = await Tenants.RolloutTemplatesAsync();
+        _rolling = false;
+
+        if (result.Success)
+        {
+            var r = result.Data!;
+            _message = $"Rollout done: {r.AgentsInstalled} installed, {r.AgentsUpdated} updated, {r.DetachedSkipped} customised agent(s) left alone.";
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+}

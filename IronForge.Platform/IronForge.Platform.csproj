@@ -1,0 +1,16 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>441dc284-501e-42f5-9223-02954d365ade</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\IronForge.Shared\IronForge.Shared.csproj" />
+    <ProjectReference Include="..\IronForge.UI.Platform\IronForge.UI.Platform.csproj" />
+  </ItemGroup>
+
+</Project>

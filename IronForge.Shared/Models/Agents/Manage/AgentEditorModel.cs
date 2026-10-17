@@ -44,6 +44,12 @@ public sealed class AgentEditorModel
     [StringLength(100)]
     public string ModelProfile { get; set; } = "standard";
 
+    /// <summary>Tenant roles that may chat with the agent; empty means everyone.</summary>
+    public List<string> AllowedRoles { get; set; } = [];
+
+    /// <summary>Template agent: only active state and allowed roles are editable.</summary>
+    public bool IsManaged { get; set; }
+
     public CreateAgentRequest ToCreateRequest() =>
         new()
         {
@@ -52,12 +58,12 @@ public sealed class AgentEditorModel
             Description = Description,
             Version = Version,
             IsActive = IsActive,
-            Permissions = [],
             Instructions = Instructions,
             MaximumIterationsPerRequest = MaximumIterationsPerRequest,
             AllowMultipleToolCalls = AllowMultipleToolCalls,
             ApprovalLifetimeMinutes = ApprovalLifetimeMinutes,
-            ModelProfile = ModelProfile
+            ModelProfile = ModelProfile,
+            AllowedRoles = [.. AllowedRoles]
         };
 
     public UpdateAgentRequest ToUpdateRequest() =>
@@ -71,7 +77,8 @@ public sealed class AgentEditorModel
             MaximumIterationsPerRequest = MaximumIterationsPerRequest,
             AllowMultipleToolCalls = AllowMultipleToolCalls,
             ApprovalLifetimeMinutes = ApprovalLifetimeMinutes,
-            ModelProfile = ModelProfile
+            ModelProfile = ModelProfile,
+            AllowedRoles = [.. AllowedRoles]
         };
 
     public static AgentEditorModel From(AgentDto agent) =>
@@ -88,6 +95,8 @@ public sealed class AgentEditorModel
             ApprovalLifetimeMinutes = agent.ApprovalLifetimeMinutes,
             ModelProfile = string.IsNullOrWhiteSpace(agent.ModelProfile)
                 ? "standard"
-                : agent.ModelProfile
+                : agent.ModelProfile,
+            AllowedRoles = [.. agent.AllowedRoles],
+            IsManaged = agent.IsManaged
         };
 }

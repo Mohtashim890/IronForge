@@ -9,6 +9,11 @@ public sealed class AgentToolCatalogItemDto
 
     public string RequiredPermission { get; set; } = string.Empty;
 
+    /// <summary>Subscription module the tool belongs to.</summary>
+    public string Module { get; set; } = string.Empty;
+
+    public string ModuleName { get; set; } = string.Empty;
+
     /// <summary>Default risk level: Low, Medium, High or Critical.</summary>
     public string RiskLevel { get; set; } = string.Empty;
 

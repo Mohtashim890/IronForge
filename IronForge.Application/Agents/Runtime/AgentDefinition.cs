@@ -41,6 +41,13 @@ public sealed class AgentDefinition
     /// <summary>Platform model profile the agent runs on.</summary>
     public string ModelProfile { get; init; } = "standard";
 
+    /// <summary>Tenant roles that may chat with the agent; empty means everyone.</summary>
+    public IReadOnlyList<string> AllowedRoles { get; init; } = [];
+
+    public bool AllowsRole(string? role) =>
+        AllowedRoles.Count == 0 ||
+        AllowedRoles.Contains(role ?? "", StringComparer.OrdinalIgnoreCase);
+
     public AgentToolBinding? GetToolBinding(string toolName)
     {
         return Tools.FirstOrDefault(

@@ -1,0 +1,155 @@
+@page "/home"
+@attribute [Authorize]
+@inject MemberApiClient Me
+@inject IExternalLinkOpener Links
+
+<PageTitle>Home | IronForge</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="if-alert error">@_error</div>
+}
+
+@if (_me is null)
+{
+    @if (_error is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+}
+else
+{
+    <div class="m-hero">
+        <div class="m-label">Welcome back</div>
+        <div class="m-big">@FirstName</div>
+        <div style="margin-top: 6px">
+            <Badge Tone="@GymFormat.Tone(_me.Status)">@_me.Status</Badge>
+            <span style="opacity: 0.8; font-size: 0.85rem">
+                @(_me.Plan?.Name ?? "No plan")
+                @if (_me.PaidThrough is { } paid)
+                {
+                    <span> · paid through @GymFormat.Date(paid)</span>
+                }
+            </span>
+        </div>
+
+        <div class="m-kpis">
+            <div><strong>@_me.WorkoutsThisWeek</strong><span>workouts this week</span></div>
+            <div><strong>@_me.WeeklyStreak</strong><span>week streak</span></div>
+            <div><strong>@_me.CheckInsLast30Days</strong><span>visits (30d)</span></div>
+        </div>
+    </div>
+
+    @if (_me.Status == MemberStatus.Pending)
+    {
+        <div class="if-alert info">Your gym is reviewing your request to join. You'll get a notification once it's approved.</div>
+    }
+    else if (_me.Status == MemberStatus.Frozen)
+    {
+        <div class="if-alert info">Your membership is frozen until @GymFormat.Date(_me.FrozenUntil). You won't be billed until then.</div>
+    }
+    else if (_me.Status == MemberStatus.Expired)
+    {
+        <div class="if-alert warning">Your membership expired because an invoice is unpaid. Pay it below to reactivate straight away.</div>
+    }
+
+    @if (_me.NextDueInvoice is { } invoice)
+    {
+        <div class="m-card">
+            <div class="if-row">
+                <div style="flex: 1">
+                    <div class="if-small if-muted">@(invoice.DaysOverdue > 0 ? $"Overdue by {invoice.DaysOverdue} day(s)" : $"Due {GymFormat.Date(invoice.DueDate)}")</div>
+                    <div style="font-size: 1.4rem; font-weight: 800">@GymFormat.Money(invoice.Amount, invoice.Currency)</div>
+                    <div class="if-small if-muted">@invoice.Number</div>
+                </div>
+                <button class="if-btn primary" disabled="@_paying" @onclick="() => PayAsync(invoice)">@(_paying ? "Opening…" : "Pay now")</button>
+            </div>
+        </div>
+    }
+
+    @if (_me.CoachingEnabled)
+    {
+        <div class="m-section-title">Today</div>
+        <div class="m-card">
+            @if (_routine is null)
+            {
+                <p style="margin-top: 0">You don't have a routine yet.</p>
+                <a class="if-btn primary block" href="/coach">Ask your AI coach for one</a>
+            }
+            else
+            {
+                <div class="if-row">
+                    <div style="flex: 1">
+                        <strong>@_routine.Name</strong>
+                        <div class="if-small if-muted">@_routine.Days.Count day(s) · @(_routine.Goal ?? "")</div>
+                    </div>
+                    <a class="if-btn sm" href="@($"/routines/{_routine.Id}")">Open</a>
+                </div>
+                <div style="margin-top: 12px">
+                    @foreach (var day in _routine.Days)
+                    {
+                        <a class="m-chip" href="@($"/workouts/log?day={day.Id}")">Log @day.Name</a>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="if-grid" style="grid-template-columns: 1fr 1fr; gap: 10px">
+            <a class="m-card" href="/workouts/log" style="text-decoration: none; color: inherit; margin: 0">
+                <div style="font-size: 1.4rem">✍</div>
+                <strong>Log a workout</strong>
+            </a>
+            <a class="m-card" href="/coach" style="text-decoration: none; color: inherit; margin: 0">
+                <div style="font-size: 1.4rem">✦</div>
+                <strong>Ask the coach</strong>
+            </a>
+        </div>
+    }
+    else
+    {
+        <div class="m-card">
+            <strong>Training tools</strong>
+            <p class="if-muted if-small" style="margin-bottom: 0">Routines, workout tracking and the AI coach aren't part of your gym's plan yet. Ask the front desk!</p>
+        </div>
+    }
+}
+
+@code {
+    private MyMembershipDto? _me;
+    private RoutineDto? _routine;
+    private bool _paying;
+    private string? _error;
+
+    private string FirstName => _me!.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? _me.FullName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Me.GetMembershipAsync();
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _me = result.Data;
+
+        if (_me!.CoachingEnabled)
+        {
+            var routines = await Me.GetRoutinesAsync(activeOnly: true);
+            _routine = routines.Data?.FirstOrDefault();
+        }
+    }
+
+    private async Task PayAsync(InvoiceDto invoice)
+    {
+        _paying = true;
+        var result = await Me.StartCheckoutAsync(invoice.Id);
+        _paying = false;
+
+        if (result.Success)
+            await Links.OpenAsync(result.Data!.Url);
+        else
+            _error = result.ErrorMessage;
+    }
+}

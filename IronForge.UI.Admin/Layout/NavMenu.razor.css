@@ -1,0 +1,56 @@
+.nav-header {
+    min-height: 4rem;
+    padding: 0 1rem;
+    display: flex;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: white;
+    font-size: 1.05rem;
+    font-weight: 700;
+    text-decoration: none;
+    min-width: 0;
+}
+
+    .navbar-brand small {
+        display: block;
+        font-size: 0.72rem;
+        font-weight: 500;
+        color: #98a2b3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 160px;
+    }
+
+.brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: #e8590c;
+    color: white;
+}
+
+.nav-scrollable {
+    display: block;
+    padding: 0.5rem 0 1.5rem;
+    height: calc(100vh - 4rem);
+    overflow-y: auto;
+}
+
+.nav-section {
+    padding: 1rem 1.6rem 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #667085;
+}

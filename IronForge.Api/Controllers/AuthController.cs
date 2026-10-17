@@ -1,7 +1,9 @@
 ﻿using IronForge.Api.Helpers;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Services;
+using IronForge.Shared.Models.Gym;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace IronForge.Api.Controllers
 {
@@ -10,12 +12,17 @@ namespace IronForge.Api.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
-        public AuthController(IAuthService authService)
+        private readonly IPasswordResetService _passwordReset;
+
+        public AuthController(IAuthService authService, IPasswordResetService passwordReset)
         {
             _authService = authService;
+            _passwordReset = passwordReset;
         }
 
+        /// <summary>Signs in with a username or an email address.</summary>
         [HttpPost("login")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
         public async Task<IActionResult> Login(
             LoginRequest request)
         {
@@ -33,6 +40,7 @@ namespace IronForge.Api.Controllers
             return Ok(result);
         }
         [HttpPost("refresh")]
+        [EnableRateLimiting(RateLimitPolicies.Anonymous)]
         public async Task<IActionResult> Refresh(
     RefreshTokenRequest request)
         {
@@ -53,26 +61,36 @@ namespace IronForge.Api.Controllers
             return Ok(result);
         }
 
-        [HttpPost("register")]
-        public async Task<IActionResult> Register(RegisterRequest request)
+        /// <summary>
+        /// Emails a reset link. Always 202, so the response does not reveal
+        /// whether the email has an account.
+        /// </summary>
+        [HttpPost("forgot-password")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> ForgotPassword(
+            ForgotPasswordRequest request,
+            CancellationToken cancellationToken)
         {
-            var registered =
-                await _authService.RegisterAsync(request);
+            await _passwordReset.RequestAsync(request.Email, cancellationToken);
 
-            if (!registered)
-            {
-                return Conflict(
-                    new ApiErrorResponse
-                    {
-                        Status = 409,
-                        Message =
-                            "Username or email is already registered."
-                    });
-            }
-
-            return StatusCode(
-                StatusCodes.Status201Created);
+            return Accepted();
         }
 
+        [HttpPost("reset-password")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> ResetPassword(
+            ResetPasswordRequest request,
+            CancellationToken cancellationToken)
+        {
+            var result = await _passwordReset.ResetAsync(
+                request.Token,
+                request.NewPassword,
+                cancellationToken);
+
+            return result.Success ? NoContent() : this.ToErrorResult(result);
+        }
+
+        // Accounts are created by accepting an invitation (InvitationsController)
+        // or by joining a gym with its code (JoinController).
     }
 }

@@ -1,0 +1,105 @@
+@page "/audit"
+@attribute [Authorize(Policy = Permissions.PlatformTenantsManage)]
+@using IronForge.Shared.Models.Tenants
+@inject PlatformApiClient Platform
+@inject IPlatformTenantService Tenants
+
+<PageTitle>Audit log | IronForge Platform</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Audit log</h1>
+            <p>Security and business events across every gym.</p>
+        </div>
+    </div>
+
+    <div class="if-toolbar">
+        <select class="if-input" @bind="_query.TenantId" @bind:after="LoadAsync">
+            <option value="">All gyms</option>
+            @foreach (var tenant in _tenants)
+            {
+                <option value="@tenant.TenantId">@tenant.Name</option>
+            }
+        </select>
+        <select class="if-input" @bind="_query.Category" @bind:after="LoadAsync">
+            <option value="">All categories</option>
+            @foreach (var category in Categories)
+            {
+                <option value="@category">@category</option>
+            }
+        </select>
+        <select class="if-input" @bind="_query.Outcome" @bind:after="LoadAsync">
+            <option value="">All outcomes</option>
+            <option>Succeeded</option>
+            <option>Failed</option>
+            <option>Denied</option>
+        </select>
+        <select class="if-input" @bind="_query.Days" @bind:after="LoadAsync">
+            <option value="1">Last 24 hours</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+        </select>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-table-wrap">
+        <table class="if-table">
+            <thead>
+                <tr><th>When</th><th>Gym</th><th>Category</th><th>Action</th><th>Outcome</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var item in _items)
+                {
+                    <tr>
+                        <td class="if-small">@GymFormat.DateTime(item.OccurredAtUtc)</td>
+                        <td>@(item.TenantName ?? "Platform")</td>
+                        <td>@item.Category</td>
+                        <td><strong>@item.Action</strong></td>
+                        <td><Badge Tone="@(item.Outcome == "Succeeded" ? "success" : item.Outcome == "Denied" ? "danger" : "warning")">@item.Outcome</Badge></td>
+                        <td class="if-small if-muted">@item.Reason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] Categories =
+        ["Authentication", "Authorization", "Tenant", "Membership", "Billing", "Notification", "Coaching", "Agent", "Approval", "Tool", "Delegation"];
+
+    [SupplyParameterFromQuery(Name = "tenant")] public int? TenantFilter { get; set; }
+
+    private readonly PlatformAuditQuery _query = new() { Days = 7, Take = 200 };
+    private List<PlatformAuditEventDto> _items = [];
+    private List<PlatformTenantDto> _tenants = [];
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _query.TenantId = TenantFilter;
+        _tenants = (await Tenants.GetTenantsAsync()).Data ?? [];
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Platform.GetAuditAsync(_query);
+
+        if (result.Success)
+        {
+            _items = result.Data!;
+            _error = null;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+}

@@ -22,7 +22,6 @@ namespace IronForge.Application.Agents.DTOs
 
         public bool IsActive { get; set; } = true;
 
-        public List<string> Permissions { get; set; } = [];
 
         [StringLength(AgentConfigurationLimits.MaximumInstructionsLength)]
         public string? Instructions { get; set; }
@@ -42,5 +41,8 @@ namespace IronForge.Application.Agents.DTOs
         /// <summary>Platform model profile name; null keeps the current/default profile.</summary>
         [StringLength(100)]
         public string? ModelProfile { get; set; }
+
+        /// <summary>Tenant roles that may chat with the agent; empty means everyone.</summary>
+        public List<string> AllowedRoles { get; set; } = [];
     }
 }

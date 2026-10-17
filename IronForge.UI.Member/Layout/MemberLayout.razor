@@ -1,0 +1,103 @@
+@inherits LayoutComponentBase
+
+@inject IAuthService AuthService
+@inject ClientAppProfile Profile
+@inject NavigationManager Navigation
+
+<div class="m-shell">
+    <header class="m-header">
+        <div>
+            <div class="m-title">@(string.IsNullOrWhiteSpace(_gymName) ? "IronForge" : _gymName)</div>
+            <div class="m-sub">IronForge member</div>
+        </div>
+        @if (_state == LayoutState.Ready)
+        {
+            <NotificationBell Href="/notifications" />
+        }
+    </header>
+
+    <main class="m-content">
+        @switch (_state)
+        {
+            case LayoutState.Loading:
+                <div class="if-loading">Loading…</div>
+                break;
+            case LayoutState.WrongApp:
+                <div class="m-card" style="text-align: center">
+                    <h2 style="margin-top: 0">Use the web dashboard</h2>
+                    <p class="if-muted">@Profile.WrongAppMessage</p>
+                    <button class="if-btn primary" @onclick="SignOutAsync">Sign out</button>
+                </div>
+                break;
+            default:
+                @* Signed out: the body is the router's redirect to the sign-in page. *@
+                @Body
+                break;
+        }
+    </main>
+
+    @if (_state == LayoutState.Ready)
+    {
+        <nav class="m-tabbar" aria-label="Main">
+            <NavLink href="/home" Match="NavLinkMatch.Prefix"><span class="m-icon">⌂</span>Home</NavLink>
+            <NavLink href="/routines" Match="NavLinkMatch.Prefix"><span class="m-icon">🏋</span>Train</NavLink>
+            <NavLink href="/coach" Match="NavLinkMatch.Prefix"><span class="m-icon">✦</span>Coach</NavLink>
+            <NavLink href="/progress" Match="NavLinkMatch.Prefix"><span class="m-icon">📈</span>Progress</NavLink>
+            <NavLink href="/me" Match="NavLinkMatch.Prefix"><span class="m-icon">☺</span>Me</NavLink>
+        </nav>
+    }
+</div>
+
+@code {
+    private enum LayoutState { Loading, SignedOut, WrongApp, Ready }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    private LayoutState _state = LayoutState.Loading;
+    private string? _gymName;
+    private int? _gymNameFor;
+
+    // A layout instance survives navigation, so the checks run for every page
+    // (OnParametersSet), not only once.
+    protected override async Task OnParametersSetAsync()
+    {
+        var user = AuthenticationState is null ? null : (await AuthenticationState).User;
+
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            _state = LayoutState.SignedOut;
+            return;
+        }
+
+        var gym = await AuthService.GetActiveTenantAsync();
+
+        if (gym is null)
+        {
+            // Signed in but no gym chosen yet.
+            _state = LayoutState.Loading;
+            Navigation.NavigateTo("/select-tenant");
+            return;
+        }
+
+        if (!Profile.AcceptsRole(gym.Role))
+        {
+            _state = LayoutState.WrongApp;
+            return;
+        }
+
+        _state = LayoutState.Ready;
+
+        if (_gymNameFor != gym.TenantId)
+        {
+            _gymNameFor = gym.TenantId;
+            var gyms = await AuthService.GetMyTenantsAsync();
+            _gymName = gyms.Data?.FirstOrDefault(x => x.TenantId == gym.TenantId)?.TenantName;
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login");
+    }
+}

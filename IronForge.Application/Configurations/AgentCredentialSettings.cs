@@ -13,7 +13,11 @@ namespace IronForge.Application.Configurations
         [Required]
         public string Audience { get; set; } = string.Empty;
 
-        [Range(1, int.MaxValue)]
+        /// <summary>
+        /// MCP credential lifetime. Credentials never outlive their delegation
+        /// (at most one hour), so a longer value would have no effect.
+        /// </summary>
+        [Range(1, 60)]
         public int ExpirationMinutes { get; set; } = 15;
     }
 }

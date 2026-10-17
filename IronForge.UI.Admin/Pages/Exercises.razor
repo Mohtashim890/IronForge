@@ -1,0 +1,129 @@
+@page "/exercises"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Exercise library | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Exercise library</h1>
+            <p>The shared library plus your gym's own exercises. Trainers build routines from these; the AI coach does too.</p>
+        </div>
+        <AuthorizeView Policy="@Permissions.GymRoutinesManage">
+            <button class="if-btn primary" @onclick="() => _adding = true">+ Add exercise</button>
+        </AuthorizeView>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert @(_upgrade ? "warning" : "error")">@_error</div>
+    }
+
+    <div class="if-toolbar">
+        <input class="if-input" placeholder="Search exercises" @bind="_search" @bind:event="oninput" />
+        @foreach (var group in _groups)
+        {
+            <button class="m-chip @(_group == group ? "active" : "")" @onclick="() => _group = _group == group ? null : group">@group</button>
+        }
+    </div>
+
+    <div class="if-grid">
+        @foreach (var exercise in Filtered)
+        {
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h3>@exercise.Name</h3>
+                    @if (exercise.IsCustom)
+                    {
+                        <Badge Tone="accent">Your gym</Badge>
+                    }
+                </div>
+                <div class="if-row if-small if-muted">
+                    <span>@exercise.MuscleGroup</span>
+                    @if (!string.IsNullOrWhiteSpace(exercise.Equipment))
+                    {
+                        <span>· @exercise.Equipment</span>
+                    }
+                </div>
+                <p class="if-small" style="margin-bottom: 0">@exercise.Instructions</p>
+            </div>
+        }
+    </div>
+</div>
+
+<Modal @bind-Open="_adding" Title="Add an exercise">
+    <ChildContent>
+        @if (_addError is not null)
+        {
+            <div class="if-alert error">@_addError</div>
+        }
+        <div class="if-field"><label>Name</label><input @bind="_form.Name" /></div>
+        <div class="if-form-grid">
+            <div class="if-field"><label>Muscle group</label><input @bind="_form.MuscleGroup" list="groups" /></div>
+            <div class="if-field"><label>Equipment</label><input @bind="_form.Equipment" /></div>
+        </div>
+        <datalist id="groups">
+            @foreach (var group in _groups)
+            {
+                <option value="@group"></option>
+            }
+        </datalist>
+        <div class="if-field"><label>How to do it</label><textarea rows="3" @bind="_form.Instructions"></textarea></div>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _adding = false">Cancel</button>
+        <button class="if-btn primary" @onclick="AddAsync">Add</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<ExerciseDto> _exercises = [];
+    private List<string> _groups = [];
+    private string _search = "";
+    private string? _group;
+    private string? _error;
+    private bool _upgrade;
+    private bool _adding;
+    private string? _addError;
+    private SaveExerciseRequest _form = new();
+
+    private IEnumerable<ExerciseDto> Filtered =>
+        _exercises
+            .Where(x => _group is null || x.MuscleGroup == _group)
+            .Where(x => string.IsNullOrWhiteSpace(_search) || x.Name.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetExercisesAsync();
+
+        if (!result.Success)
+        {
+            _upgrade = result.StatusCode == 403;
+            _error = _upgrade
+                ? "The exercise library and routines are part of the Coaching module. Ask IronForge to upgrade your plan."
+                : result.ErrorMessage;
+            return;
+        }
+
+        _exercises = result.Data!;
+        _groups = _exercises.Select(x => x.MuscleGroup).Distinct().Order().ToList();
+    }
+
+    private async Task AddAsync()
+    {
+        var result = await Gym.CreateExerciseAsync(_form);
+
+        if (!result.Success)
+        {
+            _addError = result.ErrorMessage;
+            return;
+        }
+
+        _adding = false;
+        _form = new SaveExerciseRequest();
+        await LoadAsync();
+    }
+}

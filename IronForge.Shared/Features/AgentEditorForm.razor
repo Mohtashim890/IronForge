@@ -1,6 +1,7 @@
 @using IronForge.Shared.Models.Agents
 @using IronForge.Shared.Models.Agents.Manage
 @using Microsoft.AspNetCore.Components.Forms
+@using IronForge.Shared.Authorization
 
 <EditForm Model="@Model"
           OnValidSubmit="OnValidSubmit">
@@ -14,6 +15,15 @@
     }
 
     <div class="agent-form">
+        @if (Model.IsManaged)
+        {
+            <div class="agent-form-managed" role="note">
+                This agent is managed by a platform template and is updated by the
+                platform. You can turn it on or off and choose who may use it. To
+                change anything else, detach it from its template first.
+            </div>
+        }
+
         <div class="agent-form-field">
             <label for="agent-id">Agent ID</label>
 
@@ -38,6 +48,7 @@
             }
         </div>
 
+        <fieldset class="agent-form-plain" disabled="@Model.IsManaged">
         <div class="agent-form-field">
             <label for="agent-name">Name</label>
 
@@ -59,12 +70,15 @@
             <ValidationMessage For="@(() => Model.Description)" />
         </div>
 
+        </fieldset>
+
         <div class="agent-form-grid">
             <div class="agent-form-field">
                 <label for="agent-version">Version</label>
 
                 <InputText id="agent-version"
                            class="form-control"
+                           disabled="@Model.IsManaged"
                            @bind-Value="Model.Version" />
 
                 <ValidationMessage For="@(() => Model.Version)" />
@@ -84,7 +98,7 @@
             </div>
         </div>
 
-        <fieldset class="agent-form-section">
+        <fieldset class="agent-form-section" disabled="@Model.IsManaged">
             <legend>Behaviour</legend>
 
             <div class="agent-form-field">
@@ -182,10 +196,33 @@
             </div>
         </fieldset>
 
+        <fieldset class="agent-form-section">
+            <legend>Who may use it</legend>
+
+            <div class="agent-form-roles">
+                @foreach (var role in TenantRoles.All)
+                {
+                    <label class="form-check">
+                        <input type="checkbox"
+                               class="form-check-input"
+                               checked="@Model.AllowedRoles.Contains(role)"
+                               @onchange="e => ToggleRole(role, e.Value is true)" />
+                        <span class="form-check-label">@role</span>
+                    </label>
+                }
+            </div>
+
+            <small>
+                @(Model.AllowedRoles.Count == 0
+                    ? "No role selected: every member may chat with this agent."
+                    : "Only members with a selected role may chat with this agent.")
+            </small>
+        </fieldset>
+
         <div class="agent-form-note">
-            Permissions and tools are managed separately from this form.
-            This prevents a metadata edit from accidentally changing the
-            agent's effective capabilities.
+            Tools are managed separately from this form, and the agent's
+            permissions follow from its tools. This prevents a metadata edit
+            from accidentally changing the agent's effective capabilities.
         </div>
 
         <div class="agent-form-actions">
@@ -230,4 +267,14 @@
     public IReadOnlyList<AgentModelProfileDto> ModelProfiles { get; set; } = [];
 
     private int InstructionsLength => Model.Instructions?.Length ?? 0;
+
+    private void ToggleRole(string role, bool selected)
+    {
+        Model.AllowedRoles.Remove(role);
+
+        if (selected)
+        {
+            Model.AllowedRoles.Add(role);
+        }
+    }
 }

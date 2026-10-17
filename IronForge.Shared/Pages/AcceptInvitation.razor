@@ -1,0 +1,223 @@
+@page "/accept-invite"
+
+@layout AuthLayout
+
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Components.Forms
+@using IronForge.Shared.Components.Layout
+@using IronForge.Shared.Models.Tenants
+
+@inject IInvitationService InvitationService
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>Accept invitation</PageTitle>
+
+<div class="invite-page">
+    <div class="invite-card">
+        <div class="invite-brand">
+            <span class="invite-brand-mark">⚒</span>
+            <span>IronForge</span>
+        </div>
+
+        @if (isLoading)
+        {
+            <p class="invite-muted">Checking your invitation...</p>
+        }
+        else if (accepted is not null)
+        {
+            <h1>You're in</h1>
+            <p>
+                @(accepted.AccountCreated ? "Your account was created and you" : "You")
+                joined <strong>@accepted.TenantName</strong> as @accepted.Role.
+            </p>
+            <p class="invite-muted">Sign in as <strong>@accepted.Username</strong> to start.</p>
+
+            <button type="button"
+                    class="invite-submit"
+                    @onclick="GoToLogin">
+                Sign in
+            </button>
+        }
+        else if (preview is null)
+        {
+            <h1>Invitation unavailable</h1>
+            <p class="invite-error" role="alert">@errorMessage</p>
+            <p class="invite-muted">Ask the person who invited you for a new link.</p>
+        }
+        else
+        {
+            <h1>Join @preview.TenantName</h1>
+            <p>
+                You were invited as <strong>@preview.Role</strong> with
+                <strong>@preview.Email</strong>.
+            </p>
+
+            @if (preview.AccountExists)
+            {
+                <p class="invite-muted">
+                    An account with this email already exists. Sign in with it to
+                    accept the invitation.
+                </p>
+            }
+            else
+            {
+                <p class="invite-muted">Choose a username and password for your new account.</p>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <p class="invite-error" role="alert">@errorMessage</p>
+            }
+
+            <EditForm Model="model" OnValidSubmit="AcceptAsync">
+                <DataAnnotationsValidator />
+
+                <div class="invite-field">
+                    <label for="invite-username">Username</label>
+                    <InputText id="invite-username"
+                               class="form-control"
+                               autocomplete="username"
+                               @bind-Value="model.Username" />
+                    <ValidationMessage For="@(() => model.Username)" />
+                </div>
+
+                <div class="invite-field">
+                    <label for="invite-password">Password</label>
+                    <InputText id="invite-password"
+                               type="password"
+                               class="form-control"
+                               autocomplete="@(preview.AccountExists ? "current-password" : "new-password")"
+                               @bind-Value="model.Password" />
+                    <ValidationMessage For="@(() => model.Password)" />
+                </div>
+
+                @if (!preview.AccountExists)
+                {
+                    <div class="invite-field">
+                        <label for="invite-confirm">Confirm password</label>
+                        <InputText id="invite-confirm"
+                                   type="password"
+                                   class="form-control"
+                                   autocomplete="new-password"
+                                   @bind-Value="model.ConfirmPassword" />
+                        <ValidationMessage For="@(() => model.ConfirmPassword)" />
+                    </div>
+                }
+
+                <button type="submit"
+                        class="invite-submit"
+                        disabled="@isSubmitting">
+                    @(isSubmitting
+                        ? "Joining..."
+                        : preview.AccountExists ? "Sign in and join" : "Create account and join")
+                </button>
+            </EditForm>
+
+            <p class="invite-muted invite-expiry">
+                This invitation expires @preview.ExpiresAtUtc.ToLocalTime().ToString("g").
+            </p>
+        }
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "token")]
+    public string? Token { get; set; }
+
+    private InvitationPreviewDto? preview;
+    private AcceptInvitationResultDto? accepted;
+    private AcceptModel model = new();
+    private bool isLoading = true;
+    private bool isSubmitting;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(Token))
+            {
+                errorMessage = "This invitation link is incomplete.";
+                return;
+            }
+
+            var result = await InvitationService.PreviewAsync(Token);
+
+            if (!result.Success)
+            {
+                errorMessage = result.ErrorMessage;
+                return;
+            }
+
+            preview = result.Data;
+            model = new AcceptModel { RequiresConfirmation = !preview!.AccountExists };
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AcceptAsync()
+    {
+        isSubmitting = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await InvitationService.AcceptAsync(
+                new AcceptInvitationRequest
+                {
+                    Token = Token!,
+                    Username = model.Username,
+                    Password = model.Password
+                });
+
+            if (!result.Success)
+            {
+                errorMessage = result.ErrorMessage;
+                return;
+            }
+
+            accepted = result.Data;
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task GoToLogin()
+    {
+        // A session from before joining does not include the new workspace.
+        await AuthService.LogoutAsync();
+
+        Navigation.NavigateTo("/login");
+    }
+
+    private sealed class AcceptModel : IValidatableObject
+    {
+        [Required]
+        [StringLength(50, MinimumLength = 3, ErrorMessage = "Username must be between 3 and 50 characters.")]
+        public string Username { get; set; } = "";
+
+        [Required]
+        [StringLength(100, MinimumLength = 8, ErrorMessage = "Password must be at least 8 characters.")]
+        public string Password { get; set; } = "";
+
+        public string ConfirmPassword { get; set; } = "";
+
+        public bool RequiresConfirmation { get; init; }
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            if (RequiresConfirmation && ConfirmPassword != Password)
+            {
+                yield return new ValidationResult(
+                    "Passwords do not match.",
+                    [nameof(ConfirmPassword)]);
+            }
+        }
+    }
+}

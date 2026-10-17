@@ -38,6 +38,36 @@ services:
     expose:
       - "8080"
 
+    environment:
+      DataProtection__KeysPath: /keys
+
+    volumes:
+      - web_keys:/keys
+
+    depends_on:
+          ironforge-api:
+            condition: service_healthy
+
+
+  ironforge-platform:
+    image: ghcr.io/mohtashim890/ironforge-platform:${IRONFORGE_IMAGE_TAG}
+    restart: unless-stopped
+
+    env_file:
+      - ../env/production.env
+
+    environment:
+      DataProtection__KeysPath: /keys
+
+    volumes:
+      - platform_keys:/keys
+
+    networks:
+      - ironforge
+
+    expose:
+      - "8080"
+
     depends_on:
           ironforge-api:
             condition: service_healthy
@@ -119,3 +149,5 @@ networks:
 volumes:
   caddy_data:
   caddy_config:
+  web_keys:
+  platform_keys:

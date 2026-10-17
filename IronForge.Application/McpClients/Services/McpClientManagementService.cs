@@ -1,3 +1,4 @@
+using IronForge.Shared.Authorization;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;

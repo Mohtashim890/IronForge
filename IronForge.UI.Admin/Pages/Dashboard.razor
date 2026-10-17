@@ -1,0 +1,157 @@
+@page "/dashboard"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Dashboard | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <div class="if-eyebrow">Today at your gym</div>
+            <h1>@(_data?.GymName ?? "Dashboard")</h1>
+            <p>Members, revenue and attendance at a glance.</p>
+        </div>
+        <div class="if-row">
+            <a class="if-btn" href="/checkins">Check in a member</a>
+            <a class="if-btn primary" href="/agent">Ask the AI assistant</a>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_data is null)
+    {
+        <div class="if-loading">Loading dashboard…</div>
+    }
+    else
+    {
+        <div class="if-grid">
+            <StatTile Label="Active members" Value="@_data.ActiveMembers.ToString()" Sub="@($"+{_data.NewMembersThisMonth} new this month")" Tone="success" />
+            <StatTile Label="Revenue this month" Value="@GymFormat.Money(_data.RevenueThisMonth, _data.Currency)" Sub="@($"Last month: {GymFormat.Money(_data.RevenueLastMonth, _data.Currency)}")" Tone="accent" />
+            <StatTile Label="Overdue" Value="@GymFormat.Money(_data.OverdueAmount, _data.Currency)" Sub="@($"{_data.OverdueInvoices} invoice(s)")" Tone="danger" />
+            <StatTile Label="Check-ins today" Value="@_data.CheckInsToday.ToString()" Sub="@($"{_data.CheckInsLast7Days} in the last 7 days")" Tone="info" />
+        </div>
+
+        <div class="if-grid" style="margin-top: 16px">
+            <a class="if-stat" href="/join-requests" style="text-decoration: none">
+                <div class="if-stat-label">Join requests waiting</div>
+                <div class="if-stat-value">@_data.PendingMembers</div>
+                <div class="if-stat-sub">Review and approve →</div>
+            </a>
+            <a class="if-stat" href="/members?status=Expired" style="text-decoration: none">
+                <div class="if-stat-label">Expired memberships</div>
+                <div class="if-stat-value">@_data.ExpiredMembers</div>
+                <div class="if-stat-sub">Unpaid past the grace period</div>
+            </a>
+            <div class="if-stat">
+                <div class="if-stat-label">Frozen</div>
+                <div class="if-stat-value">@_data.FrozenMembers</div>
+                <div class="if-stat-sub">Billing paused</div>
+            </div>
+            <div class="if-stat">
+                <div class="if-stat-label">Expiring in 7 days</div>
+                <div class="if-stat-value">@_data.ExpiringSoon</div>
+                <div class="if-stat-sub">Paid period ends soon</div>
+            </div>
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h2>Revenue (last 6 months)</h2>
+                    <span class="if-muted if-small">@_data.Currency</span>
+                </div>
+                <BarChart Points="@_revenue" ShowValues="true" Format="@(v => GymFormat.Compact((long)v))" AriaLabel="Revenue by month" />
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h2>Check-ins (last 14 days)</h2>
+                </div>
+                <BarChart Points="@_checkIns" ShowValues="true" AriaLabel="Check-ins by day" />
+            </div>
+        </div>
+
+        <div class="if-grid-2" style="margin-top: 16px">
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h2>Members by plan</h2>
+                    <a href="/plans" class="if-small">Plans →</a>
+                </div>
+                @if (_data.MembersByPlan.Count == 0)
+                {
+                    <div class="if-empty">No active members yet.</div>
+                }
+                else
+                {
+                    <ul class="if-list">
+                        @foreach (var plan in _data.MembersByPlan)
+                        {
+                            <li>
+                                <span style="flex: 1">@plan.PlanName</span>
+                                <strong>@plan.Members</strong>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+
+            <div class="if-card">
+                <div class="if-card-head">
+                    <h2>Expiring this week</h2>
+                    <a href="/members" class="if-small">All members →</a>
+                </div>
+                @if (_expiring.Count == 0)
+                {
+                    <div class="if-empty">No memberships end in the next 7 days.</div>
+                }
+                else
+                {
+                    <ul class="if-list">
+                        @foreach (var member in _expiring.Take(6))
+                        {
+                            <li>
+                                <span class="if-avatar">@GymFormat.Initials(member.FullName)</span>
+                                <a href="@($"/members/{member.Id}")" style="flex: 1">@member.FullName</a>
+                                <span class="if-muted if-small">until @GymFormat.Date(member.PaidThrough)</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private GymDashboardDto? _data;
+    private List<MemberSummaryDto> _expiring = [];
+    private List<ChartPoint> _revenue = [];
+    private List<ChartPoint> _checkIns = [];
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Gym.GetDashboardAsync();
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _data = result.Data!;
+        _revenue = _data.RevenueByMonth
+            .Select((x, i) => new ChartPoint(x.Month.ToString("MMM"), (double)x.Collected, i < _data.RevenueByMonth.Count - 1))
+            .ToList();
+        _checkIns = _data.CheckInsByDay
+            .Select(x => new ChartPoint(x.Day.ToString("dd"), x.Count))
+            .ToList();
+
+        var expiring = await Gym.GetExpiringAsync(7);
+        _expiring = expiring.Data ?? [];
+    }
+}

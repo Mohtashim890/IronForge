@@ -1,0 +1,61 @@
+﻿@using IronForge.Shared.Authorization
+
+<div class="nav-header">
+    <a class="navbar-brand" href="/dashboard">
+        <span class="brand-mark">⚒</span>
+        <span>
+            IronForge
+            @if (!string.IsNullOrWhiteSpace(GymName))
+            {
+                <small>@GymName</small>
+            }
+        </span>
+    </a>
+</div>
+
+<nav class="nav-scrollable">
+
+    <div class="nav-section">Overview</div>
+    <NavItem Href="/dashboard" Icon="⌂" Text="Dashboard" />
+    <AuthorizeView Policy="@Permissions.AgentsRead">
+        <NavItem Href="/agent" Icon="✦" Text="AI assistant" />
+    </AuthorizeView>
+
+    <AuthorizeView Policy="@Permissions.GymMembersRead">
+        <div class="nav-section">Members</div>
+        <NavItem Href="/members" Icon="☺" Text="Members" />
+        <NavItem Href="/join-requests" Icon="✉" Text="Join requests" />
+        <NavItem Href="/checkins" Icon="✓" Text="Check-ins" />
+        <NavItem Href="/exercises" Icon="🏋" Text="Exercise library" />
+    </AuthorizeView>
+
+    <AuthorizeView Policy="@Permissions.GymBillingRead">
+        <div class="nav-section">Billing</div>
+        <NavItem Href="/billing/invoices" Icon="₪" Text="Invoices &amp; payments" />
+        <NavItem Href="/plans" Icon="☰" Text="Membership plans" />
+    </AuthorizeView>
+
+    <div class="nav-section">Communication</div>
+    <AuthorizeView Policy="@Permissions.GymMembersRead">
+        <NavItem Href="/announcements" Icon="📣" Text="Announcements" />
+    </AuthorizeView>
+    <NavItem Href="/notifications" Icon="🔔" Text="Notifications" />
+
+    <AuthorizeView Policy="@Permissions.GymSettingsManage">
+        <div class="nav-section">Administration</div>
+        <NavItem Href="/settings" Icon="⚙" Text="Gym settings" />
+        <NavItem Href="/staff" Icon="👥" Text="Staff" />
+        <NavItem Href="/agents" Icon="◎" Text="AI agents" />
+        <NavItem Href="/approvals" Icon="✔" Text="Approvals" />
+        <NavItem Href="/audit" Icon="≡" Text="Activity log" />
+
+        <div class="nav-section">Advanced</div>
+        <NavItem Href="/mcp-clients" Icon="⇄" Text="MCP clients" />
+        <NavItem Href="/delegations" Icon="⛓" Text="Delegations" />
+    </AuthorizeView>
+
+</nav>
+
+@code {
+    [Parameter] public string? GymName { get; set; }
+}

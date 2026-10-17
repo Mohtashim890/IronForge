@@ -1,0 +1,97 @@
+@page "/audit"
+@attribute [Authorize(Policy = Permissions.AuditRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Activity log | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Activity log</h1>
+            <p>Every sign-in, membership change, payment, announcement and AI agent action in your gym.</p>
+        </div>
+    </div>
+
+    <div class="if-toolbar">
+        @foreach (var category in Categories)
+        {
+            <button class="m-chip @(_category == category ? "active" : "")" @onclick="() => FilterAsync(category)">@(category ?? "All")</button>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_page is null)
+    {
+        <div class="if-loading">Loading activity…</div>
+    }
+    else
+    {
+        <div class="if-table-wrap">
+            <table class="if-table">
+                <thead>
+                    <tr><th>When</th><th>Category</th><th>Action</th><th>Outcome</th><th>By</th><th>Details</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in _page.Items)
+                    {
+                        <tr>
+                            <td class="if-small">@GymFormat.DateTime(item.OccurredAtUtc)</td>
+                            <td>@item.Category</td>
+                            <td><strong>@item.Action</strong></td>
+                            <td><Badge Tone="@(item.Outcome == "Succeeded" ? "success" : item.Outcome == "Denied" ? "danger" : "warning")">@item.Outcome</Badge></td>
+                            <td class="if-small">@(item.AgentId is not null ? $"🤖 {item.AgentId}" : item.UserId is not null ? $"User {item.UserId}" : item.ActorType)</td>
+                            <td class="if-small if-muted">@item.Reason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="if-pager">
+            <span>@_page.TotalCount event(s)</span>
+            <div class="if-row">
+                <button class="if-btn sm" disabled="@(_pageNumber <= 1)" @onclick="() => GoAsync(-1)">← Newer</button>
+                <button class="if-btn sm" disabled="@(_pageNumber * 50 >= _page.TotalCount)" @onclick="() => GoAsync(1)">Older →</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly string?[] Categories =
+        [null, "Membership", "Billing", "Notification", "Coaching", "Agent", "Approval", "Authentication", "Tenant"];
+
+    private AuditPageDto? _page;
+    private string? _category;
+    private int _pageNumber = 1;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetAuditAsync(_pageNumber, 50, _category);
+
+        if (result.Success)
+            _page = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private async Task FilterAsync(string? category)
+    {
+        _category = category;
+        _pageNumber = 1;
+        await LoadAsync();
+    }
+
+    private async Task GoAsync(int delta)
+    {
+        _pageNumber += delta;
+        await LoadAsync();
+    }
+}

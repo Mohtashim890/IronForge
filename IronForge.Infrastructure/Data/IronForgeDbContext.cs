@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace IronForge.Infrastructure.Data
 {
-    public class IronForgeDbContext : DbContext
+    public partial class IronForgeDbContext : DbContext
     {
         private readonly IExecutionContextAccessor _executionContext;
         public IronForgeDbContext(DbContextOptions<IronForgeDbContext> options, IExecutionContextAccessor executionContext) : base(options)
@@ -13,18 +13,16 @@ namespace IronForge.Infrastructure.Data
         }
 
         private int? CurrentTenantId => _executionContext.Current?.TenantId;
-        public DbSet<Product> Products => Set<Product>();
         public DbSet<User> Users => Set<User>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         public DbSet<Agent> Agents => Set<Agent>();
-        public DbSet<AgentPermission> AgentPermissions => Set<AgentPermission>();
         public DbSet<AgentToolBindingEntity> AgentToolBindings => Set<AgentToolBindingEntity>();
         public DbSet<AgentUsageRecord> AgentUsageRecords => Set<AgentUsageRecord>();
         public DbSet<AgentDelegationEntity> AgentDelegations => Set<AgentDelegationEntity>();
         public DbSet<AgentDelegationScopeEntity> AgentDelegationScopes => Set<AgentDelegationScopeEntity>();
         public DbSet<Tenant> Tenants => Set<Tenant>();
         public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
-        public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
+        public DbSet<TenantInvitation> TenantInvitations => Set<TenantInvitation>();
         public DbSet<AgentSession> AgentSessions => Set<AgentSession>();
         public DbSet<ConversationMessage> ConversationMessages => Set<ConversationMessage>();
         public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
@@ -37,6 +35,8 @@ namespace IronForge.Infrastructure.Data
             ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            ConfigureGym(modelBuilder);
 
             modelBuilder.Entity<AgentMcpClientAuthorization>(entity =>
             {
@@ -75,6 +75,10 @@ namespace IronForge.Infrastructure.Data
                     x.McpClientEntityId,
                     x.IsActive
                 });
+
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.TenantId == CurrentTenantId.Value);
             });
 
 
@@ -133,27 +137,6 @@ namespace IronForge.Infrastructure.Data
                 });
             });
 
-            modelBuilder.Entity<AgentPermission>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.Permission)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.HasOne(x => x.Agent)
-                    .WithMany(x => x.Permissions)
-                    .HasForeignKey(x => x.AgentId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasIndex(x => new
-                {
-                    x.AgentId,
-                    x.Permission
-                })
-                .IsUnique();
-            });
-
             modelBuilder.Entity<Agent>(entity =>
             {
                 entity.HasKey(x => x.Id);
@@ -202,6 +185,13 @@ namespace IronForge.Infrastructure.Data
                     .IsRequired()
                     .HasMaxLength(100)
                     .HasDefaultValue("standard");
+
+                // PostgreSQL text[]; empty means every role.
+                entity.Property(x => x.AllowedRoles)
+                    .IsRequired();
+
+                entity.Property(x => x.TemplateId)
+                    .HasMaxLength(200);
 
                 entity.HasOne<Tenant>()
                     .WithMany()
@@ -359,6 +349,12 @@ namespace IronForge.Infrastructure.Data
                 });
 
                 entity.HasIndex(x => x.CorrelationId);
+
+                // Events recorded without a tenant (for example failed sign-ins)
+                // are platform events and are not visible to any tenant.
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.TenantId == CurrentTenantId.Value);
             });
 
             modelBuilder.Entity<AgentApproval>(
@@ -419,6 +415,10 @@ namespace IronForge.Infrastructure.Data
                         x.TenantId,
                         x.Status
                     });
+
+                    entity.HasQueryFilter(x =>
+                        CurrentTenantId.HasValue &&
+                        x.TenantId == CurrentTenantId.Value);
                 });
 
             modelBuilder.Entity<ConversationSummary>(entity =>
@@ -553,38 +553,6 @@ namespace IronForge.Infrastructure.Data
                 });
             });
 
-            modelBuilder.Entity<AgentMemory>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.Content)
-                    .IsRequired()
-                    .HasMaxLength(4000);
-
-                entity.Property(x => x.AgentId)
-                    .HasMaxLength(100);
-
-                entity.Property(x => x.CreatedAtUtc)
-                    .IsRequired();
-
-                entity.Property(x => x.UpdatedAtUtc)
-                    .IsRequired();
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasOne<User>()
-                    .WithMany()
-                    .HasForeignKey(x => x.UserId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasQueryFilter(x =>
-                    CurrentTenantId.HasValue &&
-                    x.TenantId == CurrentTenantId.Value);
-            });
-
             modelBuilder.Entity<RefreshToken>()
                .HasOne(rt => rt.User)
                .WithMany()
@@ -596,32 +564,6 @@ namespace IronForge.Infrastructure.Data
                 .WithMany()
                 .HasForeignKey(rt => rt.TenantId)
                 .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Product>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.Name)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.Price)
-                    .HasPrecision(18, 2);
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasOne<User>()
-                    .WithMany()
-                    .HasForeignKey(x => x.OwnerUserId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasQueryFilter(p =>
-                    CurrentTenantId.HasValue &&
-                    p.TenantId == CurrentTenantId.Value);
-            });
 
             modelBuilder.Entity<TenantMembership>(entity =>
             {
@@ -652,6 +594,56 @@ namespace IronForge.Infrastructure.Data
                     .OnDelete(DeleteBehavior.Cascade);
             });
 
+            modelBuilder.Entity<TenantInvitation>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.Email)
+                    .IsRequired()
+                    .HasMaxLength(256);
+
+                entity.Property(x => x.Role)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.TokenHash)
+                    .IsRequired()
+                    .HasMaxLength(100);
+
+                entity.HasIndex(x => x.TokenHash)
+                    .IsUnique();
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Email
+                });
+
+                // Mapped to PostgreSQL's xmin system column; no table column.
+                entity.Property(x => x.Version)
+                    .IsRowVersion();
+
+                entity.HasOne<Tenant>()
+                    .WithMany()
+                    .HasForeignKey(x => x.TenantId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne<User>()
+                    .WithMany()
+                    .HasForeignKey(x => x.CreatedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasOne<User>()
+                    .WithMany()
+                    .HasForeignKey(x => x.AcceptedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                // Defense in depth; TenantInvitationStore scopes explicitly.
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.TenantId == CurrentTenantId.Value);
+            });
+
             modelBuilder.Entity<Tenant>(entity =>
             {
                 entity.HasKey(x => x.Id);
@@ -667,6 +659,24 @@ namespace IronForge.Infrastructure.Data
                 entity.HasIndex(x => x.Slug)
                     .IsUnique();
 
+                entity.Property(x => x.Plan)
+                    .IsRequired()
+                    .HasMaxLength(50);
+
+                // Stored as text so the column stays readable and enum
+                // reordering cannot change meaning.
+                entity.Property(x => x.SubscriptionStatus)
+                    .IsRequired()
+                    .HasConversion<string>()
+                    .HasMaxLength(20);
+
+                // PostgreSQL text[].
+                entity.Property(x => x.AddOnModules)
+                    .IsRequired();
+
+                entity.Property(x => x.AddOnModelProfiles)
+                    .IsRequired();
+
                 entity.Property(x => x.IsActive)
                     .IsRequired();
 
@@ -681,6 +691,11 @@ namespace IronForge.Infrastructure.Data
 
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
+                .IsUnique();
+
+            // One account per email: invitations, joining and password reset find accounts by email.
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.Email)
                 .IsUnique();
 
             modelBuilder.Entity<User>()
@@ -710,11 +725,24 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.Revoked)
                     .IsRequired();
 
-                entity.HasIndex(x => x.UserId);
+                entity.HasOne<Tenant>()
+                    .WithMany()
+                    .HasForeignKey(x => x.TenantId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.UserId
+                });
 
                 entity.HasIndex(x => x.AgentId);
 
                 entity.HasIndex(x => x.ExpiresAtUtc);
+
+                entity.HasQueryFilter(x =>
+                    CurrentTenantId.HasValue &&
+                    x.TenantId == CurrentTenantId.Value);
             });
 
             modelBuilder.Entity<AgentDelegationScopeEntity>(
@@ -735,6 +763,11 @@ namespace IronForge.Infrastructure.Data
                         .WithMany(x => x.Scopes)
                         .HasForeignKey(x => x.DelegationId)
                         .OnDelete(DeleteBehavior.Cascade);
+
+                    // Tenant isolation through the owning delegation.
+                    entity.HasQueryFilter(x =>
+                        CurrentTenantId.HasValue &&
+                        x.Delegation.TenantId == CurrentTenantId.Value);
                 });
         }
     }

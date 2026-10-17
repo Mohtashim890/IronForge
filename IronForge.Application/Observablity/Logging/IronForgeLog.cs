@@ -217,35 +217,5 @@ namespace IronForge.Application.Observablity.Logging
             string approvalId,
             string toolName,
             Guid sessionId);
-
-        // ============================================================
-        // Product
-        // Event IDs: 1400 - 1499
-        // ============================================================
-
-        [LoggerMessage(
-            EventId = 1401,
-            Level = LogLevel.Information,
-            Message = "Product created. ProductId={ProductId}, UserId={UserId}")]
-        public static partial void ProductCreated(
-            this ILogger logger,
-            int productId,
-            int userId);
-
-        [LoggerMessage(
-            EventId = 1402,
-            Level = LogLevel.Information,
-            Message = "Product updated. ProductId={ProductId}")]
-        public static partial void ProductUpdated(
-            this ILogger logger,
-            int productId);
-
-        [LoggerMessage(
-            EventId = 1403,
-            Level = LogLevel.Information,
-            Message = "Product deleted. ProductId={ProductId}")]
-        public static partial void ProductDeleted(
-            this ILogger logger,
-            int productId);
     }
 }

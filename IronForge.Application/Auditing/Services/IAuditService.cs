@@ -13,6 +13,7 @@ namespace IronForge.Application.Auditing.Services
        string? resourceId = null,
        string? reason = null,
        string? metadataJson = null,
-       CancellationToken cancellationToken = default);
+       CancellationToken cancellationToken = default,
+       int? tenantId = null);
     }
 }

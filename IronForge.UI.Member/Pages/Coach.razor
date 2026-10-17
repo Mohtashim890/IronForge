@@ -1,0 +1,166 @@
+@page "/coach"
+@attribute [Authorize]
+@using IronForge.Shared.Models.Agents
+@inject IAgentWorkspaceService Agents
+
+<PageTitle>AI coach | IronForge</PageTitle>
+
+<div class="if-row" style="margin-bottom: 8px">
+    <div style="flex: 1">
+        <h1 style="font-size: 1.4rem; margin: 0">Your AI coach</h1>
+        <div class="if-small if-muted">Knows your routines, workouts and goals. Not a doctor.</div>
+    </div>
+    <button class="if-btn sm" disabled="@_sending" @onclick="NewChatAsync">New chat</button>
+</div>
+
+@if (_error is not null)
+{
+    <div class="if-alert @(_unavailable ? "info" : "error")">@_error</div>
+}
+
+@if (!_unavailable)
+{
+    <div class="if-chat">
+        @if (_messages.Count == 0 && !_loading)
+        {
+            <div class="m-card">
+                <strong>Try asking</strong>
+                <div style="margin-top: 8px">
+                    @foreach (var prompt in Suggestions)
+                    {
+                        <button class="m-chip" @onclick="() => SendAsync(prompt)">@prompt</button>
+                    }
+                </div>
+            </div>
+        }
+
+        @foreach (var message in _messages)
+        {
+            <div class="if-bubble @(message.User ? "user" : "assistant")">@message.Text</div>
+        }
+
+        @if (_sending)
+        {
+            <div class="if-bubble assistant if-muted">Thinking…</div>
+        }
+    </div>
+
+    <div class="if-composer">
+        <textarea rows="1" placeholder="Ask about training, progress or your plan…" @bind="_draft" @bind:event="oninput" @onkeydown="KeyAsync" disabled="@_sending"></textarea>
+        <button class="if-btn primary" disabled="@(_sending || string.IsNullOrWhiteSpace(_draft))" @onclick="() => SendAsync(_draft)">Send</button>
+    </div>
+}
+
+@code {
+    private const string CoachId = "fitness-coach";
+
+    private static readonly string[] Suggestions =
+    [
+        "How am I progressing?",
+        "Plan my workout for today",
+        "Design a 3-day routine for building strength",
+        "I did 3 sets of 10 push-ups — log it",
+        "When is my next payment due?"
+    ];
+
+    private sealed record ChatLine(bool User, string Text);
+
+    private readonly List<ChatLine> _messages = [];
+    private Guid? _sessionId;
+    private string _draft = "";
+    private bool _sending;
+    private bool _loading = true;
+    private bool _unavailable;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var agents = await Agents.GetAvailableAgentsAsync();
+
+        if (!agents.Success || agents.Data!.All(x => x.AgentId != CoachId))
+        {
+            _unavailable = true;
+            _loading = false;
+            _error = "The AI coach isn't part of your gym's plan yet.";
+            return;
+        }
+
+        // Continue the latest conversation.
+        var sessions = await Agents.GetSessionsAsync(CoachId);
+        var latest = sessions.Data?.OrderByDescending(x => x.LastMessageAtUtc ?? x.CreatedAtUtc).FirstOrDefault();
+
+        if (latest is not null)
+        {
+            _sessionId = latest.Id;
+            var history = await Agents.GetMessagesAsync(latest.Id);
+
+            foreach (var message in history.Data ?? [])
+            {
+                if (message.Role == ConversationMessageRole.User && message.ToolName is null)
+                    _messages.Add(new ChatLine(true, message.Content));
+                else if (message.Role == ConversationMessageRole.Assistant && message.ToolName is null && !string.IsNullOrWhiteSpace(message.Content))
+                    _messages.Add(new ChatLine(false, message.Content));
+            }
+        }
+
+        _loading = false;
+    }
+
+    private async Task KeyAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendAsync(_draft);
+        }
+    }
+
+    private async Task NewChatAsync()
+    {
+        _sessionId = null;
+        _messages.Clear();
+        _error = null;
+        await Task.CompletedTask;
+    }
+
+    private async Task SendAsync(string text)
+    {
+        text = text.Trim();
+
+        if (text.Length == 0 || _sending)
+            return;
+
+        _error = null;
+        _sending = true;
+        _draft = "";
+        _messages.Add(new ChatLine(true, text));
+
+        try
+        {
+            if (_sessionId is null)
+            {
+                var session = await Agents.CreateSessionAsync(CoachId, text.Length > 60 ? text[..60] : text);
+
+                if (!session.Success)
+                {
+                    _error = session.ErrorMessage;
+                    return;
+                }
+
+                _sessionId = session.Data!.Id;
+            }
+
+            var result = await Agents.RunAgentAsync(CoachId, _sessionId.Value, text);
+
+            if (result.Success)
+                _messages.Add(new ChatLine(false, result.Data!.Message ?? "Done."));
+            else
+                _error = result.StatusCode == 429
+                    ? "Your gym has used its AI allowance for this month."
+                    : result.ErrorMessage;
+        }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

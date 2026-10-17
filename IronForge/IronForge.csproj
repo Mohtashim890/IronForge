@@ -51,6 +51,14 @@
         <UserSecretsId>f08fe628-b362-46e2-81e0-4d3e815f665f</UserSecretsId>
     </PropertyGroup>
 
+	<!-- Windows: running from Visual Studio or "dotnet build -t:Run" (Debug or Release) uses an
+	     unpackaged app, which needs no Developer Mode and no certificate. Publishing (dotnet publish
+	     or Visual Studio's Publish) still produces the signed MSIX package. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' and '$(_IsPublishing)' != 'true' and '$(GenerateAppxPackageOnBuild)' != 'true' and '$(WindowsPackageType)' == ''">
+		<WindowsPackageType>None</WindowsPackageType>
+		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+	</PropertyGroup>
+
 	<!-- Signing material lives outside the repository. Release builds only sign when it
 	     is available, so CI runners (and machines without the keystore/certificate)
 	     produce unsigned Release builds instead of failing. -->
@@ -121,6 +129,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\IronForge.Shared\IronForge.Shared.csproj" />
+      <ProjectReference Include="..\IronForge.UI.Member\IronForge.UI.Member.csproj" />
     </ItemGroup>
 
 </Project>

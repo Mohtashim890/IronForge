@@ -7,11 +7,6 @@ namespace IronForge.Application.Auth.Services
         Task<LoginResponse?> LoginAsync(LoginRequest request);
         Task<LoginResponse?> RefreshTokenAsync(
             string refreshToken);
-        Task<bool> RegisterAsync(RegisterRequest request);
-        Task<string> CreateTenantAccessTokenAsync(
-            int userId,
-            int tenantId,
-            CancellationToken cancellationToken = default);
         Task<LoginResponse?> SelectTenantAsync(
             int userId,
             int tenantId,

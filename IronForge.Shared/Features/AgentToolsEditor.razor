@@ -38,6 +38,7 @@
                 </label>
 
                 <div class="agent-tool-defaults">
+                    <span class="agent-tool-badge">@tool.ModuleName</span>
                     <span class="agent-tool-badge">Needs <code>@tool.RequiredPermission</code></span>
                     <span class="agent-tool-badge risk-@tool.RiskLevel.ToLowerInvariant()">@tool.RiskLevel risk</span>
                     @if (tool.RequiresApproval)
@@ -114,9 +115,10 @@
     @if (unavailableTools.Count > 0)
     {
         <div class="agent-tool-warning" role="status">
-            This agent is bound to tools that are no longer in the catalogue
-            (@string.Join(", ", unavailableTools)). They are not offered to the
-            model and will be removed when you save.
+            This agent is bound to tools that are no longer available to this
+            workspace (@string.Join(", ", unavailableTools)): they were removed
+            from the catalogue or are not included in the subscription. They are
+            not offered to the model and will be removed when you save.
         </div>
     }
 
