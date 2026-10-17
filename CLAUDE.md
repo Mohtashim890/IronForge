@@ -274,7 +274,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **MAUI**:
   - Tokens in `SecureStorage` (`SecureTokenStore`).
   - Payment checkout opens in the system browser (`MauiLinkOpener`).
-  - API URL: Debug uses `https://localhost:7226/`. Release reads `Resources/Raw/appsettings.json` (`ApiSettings:BaseUrl`), defaulting to `https://api.mohtashim.dev/`. On Android, `localhost` is rewritten to `10.0.2.2`.
+  - API URL: Debug uses `https://localhost:7226/`. Release reads `Resources/Raw/appsettings.json` (`ApiSettings:BaseUrl`), defaulting to `https://api.mohtashim.dev/`. On the Android emulator, `localhost` is rewritten to `10.0.2.2`; a physical device keeps `localhost` and uses `adb reverse tcp:7226 tcp:7226`.
   - The dev certificate (CN=localhost) is trusted only for localhost, 127.0.0.1 and 10.0.2.2.
   - **Windows** runs **unpackaged** (`WindowsPackageType=None`, self-contained Windows App SDK) when not publishing, so no Developer Mode is needed. Publishing produces a signed MSIX (thumbprint in the csproj, skipped when `CI=true`). `launchSettings.json` uses `commandName: Project`.
   - **Android**: Release produces a signed AAB when `%USERPROFILE%\IronForgeSigning\ironforge-release.keystore` exists.

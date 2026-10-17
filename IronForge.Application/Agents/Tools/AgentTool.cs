@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.AI;
 
 namespace IronForge.Application.Agents.Tools;
@@ -9,6 +11,12 @@ namespace IronForge.Application.Agents.Tools;
 /// </summary>
 public abstract class AgentTool : IAgentTool
 {
+    private static readonly string[] NumericBoundKeywords =
+        ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"];
+
+    private static readonly AIJsonSchemaCreateOptions SchemaOptions =
+        AIJsonSchemaCreateOptions.Default with { TransformSchemaNode = NormalizeNumericBounds };
+
     public abstract AgentToolDescriptor Descriptor { get; }
 
     /// <summary>The method the tool runs, e.g. <c>ExecuteAsync</c>.</summary>
@@ -18,7 +26,34 @@ public abstract class AgentTool : IAgentTool
     {
         return AIFunctionFactory.Create(
             Handler,
-            name: Descriptor.Name,
-            description: Descriptor.Description);
+            new AIFunctionFactoryOptions
+            {
+                Name = Descriptor.Name,
+                Description = Descriptor.Description,
+                JsonSchemaCreateOptions = SchemaOptions
+            });
+    }
+
+    /// <summary>
+    /// <c>[Range(typeof(decimal), "0", "1000")]</c> keeps its bounds as strings,
+    /// which the schema exporter emits as <c>"maximum": "1000"</c>. OpenAI rejects
+    /// such a schema, so string bounds are rewritten as JSON numbers.
+    /// </summary>
+    private static JsonNode NormalizeNumericBounds(AIJsonSchemaCreateContext context, JsonNode schema)
+    {
+        if (schema is not JsonObject obj)
+            return schema;
+
+        foreach (var keyword in NumericBoundKeywords)
+        {
+            if (obj[keyword] is JsonValue value &&
+                value.TryGetValue(out string? text) &&
+                decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
+            {
+                obj[keyword] = number;
+            }
+        }
+
+        return schema;
     }
 }

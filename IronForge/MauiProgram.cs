@@ -89,9 +89,10 @@ namespace IronForge
         /// <summary>
         /// Debug builds talk to the local API. Release builds read
         /// Resources/Raw/appsettings.json (ApiSettings:BaseUrl), so a Release
-        /// build can also be pointed at a local API for testing. On Android,
-        /// "localhost" means the emulator itself, so it is mapped to the host
-        /// machine's alias 10.0.2.2.
+        /// build can also be pointed at a local API for testing. On the Android
+        /// emulator, "localhost" means the emulator itself, so it is mapped to the
+        /// host machine's alias 10.0.2.2. A physical device keeps "localhost" and
+        /// reaches the host through "adb reverse tcp:7226 tcp:7226".
         /// </summary>
         private static string ResolveApiBaseUrl()
         {
@@ -102,7 +103,8 @@ namespace IronForge
 #endif
 
 #if ANDROID
-            url = url.Replace("://localhost", "://10.0.2.2").Replace("://127.0.0.1", "://10.0.2.2");
+            if (DeviceInfo.Current.DeviceType == DeviceType.Virtual)
+                url = url.Replace("://localhost", "://10.0.2.2").Replace("://127.0.0.1", "://10.0.2.2");
 #endif
 
             return url.EndsWith('/') ? url : url + "/";
