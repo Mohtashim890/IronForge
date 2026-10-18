@@ -23,6 +23,14 @@ public interface IAgentTemplateRolloutService
 {
     Task<ServiceResult<TemplateRolloutResultDto>> RolloutAsync(
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The same for one tenant. Runs after its subscription changes, so an
+    /// upgrade or add-on (e.g. coaching) installs the agents it now covers.
+    /// </summary>
+    Task<ServiceResult<TemplateRolloutResultDto>> RolloutToTenantAsync(
+        int tenantId,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class AgentTemplateRolloutService : IAgentTemplateRolloutService
@@ -49,75 +57,109 @@ public sealed class AgentTemplateRolloutService : IAgentTemplateRolloutService
     {
         if (!_authorization.HasPermission(Permissions.PlatformTenantsManage))
         {
-            return ServiceResult<TemplateRolloutResultDto>.Fail(
-                "Only platform administrators can roll out agent templates.",
-                403);
+            return Forbidden();
         }
 
         var result = new TemplateRolloutResultDto();
-        var now = DateTime.UtcNow;
 
         foreach (var tenant in await _tenants.ListAsync(cancellationToken))
         {
-            var modules = tenant.GetEnabledModules();
-            var profiles = tenant.GetAllowedModelProfiles();
-            var agents = await _agents.ListAgentsAsync(tenant.Id, cancellationToken);
-
-            var changes = new List<string>();
-
-            foreach (var template in AgentTemplates.Default)
-            {
-                if (!template.Modules.All(modules.Contains))
-                    continue;
-
-                var existing = agents.FirstOrDefault(x => x.AgentId == template.TemplateId);
-
-                if (existing is null)
-                {
-                    var agent = template.CreateAgent(tenant.Id, now);
-                    agent.ModelProfile = template.ChooseModelProfile(profiles);
-
-                    _agents.Add(agent);
-
-                    result.AgentsInstalled++;
-                    changes.Add($"installed {template.TemplateId} v{template.Version}");
-                }
-                else if (existing.TemplateId != template.TemplateId)
-                {
-                    // Detached, or a tenant-built agent with the same id.
-                    result.DetachedSkipped++;
-                }
-                else if ((existing.TemplateVersion ?? 0) < template.Version)
-                {
-                    var from = existing.TemplateVersion;
-
-                    template.ApplyTo(existing, now);
-                    existing.ModelProfile = template.ChooseModelProfile(profiles);
-
-                    result.AgentsUpdated++;
-                    changes.Add($"updated {template.TemplateId} v{from} -> v{template.Version}");
-                }
-            }
-
-            if (changes.Count == 0)
-                continue;
-
-            await _agents.SaveChangesAsync(cancellationToken);
-
-            result.TenantsChanged++;
-
-            await _auditService.RecordAsync(
-                AuditCategory.Agent,
-                "AgentTemplatesRolledOut",
-                AuditOutcome.Succeeded,
-                actorType: AuditActorType.User,
-                resourceType: "Tenant",
-                resourceId: tenant.Id.ToString(),
-                reason: string.Join("; ", changes),
-                cancellationToken: cancellationToken,
-                tenantId: tenant.Id);
+            await RolloutAsync(tenant, result, cancellationToken);
         }
 
         return ServiceResult<TemplateRolloutResultDto>.Ok(result);
     }
+
+    public async Task<ServiceResult<TemplateRolloutResultDto>> RolloutToTenantAsync(
+        int tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_authorization.HasPermission(Permissions.PlatformTenantsManage))
+        {
+            return Forbidden();
+        }
+
+        var tenant = await _tenants.FirstOrDefaultAsync(x => x.Id == tenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return ServiceResult<TemplateRolloutResultDto>.Fail("Tenant was not found.", 404);
+        }
+
+        var result = new TemplateRolloutResultDto();
+
+        await RolloutAsync(tenant, result, cancellationToken);
+
+        return ServiceResult<TemplateRolloutResultDto>.Ok(result);
+    }
+
+    private async Task RolloutAsync(
+        Tenant tenant,
+        TemplateRolloutResultDto result,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var modules = tenant.GetEnabledModules();
+        var profiles = tenant.GetAllowedModelProfiles();
+        var agents = await _agents.ListAgentsAsync(tenant.Id, cancellationToken);
+
+        var changes = new List<string>();
+
+        foreach (var template in AgentTemplates.Default)
+        {
+            if (!template.IsCoveredBy(modules))
+                continue;
+
+            var existing = agents.FirstOrDefault(x => x.AgentId == template.TemplateId);
+
+            if (existing is null)
+            {
+                var agent = template.CreateAgent(tenant.Id, now);
+                agent.ModelProfile = template.ChooseModelProfile(profiles);
+
+                _agents.Add(agent);
+
+                result.AgentsInstalled++;
+                changes.Add($"installed {template.TemplateId} v{template.Version}");
+            }
+            else if (existing.TemplateId != template.TemplateId)
+            {
+                // Detached, or a tenant-built agent with the same id.
+                result.DetachedSkipped++;
+            }
+            else if ((existing.TemplateVersion ?? 0) < template.Version)
+            {
+                var from = existing.TemplateVersion;
+
+                template.ApplyTo(existing, now);
+                existing.ModelProfile = template.ChooseModelProfile(profiles);
+
+                result.AgentsUpdated++;
+                changes.Add($"updated {template.TemplateId} v{from} -> v{template.Version}");
+            }
+        }
+
+        if (changes.Count == 0)
+            return;
+
+        await _agents.SaveChangesAsync(cancellationToken);
+
+        result.TenantsChanged++;
+
+        await _auditService.RecordAsync(
+            AuditCategory.Agent,
+            "AgentTemplatesRolledOut",
+            AuditOutcome.Succeeded,
+            actorType: AuditActorType.User,
+            resourceType: "Tenant",
+            resourceId: tenant.Id.ToString(),
+            reason: string.Join("; ", changes),
+            cancellationToken: cancellationToken,
+            tenantId: tenant.Id);
+    }
+
+    private static ServiceResult<TemplateRolloutResultDto> Forbidden() =>
+        ServiceResult<TemplateRolloutResultDto>.Fail(
+            "Only platform administrators can roll out agent templates.",
+            403);
 }

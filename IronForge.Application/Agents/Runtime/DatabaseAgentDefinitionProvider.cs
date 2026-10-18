@@ -57,6 +57,15 @@ public sealed class DatabaseAgentDefinitionProvider : IAgentDefinitionProvider
         var enabledModules =
             await _entitlements.GetEnabledModulesAsync(cancellationToken);
 
+        // A template agent needs its template's required modules (e.g. the
+        // coach after a downgrade to a plan without coaching).
+        if (AgentTemplates.Find(agent.TemplateId) is { } template &&
+            !template.IsCoveredBy(enabledModules))
+        {
+            throw new InvalidOperationException(
+                $"Agent '{agentId}' is not included in the gym's subscription.");
+        }
+
         // Tools missing from the catalogue are kept: the registry skips them
         // with a warning, which points at the stale binding.
         bindings = bindings

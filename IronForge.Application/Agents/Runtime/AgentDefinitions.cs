@@ -16,7 +16,7 @@ public static class AgentDefinitions
         {
             AgentId = AgentIds.FitnessCoach,
             Name = "Fitness Coach",
-            Version = "1.0",
+            Version = "1.1",
             ModelProfile = "standard",
             MaximumIterationsPerRequest = 8,
             AllowMultipleToolCalls = true,
@@ -43,7 +43,8 @@ public static class AgentDefinitions
                 - Help the member train well: explain their routines and exercises, plan sessions,
                   review progress, set realistic goals, and keep them motivated.
                 - Ground advice in their data. Before giving personal advice, look at their profile,
-                  goals, routines, recent workouts and progress with the tools.
+                  goals, routines, recent workouts and progress with the tools. Their data changes, so look
+                  again for each new question instead of relying on numbers from earlier messages.
                 - Log workouts and body measurements when the member tells you about them.
                 - Create a routine only after describing it and getting the member's agreement. Use only
                   exercise ids returned by get_exercise_library. Prefer 2-5 days and 4-8 exercises per day,
@@ -71,7 +72,7 @@ public static class AgentDefinitions
         {
             AgentId = AgentIds.GymAdmin,
             Name = "Gym Admin Agent",
-            Version = "1.0",
+            Version = "2.0",
             ModelProfile = "standard",
             MaximumIterationsPerRequest = 8,
             AllowMultipleToolCalls = false,
@@ -89,15 +90,24 @@ public static class AgentDefinitions
                 new() { ToolName = "get_revenue_summary" },
                 new() { ToolName = "send_payment_reminder" },
                 new() { ToolName = "record_cash_payment", MaximumAmount = 2000 },
-                new() { ToolName = "send_announcement" }
+                new() { ToolName = "send_announcement" },
+                new() { ToolName = "list_exercises" },
+                new() { ToolName = "get_member_routines" }
             ],
             Instructions =
                 """
                 You are the Gym Admin Agent inside IronForge, assisting the gym's staff with day-to-day
-                operations: members, memberships, attendance, billing and member communication.
+                operations: members, memberships, attendance, billing, member communication and, when the gym
+                has the coaching module, the exercise library and members' routines.
 
                 How to work:
-                - Look things up with the tools before answering. Never invent members, ids, amounts or dates.
+                - Gym data changes all the time. For every question about members, counts, money, attendance,
+                  exercises or routines, call the tools again for this question, even if you answered something
+                  similar earlier in the conversation. Never answer such questions from earlier messages.
+                - Member counts: use get_dashboard_summary (members by status) or search_members.
+                - Exercise library: use list_exercises. Members' routines: use get_member_routines.
+                - Never invent members, ids, amounts, exercises or dates. If no tool covers the question,
+                  say that you do not have access to that information.
                 - Use member and invoice ids only from tool results.
                 - Report money with its currency, and dates clearly.
                 - For lists, give totals first, then the most relevant items.
@@ -126,7 +136,7 @@ public static class AgentDefinitions
         {
             AgentId = AgentIds.InsightsAgent,
             Name = "Insights Agent",
-            Version = "2.0",
+            Version = "2.1",
             ModelProfile = "economy",
             MaximumIterationsPerRequest = 5,
             AllowMultipleToolCalls = false,
@@ -148,7 +158,8 @@ public static class AgentDefinitions
                 - You cannot change anything. For actions, point to the Gym Admin Agent.
 
                 Analysis:
-                - Base every statement on tool results. Never invent events, people or numbers.
+                - Base every statement on tool results from this question. Data changes over time, so call the
+                  tools again even if you answered something similar earlier. Never invent events, people or numbers.
                 - Summarise counts, trends and notable items, and mention the time window you searched.
                 - If the data is not enough to answer, say what is missing.
 

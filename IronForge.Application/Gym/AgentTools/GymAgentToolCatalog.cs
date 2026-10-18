@@ -28,6 +28,8 @@ public static class GymAgentToolCatalog
         typeof(GetRevenueSummaryAgentTool),
         typeof(SendPaymentReminderAgentTool),
         typeof(RecordCashPaymentAgentTool),
-        typeof(SendAnnouncementAgentTool)
+        typeof(SendAnnouncementAgentTool),
+        typeof(ListExercisesAgentTool),
+        typeof(GetMemberRoutinesAgentTool)
     ];
 }

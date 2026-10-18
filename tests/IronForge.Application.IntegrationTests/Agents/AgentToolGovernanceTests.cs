@@ -120,13 +120,13 @@ public sealed class AgentToolGovernanceTests
     [InlineData(TenantRoles.Member, new string[0])]
     [InlineData(TenantRoles.Trainer, new[]
     {
-        "get_attendance_summary", "get_dashboard_summary", "get_member_details",
-        "list_expiring_memberships", "search_members"
+        "get_attendance_summary", "get_dashboard_summary", "get_member_details", "get_member_routines",
+        "list_exercises", "list_expiring_memberships", "search_members"
     })]
     [InlineData(TenantRoles.Admin, new[]
     {
         "freeze_membership", "get_attendance_summary", "get_dashboard_summary", "get_member_details",
-        "get_revenue_summary", "list_expiring_memberships", "list_overdue_invoices",
+        "get_member_routines", "get_revenue_summary", "list_exercises", "list_expiring_memberships", "list_overdue_invoices",
         "record_cash_payment", "search_members", "send_announcement", "send_payment_reminder"
     })]
     public async Task ModelIsOnlyOfferedToolsTheUserMayUse(string role, string[] expectedTools)
@@ -281,8 +281,8 @@ public sealed class AgentToolGovernanceTests
     [Theory]
     [InlineData(new[] { "gym.members.read" }, new[]
     {
-        "get_attendance_summary", "get_dashboard_summary", "get_member_details",
-        "list_expiring_memberships", "search_members"
+        "get_attendance_summary", "get_dashboard_summary", "get_member_details", "get_member_routines",
+        "list_exercises", "list_expiring_memberships", "search_members"
     })]
     // Reminders and cash payments need approval, which MCP cannot provide.
     [InlineData(new[] { "gym.billing.read", "gym.billing.manage" }, new[]

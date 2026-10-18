@@ -40,6 +40,20 @@ public sealed class AgentTemplate
     public required IReadOnlyList<string> Modules { get; init; }
 
     /// <summary>
+    /// Modules of extra tools the template also binds. They do not block the
+    /// install: a tenant without one of them gets the agent, and the provider
+    /// drops those tools until the module is enabled.
+    /// </summary>
+    public IReadOnlyList<string> OptionalModules { get; init; } = [];
+
+    /// <summary>True when the modules include every required module of the template.</summary>
+    public bool IsCoveredBy(IEnumerable<string> enabledModules)
+    {
+        var enabled = enabledModules.ToHashSet(StringComparer.Ordinal);
+        return Modules.All(enabled.Contains);
+    }
+
+    /// <summary>
     /// Builds the tenant's managed copy of the agent with its tool bindings
     /// (which define its permissions), ready to be added in one save.
     /// </summary>
@@ -101,7 +115,7 @@ public static class AgentTemplates
             Definition = AgentDefinitions.FitnessCoach,
             Name = "Fitness Coach",
             Description = "Members' personal AI coach: routines, workout logging, progress and goals.",
-            Version = 1,
+            Version = 2,
             Modules = [PlatformModules.GymCoaching, PlatformModules.GymBilling],
         };
 
@@ -110,9 +124,11 @@ public static class AgentTemplates
         {
             Definition = AgentDefinitions.GymAdmin,
             Name = "Gym Admin Agent",
-            Description = "Staff assistant for members, attendance, billing and announcements.",
-            Version = 1,
+            Description = "Staff assistant for members, attendance, billing, announcements and the exercise library.",
+            Version = 2,
             Modules = [PlatformModules.GymCore, PlatformModules.GymBilling, PlatformModules.GymEngagement],
+            // list_exercises and get_member_routines need coaching; Starter gyms get the agent without them.
+            OptionalModules = [PlatformModules.GymCoaching],
         };
 
     public static readonly AgentTemplate InsightsAgent =
@@ -121,7 +137,7 @@ public static class AgentTemplates
             Definition = AgentDefinitions.InsightsAgent,
             Name = "Insights Agent",
             Description = "Read-only analyst for the gym's activity log and key numbers.",
-            Version = 2,
+            Version = 3,
             Modules = [PlatformModules.GymCore, PlatformModules.Audit],
         };
 
@@ -132,4 +148,10 @@ public static class AgentTemplates
         FitnessCoach,
         InsightsAgent
     ];
+
+    /// <summary>The default template with this id, or null for a tenant-built agent.</summary>
+    public static AgentTemplate? Find(string? templateId) =>
+        templateId is null
+            ? null
+            : Default.FirstOrDefault(x => x.TemplateId == templateId);
 }

@@ -102,7 +102,8 @@ public sealed class TestServiceFactory
             new UserAuthorizationService(ContextAccessor),
             Audit,
             new TestModelProfiles(),
-            GymSettingsFactory);
+            GymSettingsFactory,
+            TemplateRollout);
 
     public TenantMemberService Members =>
         new(

@@ -131,7 +131,8 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 | Enterprise | same as Professional | 10M | standard + economy |
 
 - A tool is offered only if its module is enabled.
-- An agent template is installed only if **all** its modules are enabled. A unit test enforces that template `Modules` equal its tools' modules.
+- An agent template is installed only if **all** its required `Modules` are enabled. `OptionalModules` (e.g. coaching for the Gym Admin agent) do not block the install; their tools are dropped until the module is enabled. A unit test enforces that `Modules` + `OptionalModules` equal its tools' modules.
+- Agents follow the subscription: `UpdateSubscriptionAsync` calls `AgentTemplateRolloutService.RolloutToTenantAsync`, so an upgrade or add-on installs the newly covered agents at once. A template agent whose required modules are no longer enabled stays installed but is hidden from `GetAvailableAgentsAsync` and refused by `DatabaseAgentDefinitionProvider`.
 
 ---
 
@@ -144,7 +145,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 3. Install `AgentTemplates.Default` filtered by the plan's modules, adjusting the model profile to the plan.
 4. Issue the Admin invitation. It is emailed through the outbox, and the link is also returned.
 
-Subscription changes, suspension and template rollout go through `TenantProvisioningService` and `AgentTemplateRolloutService`.
+Subscription changes, suspension and template rollout go through `TenantProvisioningService` and `AgentTemplateRolloutService` (all tenants, or one tenant after its subscription changes).
 
 ### 4.2 Members and joining
 - **Entities**: `MembershipPlan` (price, BillingInterval Monthly/Quarterly/Yearly, IsActive) and `MemberProfile`:
@@ -239,6 +240,8 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - MCP agents cannot run tools that need approval.
 - **Gym Admin tools**:
   - read: search_members, get_member_details, get_dashboard_summary, get_attendance_summary, list_expiring_memberships, list_overdue_invoices, get_revenue_summary
+  - coaching (optional module, gym.members.read so Trainers can use them): list_exercises, get_member_routines
+  - The instructions tell every agent to call tools again for each data question rather than reuse numbers from earlier messages.
   - freeze_membership (Medium, approval)
   - send_payment_reminder (Medium, approval)
   - record_cash_payment (High, approval; binding MaximumAmount 2000)
@@ -249,7 +252,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   2. Add it to `GymAgentToolCatalog.Types`.
   3. Bind it in an `AgentDefinition`.
   4. Bump `AgentTemplate.Version`.
-  5. Update the template `Modules` to match.
+  5. Update the template `Modules` (or `OptionalModules`) to match.
   6. Run the rollout from the Platform console.
 
 ### 4.7 Platform operator
@@ -328,7 +331,7 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 179 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 191 tests; Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.

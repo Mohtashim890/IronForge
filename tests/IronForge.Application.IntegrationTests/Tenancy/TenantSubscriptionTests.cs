@@ -1,4 +1,5 @@
-﻿using IronForge.Application.Agents.Runtime;
+﻿using IronForge.Application.Agents.Models;
+using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
 using IronForge.Application.Entities;
@@ -201,6 +202,123 @@ public sealed class TenantSubscriptionTests
             s.AgentDefinitions.GetRequiredAsync("analyst"));
 
         Assert.Equal(["search_members", AuditTool], withAddOn.Tools.Select(x => x.ToolName));
+    }
+
+    // ---- Agents follow the subscription ------------------------------------
+
+    [Fact]
+    public async Task CoachingAddOn_InstallsTheCoach_ForMembers_AndDowngradeHidesIt()
+    {
+        var provisioned = await AsPlatformAdmin(s => s.Provisioning.ProvisionAsync(
+            NewTenant("hardstone", SubscriptionPlans.Starter.Id)));
+        var tenantId = provisioned.Data!.Tenant.TenantId;
+
+        Assert.DoesNotContain(await AvailableAgentsAsync(tenantId, TenantRoles.Member), x => x == AgentIds.FitnessCoach);
+
+        // The operator adds coaching to the Starter plan.
+        var addOn = await AsPlatformAdmin(s => s.Provisioning.UpdateSubscriptionAsync(
+            tenantId,
+            new UpdateTenantSubscriptionRequest
+            {
+                Plan = SubscriptionPlans.Starter.Id,
+                SubscriptionStatus = SubscriptionStatus.Active,
+                AddOnModules = [PlatformModules.GymCoaching]
+            }));
+
+        Assert.True(addOn.Success, addOn.ErrorMessage);
+        Assert.Equal([AgentIds.FitnessCoach], await AvailableAgentsAsync(tenantId, TenantRoles.Member));
+
+        var coach = await AsRole(tenantId, TenantRoles.Member, s =>
+            s.AgentDefinitions.GetRequiredAsync(AgentIds.FitnessCoach));
+        Assert.Contains(coach.Tools, x => x.ToolName == "log_workout");
+
+        // Back to plain Starter: the coach stays installed but is neither offered nor runnable.
+        await AsPlatformAdmin(s => s.Provisioning.UpdateSubscriptionAsync(
+            tenantId,
+            new UpdateTenantSubscriptionRequest
+            {
+                Plan = SubscriptionPlans.Starter.Id,
+                SubscriptionStatus = SubscriptionStatus.Active
+            }));
+
+        Assert.Empty(await AvailableAgentsAsync(tenantId, TenantRoles.Member));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => AsRole(tenantId, TenantRoles.Member, s =>
+            s.AgentDefinitions.GetRequiredAsync(AgentIds.FitnessCoach)));
+    }
+
+    [Fact]
+    public async Task PlanUpgrade_InstallsTheAgentsTheNewPlanCovers()
+    {
+        var provisioned = await AsPlatformAdmin(s => s.Provisioning.ProvisionAsync(
+            NewTenant("upgrader", SubscriptionPlans.Starter.Id)));
+        var tenantId = provisioned.Data!.Tenant.TenantId;
+
+        var upgrade = await AsPlatformAdmin(s => s.Provisioning.UpdateSubscriptionAsync(
+            tenantId,
+            new UpdateTenantSubscriptionRequest
+            {
+                Plan = SubscriptionPlans.Professional.Id,
+                SubscriptionStatus = SubscriptionStatus.Active
+            }));
+
+        Assert.True(upgrade.Success, upgrade.ErrorMessage);
+        Assert.Equal([AgentIds.FitnessCoach], await AvailableAgentsAsync(tenantId, TenantRoles.Member));
+        Assert.Equal(
+            new[] { AgentIds.GymAdmin, AgentIds.InsightsAgent }.Order(),
+            (await AvailableAgentsAsync(tenantId, TenantRoles.Admin)).Order());
+
+        await using var db = Database.CreateDbContext();
+        var installed = await db.Agents.IgnoreQueryFilters()
+            .Where(x => x.TenantId == tenantId)
+            .Select(x => x.AgentId)
+            .ToListAsync();
+
+        Assert.Equal(AgentTemplates.Default.Count, installed.Count);
+    }
+
+    [Fact]
+    public async Task GymAdminAgent_OffersTheExerciseLibrary_OnlyWithCoaching()
+    {
+        var starter = (await AsPlatformAdmin(s => s.Provisioning.ProvisionAsync(
+            NewTenant("plain", SubscriptionPlans.Starter.Id)))).Data!.Tenant.TenantId;
+        var professional = (await AsPlatformAdmin(s => s.Provisioning.ProvisionAsync(
+            NewTenant("coached", SubscriptionPlans.Professional.Id)))).Data!.Tenant.TenantId;
+
+        var onStarter = await AsRole(starter, TenantRoles.Trainer, s =>
+            s.AgentDefinitions.GetRequiredAsync(AgentIds.GymAdmin));
+        Assert.DoesNotContain(onStarter.Tools, x => x.ToolName == "list_exercises");
+
+        var onProfessional = await AsRole(professional, TenantRoles.Trainer, s =>
+            s.AgentDefinitions.GetRequiredAsync(AgentIds.GymAdmin));
+        Assert.Contains(onProfessional.Tools, x => x.ToolName == "list_exercises");
+        Assert.Contains(onProfessional.Tools, x => x.ToolName == "get_member_routines");
+
+        // A Trainer may use them (user ∩ agent), and the library answers.
+        var exercises = await AsRole(professional, TenantRoles.Trainer, s =>
+            s.Routines.ListExercisesAsync(null, null));
+        Assert.True(exercises.Success, exercises.ErrorMessage);
+
+        var blocked = await AsRole(starter, TenantRoles.Trainer, s =>
+            s.Routines.ListExercisesAsync(null, null));
+        Assert.Equal(403, blocked.StatusCode);
+    }
+
+    private async Task<List<string>> AvailableAgentsAsync(int tenantId, string role)
+    {
+        var result = await AsRole(tenantId, role, s => s.AgentManagement.GetAvailableAgentsAsync());
+
+        Assert.True(result.Success, result.ErrorMessage);
+
+        return result.Data!.Select(x => x.AgentId).ToList();
+    }
+
+    private async Task<T> AsRole<T>(int tenantId, string role, Func<TestServiceFactory, Task<T>> action)
+    {
+        var context = TestServiceFactory.AsRole(tenantId, userId: 1, role);
+
+        await using var db = Database.CreateDbContext(context);
+
+        return await action(new TestServiceFactory(db, context));
     }
 
     // ---- Quota -------------------------------------------------------------

@@ -46,6 +46,8 @@ public interface ITenantProvisioningService
     /// Changes plan, subscription status, add-on modules and token limit.
     /// Takes effect on the tenant's next request: the tool catalogue and agent
     /// definitions are read per request, access at the next token refresh.
+    /// Template agents the new modules cover (e.g. the Fitness Coach after an
+    /// upgrade or a coaching add-on) are installed or updated right away.
     /// </summary>
     Task<ServiceResult<PlatformTenantDto>> UpdateSubscriptionAsync(
         int tenantId,
@@ -67,6 +69,7 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
     private readonly IAuditService _auditService;
     private readonly IAgentChatClientFactory _modelProfiles;
     private readonly IGymSettingsFactory _gymSettings;
+    private readonly IAgentTemplateRolloutService _templateRollout;
 
     public TenantProvisioningService(
         IRepository<Tenant> tenants,
@@ -77,8 +80,10 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         IUserAuthorizationService authorization,
         IAuditService auditService,
         IAgentChatClientFactory modelProfiles,
-        IGymSettingsFactory gymSettings)
+        IGymSettingsFactory gymSettings,
+        IAgentTemplateRolloutService templateRollout)
     {
+        _templateRollout = templateRollout;
         _gymSettings = gymSettings;
         _tenants = tenants;
         _memberships = memberships;
@@ -221,7 +226,7 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
 
         foreach (var template in AgentTemplates.Default)
         {
-            if (!template.Modules.All(enabledModules.Contains))
+            if (!template.IsCoveredBy(enabledModules))
                 continue;
 
             var agent = template.CreateAgent(tenant.Id, now);
@@ -412,6 +417,19 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
                 $"profiles: {string.Join(", ", tenant.GetAllowedModelProfiles())}.",
             cancellationToken: cancellationToken,
             tenantId: tenant.Id);
+
+        // Agents follow the subscription: install what it now covers. Agents
+        // it no longer covers stay installed but are hidden and cannot run
+        // (AgentManagementService, DatabaseAgentDefinitionProvider), so a
+        // later re-upgrade restores them with the tenant's settings.
+        var rollout = await _templateRollout.RolloutToTenantAsync(tenant.Id, cancellationToken);
+
+        if (!rollout.Success)
+        {
+            return ServiceResult<PlatformTenantDto>.Fail(
+                rollout.ErrorMessage,
+                rollout.StatusCode);
+        }
 
         var memberCount = await _memberships.CountAsync(
             x => x.TenantId == tenant.Id && x.IsActive,

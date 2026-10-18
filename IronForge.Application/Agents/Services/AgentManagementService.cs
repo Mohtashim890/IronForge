@@ -4,6 +4,7 @@ using IronForge.Shared.Subscriptions;
 using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Governance;
+using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Agents.ModelProfiles;
 using IronForge.Application.Agents.Usage;
 using IronForge.Application.Agents.Tools;
@@ -659,11 +660,19 @@ namespace IronForge.Application.Agents.Services
 
             var role = _executionContextAccessor.Current?.Actor.Role ?? "";
 
+            // A template agent whose modules the subscription no longer covers
+            // (e.g. the coach after a downgrade) cannot run, so it is not offered.
+            var enabledModules =
+                await _entitlements.GetEnabledModulesAsync(cancellationToken);
+
             return ServiceResult<List<AvailableAgentDto>>.Ok(
                 agents
                     .Where(x =>
                         x.AllowedRoles.Count == 0 ||
                         x.AllowedRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+                    .Where(x =>
+                        AgentTemplates.Find(x.TemplateId) is not { } template ||
+                        template.IsCoveredBy(enabledModules))
                     .OrderBy(x => x.Name)
                     .Select(x => new AvailableAgentDto
                     {

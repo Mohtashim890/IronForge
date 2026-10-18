@@ -39,8 +39,27 @@ public class SubscriptionRulesTests
                 .Distinct()
                 .Order();
 
-            Assert.Equal(toolModules, template.Modules.Order());
+            // Required and optional modules together are exactly the tools'
+            // modules, with no module in both lists.
+            Assert.Equal(toolModules, template.Modules.Concat(template.OptionalModules).Order());
+            Assert.Empty(template.Modules.Intersect(template.OptionalModules));
         }
+    }
+
+    [Fact]
+    public void GymAdmin_OffersTheExerciseLibrary_WhenCoachingIsEnabled()
+    {
+        var tools = AgentTemplates.GymAdmin.Definition.Tools.Select(x => x.ToolName).ToList();
+
+        Assert.Contains("list_exercises", tools);
+        Assert.Contains("get_member_routines", tools);
+        Assert.Contains(PlatformModules.GymCoaching, AgentTemplates.GymAdmin.OptionalModules);
+
+        // Coaching is optional: Starter gyms still get the admin agent.
+        Assert.True(AgentTemplates.GymAdmin.IsCoveredBy(SubscriptionPlans.Starter.Modules));
+        Assert.False(AgentTemplates.FitnessCoach.IsCoveredBy(SubscriptionPlans.Starter.Modules));
+        Assert.True(AgentTemplates.FitnessCoach.IsCoveredBy(
+            SubscriptionPlans.Starter.Modules.Append(PlatformModules.GymCoaching)));
     }
 
     [Fact]

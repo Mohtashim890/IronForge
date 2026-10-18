@@ -2,6 +2,7 @@
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
 using IronForge.Application.Gym.Notifications;
 using IronForge.Shared.Authorization;
@@ -334,4 +335,62 @@ public sealed class SendAnnouncementAgentTool : AgentTool
             MembershipPlanId = membershipPlanId,
             SendEmail = true
         }));
+}
+
+public sealed class ListExercisesAgentTool : AgentTool
+{
+    private readonly IRoutineService _routines;
+
+    public ListExercisesAgentTool(IRoutineService routines) => _routines = routines;
+
+    public override AgentToolDescriptor Descriptor { get; } = new()
+    {
+        Name = "list_exercises",
+        Description =
+            "Lists the gym's exercise library: the shared exercises plus the gym's own custom ones. " +
+            "Returns id, name, muscle group, equipment and whether it is custom to this gym.",
+        RequiredPermission = Permissions.GymMembersRead,
+        Module = PlatformModules.GymCoaching
+    };
+
+    protected override Delegate Handler => ExecuteAsync;
+
+    private async Task<object> ExecuteAsync(
+        [Description("Optional part of the exercise name, e.g. 'squat'.")]
+        string? search = null,
+        [Description("Optional muscle group: Chest, Back, Legs, Shoulders, Arms, Core, Glutes or Cardio.")]
+        string? muscleGroup = null)
+    {
+        var result = await _routines.ListExercisesAsync(search, muscleGroup);
+
+        return result.Success
+            ? GymToolResult.Ok(new
+            {
+                Total = result.Data!.Count,
+                Exercises = result.Data!.Select(x => new { x.Id, x.Name, x.MuscleGroup, x.Equipment, x.IsCustom })
+            })
+            : GymToolResult.From(result);
+    }
+}
+
+public sealed class GetMemberRoutinesAgentTool : AgentTool
+{
+    private readonly IRoutineService _routines;
+
+    public GetMemberRoutinesAgentTool(IRoutineService routines) => _routines = routines;
+
+    public override AgentToolDescriptor Descriptor { get; } = new()
+    {
+        Name = "get_member_routines",
+        Description = "Lists a member's workout routines: name, goal, source, days, active state and who assigned it.",
+        RequiredPermission = Permissions.GymMembersRead,
+        Module = PlatformModules.GymCoaching
+    };
+
+    protected override Delegate Handler => ExecuteAsync;
+
+    private async Task<object> ExecuteAsync(
+        [Description("Member id from search_members.")]
+        int memberId) =>
+        GymToolResult.From(await _routines.ListMemberRoutinesAsync(memberId));
 }
