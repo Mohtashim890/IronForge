@@ -1,4 +1,4 @@
-@page "/checkins"
+﻿@page "/checkins"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
@@ -8,25 +8,44 @@
     <div class="if-page-head">
         <div>
             <h1>Front desk</h1>
-            <p>Check members in and see who has been training.</p>
+            <p>Scan a member's pass from the IronForge app, or look the member up by name.</p>
         </div>
+        <AuthorizeView Policy="@Permissions.GymSettingsManage">
+            <a class="if-btn" href="/checkin-devices">Check-in devices</a>
+        </AuthorizeView>
     </div>
-
-    @if (_message is not null)
-    {
-        <div class="if-alert success">@_message</div>
-    }
 
     @if (_error is not null)
     {
         <div class="if-alert error">@_error</div>
     }
 
-    <div class="if-grid-2">
-        <AuthorizeView Policy="@Permissions.GymCheckInsManage">
+    <AuthorizeView Policy="@Permissions.GymCheckInsManage">
+        <div class="if-grid-2">
             <div class="if-card">
-                <div class="if-card-head"><h2>Check in</h2></div>
-                <input class="if-input" placeholder="Type a member's name, email or phone" @bind="_search" @bind:event="oninput" @onkeyup="SearchAsync" />
+                @if (_methods is null || _methods.MemberPassCheckInEnabled)
+                {
+                    <div class="if-card-head"><h2>Scan pass</h2></div>
+
+                    <QrScanner OnCode="ScanAsync" />
+
+                    <form style="margin-top: 12px; display: flex; gap: 8px" @onsubmit="SubmitCodeAsync" @onsubmit:preventDefault>
+                        <input class="if-input" @ref="_codeInput" @bind="_code" placeholder="USB scanner: click here and scan" aria-label="Pass code" autocomplete="off" />
+                        <button class="if-btn" type="submit" disabled="@_busy">Check</button>
+                    </form>
+                }
+                else
+                {
+                    <div class="if-alert info">The member pass is turned off for this gym, so there is nothing to scan here. An admin can turn it on in Gym settings.</div>
+                }
+
+                @if (_methods?.GymQrCheckInEnabled == true)
+                {
+                    <p class="if-small if-muted" style="margin: 10px 0 0">Members can also check themselves in by scanning the entrance code on a check-in device.</p>
+                }
+
+                <div class="if-card-head" style="margin-top: 18px"><h2>Find by name</h2></div>
+                <input class="if-input" placeholder="Type a member's name, email or phone" @bind="_search" @bind:event="oninput" @onkeyup="SearchAsync" aria-label="Find a member" />
 
                 <ul class="if-list" style="margin-top: 8px">
                     @foreach (var member in _matches)
@@ -43,8 +62,80 @@
                     }
                 </ul>
             </div>
-        </AuthorizeView>
 
+            <div class="if-card">
+                <div class="if-card-head"><h2>Result</h2></div>
+
+                @if (_result is null)
+                {
+                    <div class="if-empty">Scan a pass or pick a member. Compare the photo with the person at the desk.</div>
+                }
+                else
+                {
+                    <CheckInResultPanel Result="_result" ShowStaffHints="true">
+                        @if (_result.MemberId is { } memberId)
+                        {
+                            <a class="if-btn sm" href="@($"/members/{memberId}")">Open member</a>
+                        }
+                    </CheckInResultPanel>
+                }
+            </div>
+        </div>
+    </AuthorizeView>
+
+    <div class="if-grid-2" style="margin-top: 16px">
+        <div class="if-card">
+            <div class="if-card-head"><h2>Recent visits</h2></div>
+            <ul class="if-list">
+                @foreach (var visit in _recent)
+                {
+                    <li>
+                        <a href="@($"/members/{visit.MemberId}")" style="flex: 1">@visit.MemberName</a>
+                        <span class="if-small if-muted">@MethodText(visit.Method, visit.DeviceName)</span>
+                        <span class="if-muted if-small">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <div class="if-card">
+            <div class="if-card-head">
+                <h2>Refused entries</h2>
+                <span class="if-muted if-small">expired passes, copies, unpaid memberships</span>
+            </div>
+            @if (_denials.Count == 0)
+            {
+                <div class="if-empty">No refused entries.</div>
+            }
+            else
+            {
+                <ul class="if-list">
+                    @foreach (var denial in _denials)
+                    {
+                        <li style="align-items: flex-start">
+                            <div style="flex: 1">
+                                @if (denial.MemberId is { } id)
+                                {
+                                    <a href="@($"/members/{id}")"><strong>@denial.MemberName</strong></a>
+                                }
+                                else
+                                {
+                                    <strong>Unknown pass</strong>
+                                }
+                                <div class="if-small if-muted">@denial.Message</div>
+                            </div>
+                            <div style="text-align: right">
+                                <Badge Tone="@(IsPassProblem(denial.Reason) ? "danger" : "warning")">@ReasonText(denial.Reason)</Badge>
+                                <div class="if-small if-muted">@GymFormat.Ago(denial.AttemptedAtUtc) · @MethodText(denial.Method, denial.DeviceName)</div>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+
+    <div class="if-grid-2" style="margin-top: 16px">
         <div class="if-card">
             <div class="if-card-head">
                 <h2>Last 30 days</h2>
@@ -61,21 +152,6 @@
                     · Busiest hour: <strong>@(_attendance.BusiestHour is { } h ? $"{h:00}:00" : "—")</strong>
                 </p>
             }
-        </div>
-    </div>
-
-    <div class="if-grid-2" style="margin-top: 16px">
-        <div class="if-card">
-            <div class="if-card-head"><h2>Recent visits</h2></div>
-            <ul class="if-list">
-                @foreach (var visit in _recent)
-                {
-                    <li>
-                        <a href="@($"/members/{visit.MemberId}")" style="flex: 1">@visit.MemberName</a>
-                        <span class="if-muted if-small">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
-                    </li>
-                }
-            </ul>
         </div>
 
         <div class="if-card">
@@ -102,22 +178,30 @@
 
 @code {
     private string _search = "";
+    private string _code = "";
+    private ElementReference _codeInput;
     private List<MemberSummaryDto> _matches = [];
     private List<CheckInDto> _recent = [];
+    private List<CheckInDenialDto> _denials = [];
     private AttendanceSummaryDto? _attendance;
     private List<ChartPoint> _byDay = [];
+    private CheckInResultDto? _result;
+    private GymSettingsDto? _methods;
     private bool _busy;
     private string? _error;
-    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
+        // Which self check-in methods the gym offers (staff may read the settings).
+        _methods = (await Gym.GetSettingsAsync()).Data;
+
         await LoadAsync();
     }
 
     private async Task LoadAsync()
     {
         _recent = (await Gym.GetCheckInsAsync(20)).Data ?? [];
+        _denials = (await Gym.GetCheckInDenialsAsync(10)).Data ?? [];
 
         var attendance = await Gym.GetAttendanceAsync(30);
         _attendance = attendance.Data;
@@ -136,26 +220,76 @@
         _matches = result.Data?.Items ?? [];
     }
 
+    private async Task SubmitCodeAsync()
+    {
+        var code = _code;
+        _code = "";
+
+        await ScanAsync(code);
+        await _codeInput.FocusAsync();
+    }
+
+    private async Task ScanAsync(string code)
+    {
+        if (_busy || string.IsNullOrWhiteSpace(code))
+            return;
+
+        await RunAsync(() => Gym.ScanPassAsync(code.Trim()));
+    }
+
     private async Task CheckInAsync(MemberSummaryDto member)
+    {
+        if (await RunAsync(() => Gym.CheckInAsync(member.Id)))
+        {
+            _search = "";
+            _matches = [];
+        }
+    }
+
+    private async Task<bool> RunAsync(Func<Task<ServiceResult<CheckInResultDto>>> call)
     {
         _busy = true;
         _error = null;
-        _message = null;
 
-        var result = await Gym.CheckInAsync(member.Id);
+        var result = await call();
 
         _busy = false;
 
-        if (result.Success)
-        {
-            _message = $"✓ {member.FullName} checked in at {result.Data!.CheckedInAtUtc.ToLocalTime():HH:mm}.";
-            _search = "";
-            _matches = [];
-            await LoadAsync();
-        }
-        else
+        if (!result.Success)
         {
             _error = result.ErrorMessage;
+            return false;
         }
+
+        _result = result.Data;
+        await LoadAsync();
+        return true;
     }
+
+    private static string MethodText(CheckInMethod method, string? device) => method switch
+    {
+        CheckInMethod.Kiosk => device ?? "Kiosk",
+        CheckInMethod.GymQr => $"Entrance code{(device is null ? "" : $" ({device})")}",
+        CheckInMethod.PassScan => "Pass scan",
+        _ => "Front desk"
+    };
+
+    private static bool IsPassProblem(CheckInDenialReason reason) =>
+        reason is CheckInDenialReason.InvalidPass or CheckInDenialReason.ReusedPass
+            or CheckInDenialReason.ExpiredPass or CheckInDenialReason.RevokedPass
+            or CheckInDenialReason.UnknownMember or CheckInDenialReason.InvalidGymQr
+            or CheckInDenialReason.ExpiredGymQr;
+
+    private static string ReasonText(CheckInDenialReason reason) => reason switch
+    {
+        CheckInDenialReason.GracePeriodEnded => "Unpaid",
+        CheckInDenialReason.InvalidPass => "Invalid pass",
+        CheckInDenialReason.ExpiredPass => "Old code",
+        CheckInDenialReason.ReusedPass => "Copied code",
+        CheckInDenialReason.RevokedPass => "Reset pass",
+        CheckInDenialReason.UnknownMember => "Not a member",
+        CheckInDenialReason.InvalidGymQr => "Wrong entrance code",
+        CheckInDenialReason.ExpiredGymQr => "Old entrance code",
+        _ => reason.ToString()
+    };
 }

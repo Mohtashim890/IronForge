@@ -1,4 +1,4 @@
-using IronForge.Application.Auditing.Models;
+﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
@@ -19,6 +19,11 @@ public interface IGymSettingsService
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<GymSettingsDto>> RegenerateJoinCodeAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Turns the member pass and the entrance code (gym QR) on or off.</summary>
+    Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(
+        UpdateCheckInMethodsRequest request,
+        CancellationToken cancellationToken = default);
 
     /// <summary>Starts or resumes Stripe Connect onboarding for the gym.</summary>
     Task<ServiceResult<StripeConnectLinkDto>> StartStripeConnectAsync(CancellationToken cancellationToken = default);
@@ -220,6 +225,39 @@ public sealed class GymSettingsService : IGymSettingsService
         return ServiceResult<GymSettingsDto>.Ok(await MapAsync(settings, cancellationToken));
     }
 
+    public async Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(
+        UpdateCheckInMethodsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (settings, failure) = await LoadForChangeAsync(cancellationToken);
+
+        if (settings is null)
+        {
+            return failure!;
+        }
+
+        if (settings.MemberPassCheckInEnabled != request.MemberPassEnabled ||
+            settings.GymQrCheckInEnabled != request.GymQrEnabled)
+        {
+            settings.MemberPassCheckInEnabled = request.MemberPassEnabled;
+            settings.GymQrCheckInEnabled = request.GymQrEnabled;
+            settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
+
+            await _settings.SaveChangesAsync(cancellationToken);
+
+            await _audit.RecordAsync(
+                AuditCategory.Tenant,
+                "CheckInMethodsChanged",
+                AuditOutcome.Succeeded,
+                resourceType: "GymSettings",
+                resourceId: settings.Id.ToString(),
+                reason: $"member pass {(request.MemberPassEnabled ? "on" : "off")}, entrance code {(request.GymQrEnabled ? "on" : "off")}",
+                cancellationToken: cancellationToken);
+        }
+
+        return ServiceResult<GymSettingsDto>.Ok(await MapAsync(settings, cancellationToken));
+    }
+
     public async Task<ServiceResult<StripeConnectLinkDto>> StartStripeConnectAsync(CancellationToken cancellationToken = default)
     {
         var (settings, failure) = await LoadForChangeAsync(cancellationToken);
@@ -324,7 +362,9 @@ public sealed class GymSettingsService : IGymSettingsService
             GracePeriodDays = settings.GracePeriodDays,
             StripeConnected = settings.StripeChargesEnabled,
             StripeConnectedAccountId = settings.StripeConnectedAccountId,
-            PaymentsSimulated = _gateway.IsSimulated
+            PaymentsSimulated = _gateway.IsSimulated,
+            MemberPassCheckInEnabled = settings.MemberPassCheckInEnabled,
+            GymQrCheckInEnabled = settings.GymQrCheckInEnabled
         };
     }
 

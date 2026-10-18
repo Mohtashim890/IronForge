@@ -1,4 +1,4 @@
-namespace IronForge.Shared.Models.Gym
+﻿namespace IronForge.Shared.Models.Gym
 {
     public enum BillingInterval
     {
@@ -79,5 +79,64 @@ namespace IronForge.Shared.Models.Gym
         Active = 1,
         Overdue = 2,
         Plan = 3
+    }
+
+    /// <summary>How a member was identified at check-in.</summary>
+    public enum CheckInMethod
+    {
+        /// <summary>Staff looked the member up by name at the front desk.</summary>
+        FrontDesk = 0,
+
+        /// <summary>Staff scanned the member's pass from the app.</summary>
+        PassScan = 1,
+
+        /// <summary>An unattended check-in device scanned the member's pass.</summary>
+        Kiosk = 2,
+
+        /// <summary>The member scanned the gym's rotating code (shown on a check-in device) with the app.</summary>
+        GymQr = 3
+    }
+
+    public enum CheckInOutcome
+    {
+        Allowed = 0,
+
+        /// <summary>Already checked in within the last 30 minutes; no new visit is recorded.</summary>
+        AlreadyCheckedIn = 1,
+
+        Denied = 2
+    }
+
+    /// <summary>Why a check-in was refused.</summary>
+    public enum CheckInDenialReason
+    {
+        Pending = 0,
+        Frozen = 1,
+        Expired = 2,
+        Cancelled = 3,
+
+        /// <summary>Active, but an invoice is overdue past the gym's grace period.</summary>
+        GracePeriodEnded = 4,
+
+        /// <summary>Not an IronForge pass, or the signature does not match.</summary>
+        InvalidPass = 5,
+
+        /// <summary>The code's 30-second window is over (an old screenshot).</summary>
+        ExpiredPass = 6,
+
+        /// <summary>The same code was already scanned (a copied code).</summary>
+        ReusedPass = 7,
+
+        /// <summary>The member reset their pass; codes from the old one no longer work.</summary>
+        RevokedPass = 8,
+
+        /// <summary>The pass belongs to another gym or to a deleted member.</summary>
+        UnknownMember = 9,
+
+        /// <summary>The scanned code is not this gym's entrance code, or its device was removed.</summary>
+        InvalidGymQr = 10,
+
+        /// <summary>The entrance code is older than 30 seconds (a photo of the screen).</summary>
+        ExpiredGymQr = 11
     }
 }

@@ -1,0 +1,78 @@
+@* The answer to one check-in: who it is (with their photo, so staff can
+   compare the face), whether they may enter, and any warning. *@
+
+<div class="if-checkin-result @ToneClass @(Large ? "large" : "")" role="status" aria-live="polite">
+    <div class="if-checkin-photo">
+        @if (!string.IsNullOrEmpty(Result.PhotoDataUrl))
+        {
+            <img src="@Result.PhotoDataUrl" alt="Photo of @Result.MemberName" />
+        }
+        else if (Result.MemberName is not null)
+        {
+            <span class="if-checkin-initials">@GymFormat.Initials(Result.MemberName)</span>
+        }
+        else
+        {
+            <span class="if-checkin-initials" aria-hidden="true">?</span>
+        }
+    </div>
+
+    <div class="if-checkin-body">
+        <div class="if-checkin-outcome">@OutcomeText</div>
+
+        @if (Result.MemberName is not null)
+        {
+            <div class="if-checkin-name">@Result.MemberName</div>
+            <div class="if-checkin-meta">
+                @if (Result.Status is { } status)
+                {
+                    <Badge Tone="@GymFormat.Tone(status)">@status</Badge>
+                }
+                @if (Result.PlanName is not null)
+                {
+                    <span>@Result.PlanName</span>
+                }
+                @if (ShowStaffHints && Result.MemberId is not null && string.IsNullOrEmpty(Result.PhotoDataUrl))
+                {
+                    <span class="if-muted">No photo on file</span>
+                }
+            </div>
+        }
+
+        <p class="if-checkin-message">@Result.Message</p>
+
+        @if (Result.Warning is not null)
+        {
+            <div class="if-alert warning">⚠ @Result.Warning</div>
+        }
+
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public CheckInResultDto Result { get; set; } = new();
+
+    /// <summary>The kiosk: big type, readable from a step away.</summary>
+    [Parameter] public bool Large { get; set; }
+
+    /// <summary>Front desk only: hints such as a missing photo.</summary>
+    [Parameter] public bool ShowStaffHints { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string ToneClass => Result.Outcome switch
+    {
+        CheckInOutcome.Allowed when Result.Warning is not null => "warning",
+        CheckInOutcome.Allowed => "allowed",
+        CheckInOutcome.AlreadyCheckedIn => "already",
+        _ => "denied"
+    };
+
+    private string OutcomeText => Result.Outcome switch
+    {
+        CheckInOutcome.Allowed => "✓ Checked in",
+        CheckInOutcome.AlreadyCheckedIn => "✓ Already checked in",
+        _ => "✕ Entry refused"
+    };
+}

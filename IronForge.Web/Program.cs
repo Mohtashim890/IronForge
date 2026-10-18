@@ -32,6 +32,9 @@ builder.Services.AddHttpClient(
 // ProtectedLocalStorage itself is registered by AddInteractiveServerComponents.
 builder.Services.AddScoped<ITokenStore, WebTokenStore>();
 
+// A check-in device (/kiosk) keeps its device key in the same protected storage.
+builder.Services.AddScoped<IKioskKeyStore, WebKioskKeyStore>();
+
 // The gym staff dashboard: Admins and Trainers.
 builder.Services.AddIronForgeApiClients(new ClientAppProfile
 {

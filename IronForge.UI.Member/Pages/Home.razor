@@ -1,4 +1,4 @@
-@page "/home"
+﻿@page "/home"
 @attribute [Authorize]
 @inject MemberApiClient Me
 @inject IExternalLinkOpener Links
@@ -39,6 +39,11 @@ else
             <div><strong>@_me.CheckInsLast30Days</strong><span>visits (30d)</span></div>
         </div>
     </div>
+
+    @if (_me.Status == MemberStatus.Active && (_me.MemberPassCheckInEnabled || _me.GymQrCheckInEnabled))
+    {
+        <a class="if-btn primary block" href="/checkin" style="margin-bottom: 14px">⌗ Check in</a>
+    }
 
     @if (_me.Status == MemberStatus.Pending)
     {

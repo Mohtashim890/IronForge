@@ -1,4 +1,4 @@
-@page "/profile"
+﻿@page "/profile"
 @attribute [Authorize]
 @inject MemberApiClient Me
 
@@ -16,6 +16,31 @@
 {
     <div class="if-alert error">@_error</div>
 }
+
+<div class="m-card">
+    <div class="if-row" style="gap: 14px; flex-wrap: nowrap">
+        @if (_photo is not null)
+        {
+            <img class="m-photo-preview" src="@_photo.DataUrl" alt="Your photo" />
+        }
+        else
+        {
+            <span class="if-avatar" style="width: 96px; height: 96px; font-size: 1.8rem">@GymFormat.Initials(_form.FullName)</span>
+        }
+        <div>
+            <strong>Your photo</strong>
+            @if (_photo?.UploadedByStaff == true)
+            {
+                <p class="if-small if-muted" style="margin: 4px 0 0">Set by your gym. Ask the front desk if it needs changing.</p>
+            }
+            else
+            {
+                <p class="if-small if-muted" style="margin: 4px 0 8px">Staff see it when you check in, so use a clear photo of your face.</p>
+                <PhotoPicker Label="@(_photo is null ? "Add photo" : "Change photo")" CssClass="sm" OnPicked="UploadPhotoAsync" />
+            }
+        </div>
+    </div>
+</div>
 
 <div class="m-card">
     <div class="if-field"><label>Full name</label><input @bind="_form.FullName" /></div>
@@ -41,6 +66,7 @@
 
 @code {
     private UpdateMyProfileRequest _form = new();
+    private MemberPhotoDto? _photo;
     private bool _saving;
     private string? _error;
     private string? _message;
@@ -55,6 +81,8 @@
             return;
         }
 
+        _photo = (await Me.GetPhotoAsync()).Data;
+
         var me = result.Data!;
         _form = new UpdateMyProfileRequest
         {
@@ -65,6 +93,22 @@
             HeightCm = me.HeightCm,
             EmergencyContact = me.EmergencyContact
         };
+    }
+
+    private async Task UploadPhotoAsync(string base64)
+    {
+        var result = await Me.UploadPhotoAsync(base64);
+
+        if (result.Success)
+        {
+            _photo = result.Data;
+            _message = "Photo saved.";
+            _error = null;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
     }
 
     private async Task SaveAsync()

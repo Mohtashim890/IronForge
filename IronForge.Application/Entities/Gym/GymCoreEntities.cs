@@ -41,6 +41,12 @@ namespace IronForge.Application.Entities
 
         public bool StripeChargesEnabled { get; set; }
 
+        /// <summary>Members may check in by showing their rotating pass (staff or kiosk scans it).</summary>
+        public bool MemberPassCheckInEnabled { get; set; } = true;
+
+        /// <summary>Members may check in by scanning the code a check-in device shows.</summary>
+        public bool GymQrCheckInEnabled { get; set; }
+
         /// <summary>
         /// Last invoice number issued. Only incremented atomically in the
         /// database (IInvoiceNumberGenerator), never through the entity.
@@ -136,6 +142,18 @@ namespace IronForge.Application.Entities
         /// <summary>Set when personal data was erased on request; invoices are kept.</summary>
         public DateTime? AnonymizedAtUtc { get; set; }
 
+        /// <summary>
+        /// Version of the member's rotating pass. Resetting the pass (a lost
+        /// phone) increments it, so codes from the old secret are refused.
+        /// </summary>
+        public int PassKeyVersion { get; set; } = 1;
+
+        /// <summary>Last pass time step accepted; an older or equal step is a copied code.</summary>
+        public long? LastPassStep { get; set; }
+
+        /// <summary>When the current photo was set; null without a photo.</summary>
+        public DateTime? PhotoUpdatedAtUtc { get; set; }
+
         public List<Invoice> Invoices { get; set; } = [];
 
         public List<CheckIn> CheckIns { get; set; } = [];
@@ -155,6 +173,102 @@ namespace IronForge.Application.Entities
 
         /// <summary>Staff member at the front desk; null for a self check-in.</summary>
         public int? RecordedByUserId { get; set; }
+
+        public CheckInMethod Method { get; set; }
+
+        /// <summary>The kiosk that scanned the pass.</summary>
+        public int? CheckInDeviceId { get; set; }
+
+        public CheckInDevice? CheckInDevice { get; set; }
+    }
+
+    /// <summary>
+    /// A refused check-in. Kept apart from <see cref="CheckIn"/> so attendance
+    /// counts only real visits, and so staff can spot shared or copied passes.
+    /// </summary>
+    public class CheckInDenial
+    {
+        public long Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        /// <summary>Null when the pass did not match a member of this gym.</summary>
+        public int? MemberProfileId { get; set; }
+
+        public MemberProfile? MemberProfile { get; set; }
+
+        public CheckInMethod Method { get; set; }
+
+        public int? CheckInDeviceId { get; set; }
+
+        public CheckInDevice? CheckInDevice { get; set; }
+
+        public int? RecordedByUserId { get; set; }
+
+        public CheckInDenialReason Reason { get; set; }
+
+        public string Message { get; set; } = "";
+
+        public DateTime AttemptedAtUtc { get; set; }
+    }
+
+    /// <summary>
+    /// An unattended check-in device (a tablet or PC at the entrance with a
+    /// camera or a USB scanner). An admin creates it and gets a short pairing
+    /// code; the device exchanges the code for a long secret key that it sends
+    /// with every scan. Only hashes of the code and the key are stored.
+    /// </summary>
+    public class CheckInDevice
+    {
+        public int Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        public string Name { get; set; } = "";
+
+        /// <summary>SHA-256 of the device key; null until paired.</summary>
+        public string? KeyHash { get; set; }
+
+        /// <summary>SHA-256 of the pending pairing code.</summary>
+        public string? PairingCodeHash { get; set; }
+
+        public DateTime? PairingExpiresAtUtc { get; set; }
+
+        public int? CreatedByUserId { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+
+        public DateTime? PairedAtUtc { get; set; }
+
+        public DateTime? LastSeenAtUtc { get; set; }
+
+        public DateTime? RevokedAtUtc { get; set; }
+    }
+
+    /// <summary>
+    /// A member's photo, shown at check-in so staff can tell whether the
+    /// person at the desk owns the pass. Stored in the database, apart from
+    /// the profile so member queries never load the image.
+    /// </summary>
+    public class MemberPhoto
+    {
+        public int Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        public int MemberProfileId { get; set; }
+
+        /// <summary>image/jpeg, image/png or image/webp, detected from the bytes.</summary>
+        public string ContentType { get; set; } = "";
+
+        public byte[] Data { get; set; } = [];
+
+        /// <summary>Staff took or approved it; the member cannot replace it from the app.</summary>
+        public bool UploadedByStaff { get; set; }
+
+        public int? UploadedByUserId { get; set; }
+
+        public DateTime UploadedAtUtc { get; set; }
     }
 
     public class PasswordResetToken

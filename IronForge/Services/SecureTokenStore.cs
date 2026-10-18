@@ -66,6 +66,10 @@ namespace IronForge.Services
             SecureStorage.Default.Remove(
                 RefreshTokenKey);
 
+            // The pass secret belongs to the signed-in member, not to the phone.
+            SecureStorage.Default.Remove(
+                SecureMemberPassStore.StorageKey);
+
             return Task.CompletedTask;
         }
     }

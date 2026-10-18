@@ -2,6 +2,7 @@
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auditing.Models;
 using IronForge.Application.Entities;
+using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Common;
 using IronForge.Shared.Authorization;
 using AgentIds = IronForge.Shared.Models.Agents.AgentIds;
@@ -30,6 +31,9 @@ public sealed class DemoDataSeeder
     private readonly IronForgeDbContext _db;
     private readonly ILogger _logger;
     private readonly Random _random = new(42);
+
+    /// <summary>Check-in methods and refusals; separate so the rest of the demo data is unchanged.</summary>
+    private readonly Random _checkInRandom = new(7);
     private readonly DateTime _now;
     private readonly string _passwordHash;
     private readonly Dictionary<string, Exercise> _exercises = new(StringComparer.Ordinal);
@@ -171,6 +175,8 @@ public sealed class DemoDataSeeder
             Currency = spec.Currency,
             TimeZoneId = spec.TimeZoneId,
             JoinCode = spec.JoinCode,
+            // The showcase gym offers both self check-in methods; the others only the pass.
+            GymQrCheckInEnabled = spec.Slug == "ironparadise",
             CreatedAtUtc = tenant.CreatedAtUtc,
             UpdatedAtUtc = tenant.CreatedAtUtc
         };
@@ -217,8 +223,24 @@ public sealed class DemoDataSeeder
 
         await _db.SaveChangesAsync(cancellationToken);
 
+        // An entrance kiosk paired two months ago. Its key was never kept, so
+        // to use the kiosk an admin issues a new pairing code (Check-in devices).
+        var kiosk = new CheckInDevice
+        {
+            TenantId = tenant.Id,
+            Name = "Front entrance kiosk",
+            KeyHash = CheckInDeviceSecrets.HashKey(CheckInDeviceSecrets.NewDeviceKey()),
+            CreatedByUserId = admin.Id,
+            CreatedAtUtc = _now.AddDays(-60),
+            PairedAtUtc = _now.AddDays(-60),
+            LastSeenAtUtc = _now.AddMinutes(-5)
+        };
+
+        _db.CheckInDevices.Add(kiosk);
+        await _db.SaveChangesAsync(cancellationToken);
+
         var coaching = enabled.Contains(PlatformModules.GymCoaching);
-        var context = new GymContext(tenant, settings, plans, coaching, trainer1.Id);
+        var context = new GymContext(tenant, settings, plans, coaching, trainer1.Id, kiosk.Id);
         var invoiceCounter = 0;
         var members = new List<(MemberProfile Profile, double Activity)>();
 
@@ -236,6 +258,7 @@ public sealed class DemoDataSeeder
         foreach (var (profile, activity) in members)
         {
             SeedCheckIns(context, profile, activity);
+            SeedCheckInDenials(context, profile);
         }
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -260,7 +283,8 @@ public sealed class DemoDataSeeder
         GymSettings Settings,
         List<MembershipPlan> Plans,
         bool Coaching,
-        int TrainerUserId)
+        int TrainerUserId,
+        int KioskDeviceId)
     {
         public int TenantId => Tenant.Id;
     }
@@ -547,14 +571,67 @@ public sealed class DemoDataSeeder
             if (at > _now)
                 continue;
 
+            // Staff at the desk (by name or by scanning the pass) or the kiosk.
+            var byStaff = _random.NextDouble() < 0.7;
+
             _db.CheckIns.Add(new CheckIn
             {
                 TenantId = gym.TenantId,
                 MemberProfileId = profile.Id,
                 CheckedInAtUtc = at,
-                RecordedByUserId = _random.NextDouble() < 0.7 ? gym.TrainerUserId : null
+                RecordedByUserId = byStaff ? gym.TrainerUserId : null,
+                // Self check-ins: the kiosk scanned the pass, or the member scanned the entrance code.
+                Method = !byStaff
+                    ? gym.Settings.GymQrCheckInEnabled && _checkInRandom.NextDouble() < 0.4 ? CheckInMethod.GymQr : CheckInMethod.Kiosk
+                    : _checkInRandom.NextDouble() < 0.5 ? CheckInMethod.PassScan : CheckInMethod.FrontDesk,
+                CheckInDeviceId = byStaff ? null : gym.KioskDeviceId
             });
         }
+    }
+
+    /// <summary>
+    /// Refused entries for the "Refused attempts" list: members who are
+    /// frozen or expired trying the kiosk, and the odd screenshot of a pass.
+    /// </summary>
+    private void SeedCheckInDenials(GymContext gym, MemberProfile profile)
+    {
+        var reason = profile.Status switch
+        {
+            MemberStatus.Frozen => CheckInDenialReason.Frozen,
+            MemberStatus.Expired => CheckInDenialReason.Expired,
+            MemberStatus.Active when _checkInRandom.NextDouble() < 0.1 => CheckInDenialReason.ReusedPass,
+            _ => (CheckInDenialReason?)null
+        };
+
+        if (reason is null || _checkInRandom.NextDouble() < 0.4)
+        {
+            return;
+        }
+
+        var today = GymCalendar.ToLocalDate(_now, gym.Settings.TimeZoneId);
+        var at = StartOfDayUtc(today.AddDays(-_checkInRandom.Next(0, 6)), gym)
+            .AddHours(_checkInRandom.Next(7, 20))
+            .AddMinutes(_checkInRandom.Next(0, 60));
+
+        if (at > _now)
+        {
+            at = _now.AddMinutes(-_checkInRandom.Next(10, 120));
+        }
+
+        var message = reason == CheckInDenialReason.ReusedPass
+            ? "This code was already used. Copies of a pass don't work: show the live pass."
+            : CheckInPolicy.Evaluate(profile, null, today, gym.Settings.GracePeriodDays).Message;
+
+        _db.CheckInDenials.Add(new CheckInDenial
+        {
+            TenantId = gym.TenantId,
+            MemberProfileId = profile.Id,
+            Method = CheckInMethod.Kiosk,
+            CheckInDeviceId = gym.KioskDeviceId,
+            Reason = reason.Value,
+            Message = message,
+            AttemptedAtUtc = at
+        });
     }
 
     // ---- Training ------------------------------------------------------------------------

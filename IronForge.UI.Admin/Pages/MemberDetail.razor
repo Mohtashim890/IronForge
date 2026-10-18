@@ -1,4 +1,4 @@
-@page "/members/{MemberId:int}"
+﻿@page "/members/{MemberId:int}"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -31,7 +31,14 @@
 
         <div class="if-page-head">
             <div class="if-row" style="flex-wrap: nowrap">
-                <span class="if-avatar" style="width: 52px; height: 52px; font-size: 1.1rem">@GymFormat.Initials(s.FullName)</span>
+                @if (_member.Photo is not null)
+                {
+                    <img src="@_member.Photo.DataUrl" alt="Photo of @s.FullName" class="if-avatar" style="width: 52px; height: 52px; object-fit: cover" />
+                }
+                else
+                {
+                    <span class="if-avatar" style="width: 52px; height: 52px; font-size: 1.1rem">@GymFormat.Initials(s.FullName)</span>
+                }
                 <div>
                     <h1>@s.FullName</h1>
                     <p>
@@ -166,6 +173,47 @@
 
             <AuthorizeView Policy="@Permissions.GymMembersManage">
                 <div class="if-card" style="margin-top: 16px">
+                    <div class="if-card-head"><h2>Photo and check-in pass</h2></div>
+                    <div class="if-row" style="align-items: flex-start; gap: 16px; flex-wrap: wrap">
+                        @if (_member.Photo is not null)
+                        {
+                            <img src="@_member.Photo.DataUrl" alt="Photo of @s.FullName" class="m-photo-preview" style="border-radius: 14px" />
+                        }
+                        else
+                        {
+                            <span class="if-avatar" style="width: 96px; height: 96px; font-size: 1.8rem; border-radius: 14px">@GymFormat.Initials(s.FullName)</span>
+                        }
+                        <div style="flex: 1; min-width: 220px">
+                            <p class="if-small if-muted" style="margin-top: 0">
+                                @if (_member.Photo is null)
+                                {
+                                    <span>No photo yet. Staff see the photo at every check-in to make sure the pass is used by its owner.</span>
+                                }
+                                else if (_member.Photo.UploadedByStaff)
+                                {
+                                    <span>Set by staff on @GymFormat.Date(_member.Photo.UploadedAtUtc). The member cannot change it.</span>
+                                }
+                                else
+                                {
+                                    <span><strong>Added by the member</strong> on @GymFormat.Date(_member.Photo.UploadedAtUtc). Check it matches them; uploading a photo here locks it.</span>
+                                }
+                            </p>
+                            <div class="if-row" style="flex-wrap: wrap">
+                                <PhotoPicker Label="@(_member.Photo is null ? "Upload photo" : "Replace photo")" Disabled="_busy" OnPicked="UploadPhotoAsync" />
+                                @if (_member.Photo is not null)
+                                {
+                                    <button class="if-btn" disabled="@_busy" @onclick="RemovePhotoAsync">Remove photo</button>
+                                }
+                            </div>
+                            <p class="if-small if-muted" style="margin: 14px 0 6px">
+                                Lost phone or a shared pass? Resetting makes the member's current pass stop working; their app downloads a new one.
+                            </p>
+                            <button class="if-btn" disabled="@(_busy || !s.HasAppAccount)" @onclick="() => _confirmResetPass = true">Reset check-in pass</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="if-card" style="margin-top: 16px">
                     <div class="if-card-head"><h2>Data and privacy</h2></div>
                     <p class="if-muted if-small">Erase this member's personal and training data on request. Invoices and payments are kept for accounting under an anonymous name. This cannot be undone.</p>
                     <button class="if-btn danger" disabled="@_busy" @onclick="() => _confirmDelete = true">Delete personal data</button>
@@ -272,7 +320,7 @@
                     <ul class="if-list">
                         @foreach (var visit in _member.RecentCheckIns)
                         {
-                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.SelfCheckIn ? "Self check-in" : "Front desk")</span></li>
+                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
                         }
                     </ul>
                 }
@@ -317,6 +365,16 @@
     </Footer>
 </Modal>
 
+<Modal @bind-Open="_confirmResetPass" Title="Reset check-in pass?">
+    <ChildContent>
+        <p>@(_member?.Summary.FullName)'s current pass stops working on every phone. Their app shows the new pass the next time it is online.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmResetPass = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="ResetPassAsync">Reset pass</button>
+    </Footer>
+</Modal>
+
 <Modal @bind-Open="_confirmDelete" Title="Delete personal data?">
     <ChildContent>
         <p>This permanently erases @(_member?.Summary.FullName)'s profile, routines, workouts, measurements and goals, and removes their app access. Invoices are kept anonymously.</p>
@@ -358,6 +416,7 @@
     private bool _editing;
     private UpdateMemberRequest _edit = new();
     private bool _confirmDelete;
+    private bool _confirmResetPass;
     private bool _assigning;
     private RoutineBuilder? _builder;
 
@@ -389,6 +448,22 @@
         {
             _error = result.ErrorMessage;
         }
+    }
+
+    private async Task UploadPhotoAsync(string base64)
+    {
+        await RunAsync(() => Gym.UploadMemberPhotoAsync(MemberId, base64), "Photo saved.");
+    }
+
+    private async Task RemovePhotoAsync()
+    {
+        await RunAsync(() => Gym.DeleteMemberPhotoAsync(MemberId), "Photo removed.");
+    }
+
+    private async Task ResetPassAsync()
+    {
+        _confirmResetPass = false;
+        await RunAsync(() => Gym.ResetMemberPassAsync(MemberId), "Check-in pass reset. The old pass no longer works.");
     }
 
     private async Task LoadAsync()
@@ -423,7 +498,7 @@
         }
     }
 
-    private async Task RunAsync(Func<Task<ServiceResult<MemberSummaryDto>>> action, string success)
+    private async Task RunAsync<T>(Func<Task<ServiceResult<T>>> action, string success)
     {
         _busy = true;
         _error = null;

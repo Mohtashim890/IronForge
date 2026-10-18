@@ -1,0 +1,211 @@
+﻿@page "/checkin-devices"
+@attribute [Authorize(Policy = Permissions.GymSettingsManage)]
+@inject GymApiClient Gym
+@inject NavigationManager Navigation
+
+<PageTitle>Check-in devices | IronForge</PageTitle>
+
+<div class="if-page">
+    <div class="if-page-head">
+        <div>
+            <h1>Check-in devices</h1>
+            <p>A tablet or PC at the entrance where members scan their pass and check themselves in.</p>
+        </div>
+        <button class="if-btn primary" @onclick="() => _adding = true">Add device</button>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-card" style="margin-bottom: 16px">
+        <div class="if-card-head"><h2>How to set one up</h2></div>
+        <ol style="margin: 0; padding-left: 20px; line-height: 1.7">
+            <li>Click <strong>Add device</strong> and give it a name, e.g. "Front entrance".</li>
+            <li>On the tablet, open <code>@KioskUrl</code> and type the pairing code (valid for 15 minutes).</li>
+            <li>Point the camera at the entrance or plug in a USB QR scanner. Members show the pass from the IronForge app.</li>
+        </ol>
+        <p class="if-small if-muted" style="margin: 10px 0 0">
+            The device can only check members in. If a tablet is lost, remove it here: it stops working at once.
+        </p>
+    </div>
+
+    @if (_devices is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+    else if (_devices.Count == 0)
+    {
+        <div class="if-card if-empty">No check-in devices yet.</div>
+    }
+    else
+    {
+        <div class="if-card">
+            <table class="if-table">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Status</th>
+                        <th>Last seen</th>
+                        <th>Check-ins today</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var device in _devices)
+                    {
+                        <tr>
+                            <td><strong>@device.Name</strong><div class="if-small if-muted">added @GymFormat.Date(device.CreatedAtUtc)</div></td>
+                            <td>
+                                @if (device.IsRevoked)
+                                {
+                                    <Badge>Removed</Badge>
+                                }
+                                else if (device.PairingExpiresAtUtc is not null)
+                                {
+                                    <Badge Tone="info">Waiting for pairing</Badge>
+                                }
+                                else if (device.IsPaired)
+                                {
+                                    <Badge Tone="success">Paired</Badge>
+                                }
+                                else
+                                {
+                                    <Badge Tone="warning">Not paired</Badge>
+                                }
+                            </td>
+                            <td>@(device.LastSeenAtUtc is { } seen ? GymFormat.Ago(seen) : "—")</td>
+                            <td>@device.CheckInsToday</td>
+                            <td style="text-align: right; white-space: nowrap">
+                                @if (!device.IsRevoked)
+                                {
+                                    <button class="if-btn sm" disabled="@_busy" @onclick="() => NewCodeAsync(device)">@(device.IsPaired ? "Re-pair" : "New code")</button>
+                                    <button class="if-btn sm danger" disabled="@_busy" @onclick="() => _removing = device">Remove</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<Modal @bind-Open="_adding" Title="Add a check-in device">
+    <ChildContent>
+        <div class="if-field">
+            <label for="device-name">Name</label>
+            <input id="device-name" @bind="_name" maxlength="100" placeholder="Front entrance" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _adding = false">Cancel</button>
+        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_name))" @onclick="CreateAsync">Add and get code</button>
+    </Footer>
+</Modal>
+
+<Modal Open="@(_pairing is not null)" OpenChanged="CloseCodeAsync" Title="@($"Pair {_pairing?.Device.Name}")">
+    <ChildContent>
+        @if (_pairing is not null)
+        {
+            <p>On the device, open <strong>@KioskUrl</strong> and enter this code:</p>
+            <div class="if-pairing-code">@_pairing.PairingCode</div>
+            <p class="if-small if-muted" style="margin-top: 10px">
+                Valid until @_pairing.ExpiresAtUtc.ToLocalTime().ToString("HH:mm"), and only once.
+                @if (_pairing.Device.IsPaired)
+                {
+                    <span>Pairing replaces the device that uses it now.</span>
+                }
+            </p>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="if-btn primary" @onclick="() => CloseCodeAsync(false)">Done</button>
+    </Footer>
+</Modal>
+
+<Modal Open="@(_removing is not null)" OpenChanged="open => { if (!open) _removing = null; }" Title="Remove device?">
+    <ChildContent>
+        <p><strong>@_removing?.Name</strong> will stop checking members in immediately. This cannot be undone; add a new device to replace it.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _removing = null">Cancel</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="RevokeAsync">Remove</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<CheckInDeviceDto>? _devices;
+    private CheckInDevicePairingDto? _pairing;
+    private CheckInDeviceDto? _removing;
+    private bool _adding;
+    private bool _busy;
+    private string _name = "";
+    private string? _error;
+
+    private string KioskUrl => Navigation.ToAbsoluteUri("/kiosk").ToString();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetCheckInDevicesAsync();
+        _devices = result.Data ?? [];
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        var result = await Gym.CreateCheckInDeviceAsync(_name.Trim());
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _adding = false;
+        _name = "";
+        _pairing = result.Data;
+        await LoadAsync();
+    }
+
+    private async Task NewCodeAsync(CheckInDeviceDto device)
+    {
+        _busy = true;
+        var result = await Gym.NewDevicePairingCodeAsync(device.Id);
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _pairing = result.Data;
+        await LoadAsync();
+    }
+
+    private async Task RevokeAsync()
+    {
+        _busy = true;
+        var result = await Gym.RevokeCheckInDeviceAsync(_removing!.Id);
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _removing = null;
+        await LoadAsync();
+    }
+
+    private async Task CloseCodeAsync(bool open)
+    {
+        _pairing = null;
+        await LoadAsync();
+    }
+}

@@ -50,6 +50,12 @@ public static class IronForgeClientServiceCollectionExtensions
         services.AddScoped<IInvitationService>(provider => new InvitationService(Anonymous(provider)));
         services.AddScoped(provider => new PublicApiClient(Anonymous(provider)));
 
+        // Check-in devices authenticate with their own key, never a user's JWT.
+        services.AddScoped(provider => new KioskApiClient(Anonymous(provider)));
+
+        // The member app replaces this with secure storage, so the pass works offline.
+        services.TryAddScoped<IMemberPassStore, InMemoryMemberPassStore>();
+
         // Hosts may register their own (the mobile app opens the system browser).
         services.TryAddScoped<IExternalLinkOpener, NavigationLinkOpener>();
 

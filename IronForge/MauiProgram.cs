@@ -67,6 +67,9 @@ namespace IronForge
             // registration, which only adds a default when none exists).
             builder.Services.AddScoped<IExternalLinkOpener, MauiLinkOpener>();
 
+            // The member pass works offline from secure storage.
+            builder.Services.AddSingleton<IMemberPassStore, SecureMemberPassStore>();
+
             // The member app: gym members only.
             builder.Services.AddIronForgeApiClients(new ClientAppProfile
             {

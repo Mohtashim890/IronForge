@@ -1,4 +1,4 @@
-@inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
 
 @inject IAuthService AuthService
 @inject ClientAppProfile Profile
@@ -41,6 +41,7 @@
         <nav class="m-tabbar" aria-label="Main">
             <NavLink href="/home" Match="NavLinkMatch.Prefix"><span class="m-icon">⌂</span>Home</NavLink>
             <NavLink href="/routines" Match="NavLinkMatch.Prefix"><span class="m-icon">🏋</span>Train</NavLink>
+            <NavLink href="/pass" Match="NavLinkMatch.Prefix"><span class="m-icon">⌗</span>Check in</NavLink>
             <NavLink href="/coach" Match="NavLinkMatch.Prefix"><span class="m-icon">✦</span>Coach</NavLink>
             <NavLink href="/progress" Match="NavLinkMatch.Prefix"><span class="m-icon">📈</span>Progress</NavLink>
             <NavLink href="/me" Match="NavLinkMatch.Prefix"><span class="m-icon">☺</span>Me</NavLink>

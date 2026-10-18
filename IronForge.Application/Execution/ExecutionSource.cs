@@ -8,5 +8,8 @@ public enum ExecutionSource
     InternalAgent,
 
     /// <summary>Background jobs and anonymous system callbacks (payment webhooks).</summary>
-    Background
+    Background,
+
+    /// <summary>A paired check-in device (kiosk) authenticated by its device key.</summary>
+    Device
 }

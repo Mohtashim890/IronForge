@@ -587,11 +587,19 @@ namespace IronForge.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<int?>("CheckInDeviceId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CheckedInAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MemberProfileId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<int?>("RecordedByUserId")
                         .HasColumnType("integer");
@@ -601,11 +609,119 @@ namespace IronForge.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CheckInDeviceId");
+
                     b.HasIndex("MemberProfileId", "CheckedInAtUtc");
 
                     b.HasIndex("TenantId", "CheckedInAtUtc");
 
                     b.ToTable("CheckIns");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.CheckInDenial", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("AttemptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CheckInDeviceId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("MemberProfileId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int?>("RecordedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckInDeviceId");
+
+                    b.HasIndex("MemberProfileId", "AttemptedAtUtc");
+
+                    b.HasIndex("TenantId", "AttemptedAtUtc");
+
+                    b.ToTable("CheckInDenials");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.CheckInDevice", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("KeyHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("PairedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PairingCodeHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("PairingExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("KeyHash")
+                        .IsUnique()
+                        .HasFilter("\"KeyHash\" IS NOT NULL");
+
+                    b.HasIndex("PairingCodeHash")
+                        .IsUnique()
+                        .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("CheckInDevices");
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.ConversationMessage", b =>
@@ -865,6 +981,9 @@ namespace IronForge.Api.Migrations
                     b.Property<int>("GracePeriodDays")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("GymQrCheckInEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("InvoiceLeadDays")
                         .HasColumnType("integer");
 
@@ -875,6 +994,9 @@ namespace IronForge.Api.Migrations
 
                     b.Property<int>("LastInvoiceNumber")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("MemberPassCheckInEnabled")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
@@ -1085,6 +1207,48 @@ namespace IronForge.Api.Migrations
                     b.ToTable("McpClients");
                 });
 
+            modelBuilder.Entity("IronForge.Application.Entities.MemberPhoto", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<byte[]>("Data")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("MemberProfileId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UploadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("UploadedByStaff")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("UploadedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberProfileId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("MemberPhotos");
+                });
+
             modelBuilder.Entity("IronForge.Application.Entities.MemberProfile", b =>
                 {
                     b.Property<int>("Id")
@@ -1133,6 +1297,9 @@ namespace IronForge.Api.Migrations
                     b.Property<DateTime>("JoinedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long?>("LastPassStep")
+                        .HasColumnType("bigint");
+
                     b.Property<int?>("MembershipPlanId")
                         .HasColumnType("integer");
 
@@ -1146,9 +1313,15 @@ namespace IronForge.Api.Migrations
                     b.Property<DateOnly?>("PaidThrough")
                         .HasColumnType("date");
 
+                    b.Property<int>("PassKeyVersion")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("PhotoUpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1948,6 +2121,11 @@ namespace IronForge.Api.Migrations
 
             modelBuilder.Entity("IronForge.Application.Entities.CheckIn", b =>
                 {
+                    b.HasOne("IronForge.Application.Entities.CheckInDevice", "CheckInDevice")
+                        .WithMany()
+                        .HasForeignKey("CheckInDeviceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("IronForge.Application.Entities.MemberProfile", "MemberProfile")
                         .WithMany("CheckIns")
                         .HasForeignKey("MemberProfileId")
@@ -1960,7 +2138,41 @@ namespace IronForge.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("CheckInDevice");
+
                     b.Navigation("MemberProfile");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.CheckInDenial", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.CheckInDevice", "CheckInDevice")
+                        .WithMany()
+                        .HasForeignKey("CheckInDeviceId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("IronForge.Application.Entities.MemberProfile", "MemberProfile")
+                        .WithMany()
+                        .HasForeignKey("MemberProfileId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CheckInDevice");
+
+                    b.Navigation("MemberProfile");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.CheckInDevice", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.ConversationMessage", b =>
@@ -2064,6 +2276,21 @@ namespace IronForge.Api.Migrations
                         .WithMany()
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.MemberPhoto", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

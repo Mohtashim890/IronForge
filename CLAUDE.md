@@ -10,9 +10,11 @@ IronForge is a **multi-tenant, agentic gym management SaaS**. Each tenant is a g
 
 Objectives (the locked v1 scope):
 1. **Gym staff** (Admin, Trainer) run their gym from the **web dashboard**:
-   - members, join requests, membership plans, invoices and payments, check-ins
+   - members (with photos), join requests, membership plans, invoices and payments
+   - check-ins: front desk (pass scan or name search), unattended kiosks (`/kiosk`), check-in devices
    - exercise library and routines, announcements, settings, staff, AI agents, approvals, activity log
 2. **Gym members** use the **MAUI mobile app**:
+   - Check in tab: rotating QR pass (works offline) and/or scanning the gym's entrance code, as the gym chose; photo
    - membership and invoices with "Pay now"
    - routines, workout logging, progress (weight and volume charts), goals
    - visits, notifications, profile, and an **AI Fitness Coach**
@@ -28,6 +30,8 @@ Objectives (the locked v1 scope):
 
 **Out of scope for v1** (do not add unless the user asks):
 - class booking, POS/shop, payroll, nutrition tracking, push notifications, streaming chat
+- staff shift clock-in (check-in means staff checking members in)
+- check-in Phase 3 (doors, turnstiles, RFID cards behind a `gym.access` add-on module) is a planned follow-up, not built
 - automated billing of tenants by the platform (operators set tenant subscription status manually)
 - a tenant-less platform AI agent, multiple currencies per gym
 
@@ -39,7 +43,7 @@ Work branch: `feature/gym-platform`. Do not commit or push unless the user asks.
 
 | Project | Type | Role |
 |---|---|---|
-| `IronForge.Shared` | Razor class library | Contracts shared by every front end:<br>- DTOs in `Models/Gym/*`, `Models/Tenants/*`, `Models/Agents/*`<br>- `Authorization/Permissions.cs`, `TenantRoles.cs`<br>- `Subscriptions/SubscriptionCatalog.cs` (modules and plans)<br>- API clients in `Services/*` and `Services/Gym/GymApiClients.cs`<br>- auth (`AuthService`, `JwtAuthenticationStateProvider`, `JwtAuthorizationHandler`, `JwtClaims`)<br>- shared pages (Login, TenantSelection, AcceptInvitation, ForgotPassword, ResetPassword, RedirectToLogin)<br>- UI kit `Components/Gym/*` (StatTile, BarChart, LineChart, Badge, Modal, NotificationBell, NotificationList, PasswordInput (Show/Hide toggle; use it for every password field), GymFormat, Svg)<br>- global CSS `wwwroot/css/ironforge-app.css` |
+| `IronForge.Shared` | Razor class library | Contracts shared by every front end:<br>- DTOs in `Models/Gym/*`, `Models/Tenants/*`, `Models/Agents/*`<br>- `Authorization/Permissions.cs`, `TenantRoles.cs`<br>- `Subscriptions/SubscriptionCatalog.cs` (modules and plans)<br>- API clients in `Services/*` and `Services/Gym/GymApiClients.cs`<br>- auth (`AuthService`, `JwtAuthenticationStateProvider`, `JwtAuthorizationHandler`, `JwtClaims`)<br>- shared pages (Login, TenantSelection, AcceptInvitation, ForgotPassword, ResetPassword, RedirectToLogin)<br>- UI kit `Components/Gym/*` (StatTile, BarChart, LineChart, Badge, Modal, NotificationBell, NotificationList, PasswordInput (Show/Hide toggle; use it for every password field), QrScanner, CheckInResultPanel, PhotoPicker, GymFormat, Svg)<br>- `CheckIns/MemberPassCode.cs` (pass code format, used by app and server), `wwwroot/js/qr-scanner.js` + vendored `js/vendor/jsQR.js` (Apache-2.0)<br>- global CSS `wwwroot/css/ironforge-app.css` |
 | `IronForge.UI.Admin` | RCL | Gym dashboard pages and layout (`Layout/MainLayout`, `NavMenu`, `NavItem`); hosted by `IronForge.Web` |
 | `IronForge.UI.Member` | RCL | Member app pages and layout (`Layout/MemberLayout`, bottom tabs); hosted by MAUI `IronForge` |
 | `IronForge.UI.Platform` | RCL | Operator console pages and layout (`Layout/PlatformLayout`, indigo `platform-theme`); hosted by `IronForge.Platform` |
@@ -69,6 +73,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
   - `GymDirectory` (`IGymDirectory`): join, invitation accept, billing job tenant list, admin recipients
   - `PlatformInsightsService` (`IPlatformInsightsService`): operator views, permission-checked
   - `TenantInvitationStore`
+  - `CheckInDeviceDirectory` (`ICheckInDeviceDirectory`): a kiosk looks itself up by the hash of its pairing code or device key
 - **Background jobs and webhooks** set the context themselves:
   ```
   accessor.Set(new ExecutionContext { TenantId = x, Source = ExecutionSource.Background })
@@ -86,7 +91,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - `IUnitOfWork.ExecuteInTransactionAsync` covers multi-save operations. All repositories in a scope share one DbContext.
 - Money is `numeric(12,2)`. Enums are stored as strings via `HasConversion<string>()`. Instants are UTC (`DateTime`). Calendar dates (billing, due dates, workouts) are `DateOnly` in the **gym's time zone**; use `GymCalendar.Today(clock, tz)`.
 - `TimeProvider` is injected for all "now" logic (`TimeProvider.System` in production, `TestClock` in tests).
-- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `GymPlatform`. Add one with:
+- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `GymCheckInMethods`. Add one with:
   ```
   ConnectionStrings__DefaultConnection="Host=localhost;Database=design;Username=x;Password=x" dotnet ef migrations add <Name> --project IronForge.Infrastructure --startup-project IronForge.Infrastructure
   ```
@@ -116,7 +121,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - **Tenant roles** (`TenantRoles`):
   - **Admin**: all `gym.*` staff permissions, agents, MCP, approvals.decide, audit.read, tenant.members.*
   - **Trainer**: gym.members.read, gym.checkins.manage, gym.routines.manage, agents.read
-  - **Member**: gym.self.read, gym.self.workouts.write, gym.self.payments
+  - **Member**: gym.self.read, gym.self.workouts.write, gym.self.payments, gym.self.checkin
 - **Platform role** `PlatformAdmin` grants `platform.tenants.manage` regardless of tenant.
 - **Permission constants** are in `IronForge.Shared/Authorization/Permissions.cs`. Front ends gate UI with `[Authorize(Policy = Permissions.X)]` and `<AuthorizeView Policy=...>` through `PermissionPolicyProvider`.
 - **Subscription access**: `Tenant.HasAccess(now)` requires IsActive and status Active, PastDue, or Trial-not-ended. It is checked at tenant selection and token refresh.
@@ -174,7 +179,25 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - A declined request (Cancelled with no approval) can be made again; the same profile is reopened as Pending.
   - `AuthService.SignInAsync` refuses sign-in (403 plus the reason) when an account has no active gym membership and only pending or declined requests. Wrong passwords stay 401 "Invalid username or password". PlatformAdmins are exempt.
 - **A new gym has no membership plans.** Members cannot be added or approved until an Admin creates one; the dashboard, Members and Join requests pages say so and link to `/plans`.
-- **Check-in** (`CheckInService`): staff only and Active members only. A second scan within 30 minutes is a duplicate and returns the existing check-in.
+- **Check-in** (`Gym/Members/CheckInService`, `Gym/CheckIns/*`): every method goes through `CheckInPolicy` and returns `CheckInResultDto` (Allowed / AlreadyCheckedIn / Denied; a refusal is a 200, not an error).
+  - **Admins choose the self check-in methods** (`GymSettings.MemberPassCheckInEnabled`, default on; `GymQrCheckInEnabled`, default off; `PUT api/gym/settings/check-in-methods`, Settings page, audited `CheckInMethodsChanged`). A switched-off method answers 409 everywhere (pass download, staff and kiosk scans, entrance code, member gym-QR check-in). Front desk by name always works. The kiosk re-reads the switches every minute; the member app on each visit to the Check in tab (and forgets a cached pass when the pass is off).
+  - **Rule**: only Active members. An overdue invoice still allows entry **during `GracePeriodDays` with a warning**; past it, entry is refused (`GracePeriodEnded`) even before the billing job marks the member Expired.
+  - A second check-in within 30 minutes returns `AlreadyCheckedIn` and records nothing.
+  - Every refusal is a `CheckInDenial` row (kept apart from `CheckIn`, so attendance counts only visits); copied or forged passes are also audited (`PassReuseRejected`, `PassForgeryRejected`).
+  - **Methods** (`CheckIn.Method`): `FrontDesk` (staff picked by name, `POST api/gym/checkins`), `PassScan` (staff scanned the pass, `POST api/gym/checkins/scan`), `Kiosk` (a paired device scanned the pass, `POST api/kiosk/check-ins`), `GymQr` (the member scanned the entrance code, `POST api/me/check-ins`, permission `gym.self.checkin`).
+- **Entrance code / gym QR** (`GymQrCode`): `IFG1.{tenant}.{device}.{step}.{hmac}`, step 15 s, accepted for the current and previous step (≤ 30 s). The API creates it (`GET api/kiosk/gym-qr`, device key) and checks it; its secret (`ICheckInKeys.GymQrSecret(tenant, device)`) never leaves the API. The kiosk fetches a code every 5 s. The device must be paired and not revoked; codes of another gym, forged or expired codes are refusals (`InvalidGymQr`, `ExpiredGymQr`). The check-in records the device that showed the code and no `RecordedByUserId`. It proves presence at the screen; identity is the member's own sign-in.
+- **Member pass** (`MemberPassService`, `MemberPassCode`): `IF1.{tenant}.{member}.{keyVersion}.{step}.{hmac}` with a new step every 30 s.
+  - The secret is derived per gym, member and `MemberProfile.PassKeyVersion` from `CheckIns:PassSigningKey` (fallback: the JWT key) by `ICheckInKeys` (`CheckInKeys`); nothing per member is stored.
+  - The app downloads it (`GET api/me/pass`, approved members only), caches it in `SecureStorage` (cleared on sign-out) and computes codes offline.
+  - The server accepts steps from 2 back to 1 ahead, and refuses a step ≤ `LastPassStep` (copied code). Reset (`POST api/me/pass/reset`, staff `POST api/gym/members/{id}/pass/reset`) increments the version; anonymizing also does.
+- **Check-in devices** (`CheckInDeviceService`, `KioskService`): admins (`gym.settings.manage`) add a device and get a 15-minute one-time pairing code; the kiosk swaps it for a long device key (`ifk_…`, only the SHA-256 is stored).
+  - The key is sent in `X-Device-Key`; `KioskService.AuthenticateAsync` sets the execution context as the device (`Actor.DeviceId`, `Source = Device`, permission `gym.checkins.device` only, never held by a role). `GymAccessService` lets a device do nothing else.
+  - A request carrying both a JWT and a device key is refused (400). Revoking a device stops it at once; a suspended gym's devices get 403.
+  - Kiosk UI: `/kiosk` in the gym dashboard host (`KioskLayout`, anonymous; key in `ProtectedLocalStorage` via `IKioskKeyStore`). Depending on the switches it shows the entrance code (`QrSvg`, QRCoder), scans passes with the camera or a USB/Bluetooth scanner that types like a keyboard, both side by side, or "check in at the front desk". It never shows the photo or the name behind a copied or forged pass.
+- **Member app camera** (entrance code): the shared `QrScanner` runs in the BlazorWebView. Android: `CAMERA` permission plus `CameraWebChromeClient` (grants only video capture, only to the app's own pages, asks for the runtime permission; forwards file choosing etc. to the original client), hooked in `MainPage.xaml.cs`. iOS/Mac: `NSCameraUsageDescription` and inline media playback. Windows: `webcam` capability.
+- **Member photos** (`MemberPhotoService`, `MemberPhoto` table, bytea, ≤ 1 MB): JPEG/PNG/WebP detected from the bytes; clients shrink to 640 px first (`PhotoPicker`).
+  - Staff can set or remove a photo (`api/gym/members/{id}/photo`); a staff photo is locked for the member. A member may set their own (`api/me/photo`) until staff set one.
+  - Shown on the check-in result. Anonymizing deletes it.
 
 ### 4.3 Billing (`Gym/Billing/*`)
 - **`IBillingEngine`** holds the rules with no authorization. Its methods mutate tracked entities but **do not save**; the caller saves once, so the change, notifications and emails commit together.
@@ -303,6 +326,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 | `JwtSettings:{Key,Issuer,Audience,ExpirationMinutes}` | Key from secrets/env (≥ 32 characters) |
 | `AISettings:{ApiKey,Model,ModelProfiles}` | OpenAI |
 | `AgentQuotas:DefaultMonthlyTokenLimit` | |
+| `CheckIns:PassSigningKey` | Master key for member pass secrets (≥ 32 characters). Empty uses `JwtSettings:Key`; changing either invalidates every pass until the app is online again |
 | `AppUrls:{WebBaseUrl,ResetPasswordUrl,ApiBaseUrl}` | Used in emails, Stripe redirects and simulated pay pages. Dev: web `https://localhost:7056`, API `https://localhost:7226` |
 | `Invitations:{AcceptUrl,LifetimeDays}` | |
 | `Stripe:{SecretKey,WebhookSecret}` | Empty selects the simulated gateway |
@@ -313,7 +337,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 | `OpenTelemetry:Otlp:*` | Grafana Cloud; headers from env |
 | `ReverseProxy:TrustedProxyIp` | |
 
-Rate-limit policies (`RateLimitPolicies`): `auth` 10/min, `anonymous` 30/min, `webhook` 300/min per IP.
+Rate-limit policies (`RateLimitPolicies`): `auth` 10/min (also kiosk pairing), `anonymous` 30/min, `webhook` 300/min, `device` 120/min per IP.
 
 ### 6.2 Front ends
 - `ApiSettings:BaseUrl` (Web/Platform: dev `https://localhost:7226/`, prod `http://ironforge-api:8080`)
@@ -333,13 +357,14 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 194 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 240 tests; Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.
   - operator `operator@ironforge.dev`
   - gym accounts `admin@<slug>.demo`, `trainer1@<slug>.demo`
   - showcase member `member@ironparadise.demo`
+  - each gym has a paired "Front entrance kiosk" whose key was never kept: issue a new pairing code under Check-in devices to use `/kiosk`. Check-ins use all four methods (gym QR only at Iron Paradise, the only demo gym with the entrance code switched on); frozen/expired members have refused kiosk attempts.
 
 | Gym (slug, join code) | Plan | Status | Members |
 |---|---|---|---|
@@ -372,7 +397,7 @@ dotnet test IronForge.Server.slnf                              # 194 tests; Dock
   - unsigned MAUI Android and Windows Release compile checks
 - **CD** (`cd.yml`): push images to GHCR `ghcr.io/<owner>/ironforge-*:<sha>`, then SSH to the VPS and run `deploy/scripts/deploy.sh <sha>`, which pulls, migrates, starts, health-checks and rolls back on failure.
 - **`deploy/compose.production.yml`**: api, web, platform, mcp, mcp-client, migrator, caddy. Volumes `web_keys` and `platform_keys` hold the Data Protection keys.
-- **`deploy/Caddyfile`**: `mohtashim.dev` → web, `platform.` → platform, `api.` → api, `mcp.` and `mcp-client.`; all with security headers (HSTS, nosniff, DENY frames, referrer and permissions policies).
+- **`deploy/Caddyfile`**: `mohtashim.dev` → web, `platform.` → platform, `api.` → api, `mcp.` and `mcp-client.`; all with security headers (HSTS, nosniff, DENY frames, referrer and permissions policies). Only the gym dashboard (`security_headers_camera`) allows `camera=(self)`, for pass scanning; the others block it.
 - **Local `compose.yaml`**: same services plus Mailpit; Caddy serves `localhost`, `platform.localhost`, `api.localhost`.
 - **Before onboarding real gyms**:
   - set Stripe keys and webhook secret (Connect enabled)

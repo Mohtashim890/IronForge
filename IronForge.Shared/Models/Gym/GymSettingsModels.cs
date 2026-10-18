@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace IronForge.Shared.Models.Gym
 {
@@ -39,6 +39,23 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>True when card payments go through a simulated gateway (no Stripe keys).</summary>
         public bool PaymentsSimulated { get; set; }
+
+        /// <summary>Members show their rotating pass; staff or a kiosk scan it.</summary>
+        public bool MemberPassCheckInEnabled { get; set; }
+
+        /// <summary>A check-in device shows a rotating code; members scan it with the app.</summary>
+        public bool GymQrCheckInEnabled { get; set; }
+    }
+
+    /// <summary>
+    /// Which self-service check-in methods the gym offers. Staff can always
+    /// check a member in by name at the front desk.
+    /// </summary>
+    public sealed class UpdateCheckInMethodsRequest
+    {
+        public bool MemberPassEnabled { get; set; }
+
+        public bool GymQrEnabled { get; set; }
     }
 
     public sealed class UpdateGymSettingsRequest

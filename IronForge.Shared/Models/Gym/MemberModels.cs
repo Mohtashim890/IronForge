@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace IronForge.Shared.Models.Gym
 {
@@ -68,6 +68,8 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>False until the member signs up in the app.</summary>
         public bool HasAppAccount { get; set; }
+
+        public bool HasPhoto { get; set; }
     }
 
     public sealed class MemberDetailDto
@@ -95,6 +97,8 @@ namespace IronForge.Shared.Models.Gym
         public List<RoutineSummaryDto> Routines { get; set; } = [];
 
         public List<FitnessGoalDto> Goals { get; set; } = [];
+
+        public MemberPhotoDto? Photo { get; set; }
     }
 
     public sealed class MemberQuery
@@ -225,7 +229,13 @@ namespace IronForge.Shared.Models.Gym
 
         public DateTime CheckedInAtUtc { get; set; }
 
+        /// <summary>Checked in at an unattended device, without staff.</summary>
         public bool SelfCheckIn { get; set; }
+
+        public CheckInMethod Method { get; set; }
+
+        /// <summary>The check-in device, for <see cref="CheckInMethod.Kiosk"/>.</summary>
+        public string? DeviceName { get; set; }
     }
 
     public sealed class CreateCheckInRequest
@@ -280,5 +290,13 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>Whether the gym's plan includes the AI coach and fitness tracking.</summary>
         public bool CoachingEnabled { get; set; }
+
+        public bool HasPhoto { get; set; }
+
+        /// <summary>The gym accepts the member's own pass (Pass tab).</summary>
+        public bool MemberPassCheckInEnabled { get; set; }
+
+        /// <summary>The gym shows an entrance code the member scans with the app.</summary>
+        public bool GymQrCheckInEnabled { get; set; }
     }
 }

@@ -1,17 +1,27 @@
-(security_headers) {
+(base_security_headers) {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
         X-Frame-Options "DENY"
         Referrer-Policy "strict-origin-when-cross-origin"
-        Permissions-Policy "camera=(), microphone=(), geolocation=()"
         -Server
     }
 }
 
+(security_headers) {
+    import base_security_headers
+    header Permissions-Policy "camera=(), microphone=(), geolocation=()"
+}
+
+# The gym dashboard reads member passes with the camera (front desk, /kiosk).
+(security_headers_camera) {
+    import base_security_headers
+    header Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+}
+
 # Gym admin dashboard.
 mohtashim.dev {
-    import security_headers
+    import security_headers_camera
     reverse_proxy ironforge-web:8080
 }
 

@@ -26,6 +26,9 @@ public interface IGymAccessService
 
     string? Username { get; }
 
+    /// <summary>Set when the caller is a paired check-in device instead of a user.</summary>
+    int? DeviceId { get; }
+
     Task<ResourceAuthorizationResult> AuthorizeAsync(
         string permission,
         CancellationToken cancellationToken = default);
@@ -82,6 +85,8 @@ public sealed class GymAccessService : IGymAccessService
 
     public string? Username => _executionContext.Current?.Actor.Username;
 
+    public int? DeviceId => _executionContext.Current?.Actor.DeviceId;
+
     public async Task<ResourceAuthorizationResult> AuthorizeAsync(
         string permission,
         CancellationToken cancellationToken = default)
@@ -122,6 +127,16 @@ public sealed class GymAccessService : IGymAccessService
         {
             return ResourceAuthorizationResult.Deny(
                 "Internal agent does not have the required permission.");
+        }
+
+        // A check-in device holds only the device permission it was given at
+        // authentication, so it can scan passes and call nothing else.
+        if (actor.DeviceId.HasValue)
+        {
+            return actor.UserPermissions.Contains(permission)
+                ? ResourceAuthorizationResult.Allow()
+                : ResourceAuthorizationResult.Deny(
+                    "A check-in device can only check members in.");
         }
 
         if (!actor.UserId.HasValue)

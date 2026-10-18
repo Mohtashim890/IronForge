@@ -3,6 +3,7 @@ using IronForge.Application.Auth.Services;
 using IronForge.Application.Configurations;
 using IronForge.Application.Gym.AgentTools;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
@@ -36,6 +37,20 @@ public static class GymPlatformServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        // Member pass secrets: a dedicated key, or the JWT signing key when none is set.
+        services
+            .AddOptions<CheckInOptions>()
+            .Bind(configuration.GetSection(CheckInOptions.SectionName))
+            .PostConfigure(options =>
+            {
+                if (string.IsNullOrWhiteSpace(options.PassSigningKey))
+                {
+                    options.PassSigningKey = configuration["JwtSettings:Key"] ?? "";
+                }
+            })
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
         services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
 
@@ -65,6 +80,12 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddScoped<IMembershipPlanService, MembershipPlanService>();
         services.AddScoped<IMemberService, MemberService>();
         services.AddScoped<ICheckInService, CheckInService>();
+        services.AddSingleton<ICheckInKeys, CheckInKeys>();
+        services.AddScoped<IMemberPassService, MemberPassService>();
+        services.AddScoped<IMemberPhotoService, MemberPhotoService>();
+        services.AddScoped<ICheckInDeviceService, CheckInDeviceService>();
+        services.AddScoped<ICheckInDeviceDirectory, CheckInDeviceDirectory>();
+        services.AddScoped<IKioskService, KioskService>();
         services.AddScoped<IGymDashboardService, GymDashboardService>();
         services.AddScoped<IGymJoinService, GymJoinService>();
         services.AddScoped<IRoutineService, RoutineService>();

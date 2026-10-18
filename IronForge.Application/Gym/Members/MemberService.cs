@@ -108,6 +108,7 @@ public sealed class MemberService : IMemberService
     private readonly IRepository<WorkoutLog> _workouts;
     private readonly IRepository<BodyMetric> _metrics;
     private readonly IRepository<FitnessGoal> _goals;
+    private readonly IRepository<MemberPhoto> _photos;
     private readonly IRepository<TenantMembership> _memberships;
     private readonly IRepository<User> _users;
     private readonly IBillingEngine _billing;
@@ -128,6 +129,7 @@ public sealed class MemberService : IMemberService
         IRepository<WorkoutLog> workouts,
         IRepository<BodyMetric> metrics,
         IRepository<FitnessGoal> goals,
+        IRepository<MemberPhoto> photos,
         IRepository<TenantMembership> memberships,
         IRepository<User> users,
         IBillingEngine billing,
@@ -147,6 +149,7 @@ public sealed class MemberService : IMemberService
         _workouts = workouts;
         _metrics = metrics;
         _goals = goals;
+        _photos = photos;
         _memberships = memberships;
         _users = users;
         _billing = billing;
@@ -281,7 +284,9 @@ public sealed class MemberService : IMemberService
                         MemberId = x.MemberProfileId,
                         MemberName = member.FullName,
                         CheckedInAtUtc = x.CheckedInAtUtc,
-                        SelfCheckIn = x.RecordedByUserId == null
+                        SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr,
+                        Method = x.Method,
+                        DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
                     }),
                 cancellationToken),
             Routines = await _routines.QueryAsync(
@@ -318,6 +323,22 @@ public sealed class MemberService : IMemberService
                     }),
                 cancellationToken)
         };
+
+        if (member.PhotoUpdatedAtUtc is not null)
+        {
+            var photo = (await _photos.QueryAsync(
+                q => q.Where(x => x.MemberProfileId == memberId),
+                cancellationToken)).SingleOrDefault();
+
+            detail.Photo = photo is null
+                ? null
+                : new MemberPhotoDto
+                {
+                    DataUrl = $"data:{photo.ContentType};base64,{Convert.ToBase64String(photo.Data)}",
+                    UploadedByStaff = photo.UploadedByStaff,
+                    UploadedAtUtc = photo.UploadedAtUtc
+                };
+        }
 
         return ServiceResult<MemberDetailDto>.Ok(detail);
     }
@@ -823,6 +844,8 @@ public sealed class MemberService : IMemberService
                 _workouts.Remove(item);
             foreach (var item in await _routines.ListTrackedAsync(x => x.MemberProfileId == memberId, cancellationToken))
                 _routines.Remove(item);
+            foreach (var item in await _photos.ListTrackedAsync(x => x.MemberProfileId == memberId, cancellationToken))
+                _photos.Remove(item);
 
             if (userId is { } id)
             {
@@ -849,6 +872,8 @@ public sealed class MemberService : IMemberService
             member.CancelledAtUtc ??= now;
             member.NextBillingDate = null;
             member.AnonymizedAtUtc = now;
+            member.PhotoUpdatedAtUtc = null;
+            member.PassKeyVersion++;
 
             await _members.SaveChangesAsync(cancellationToken);
 
@@ -929,6 +954,9 @@ public sealed class MemberService : IMemberService
                 cancellationToken),
             CoachingEnabled = (await _entitlements.GetEnabledModulesAsync(cancellationToken))
                 .Contains(PlatformModules.GymCoaching),
+            HasPhoto = member.PhotoUpdatedAtUtc != null,
+            MemberPassCheckInEnabled = gym?.Settings.MemberPassCheckInEnabled ?? false,
+            GymQrCheckInEnabled = gym?.Settings.GymQrCheckInEnabled ?? false,
             NextDueInvoice = next is null
                 ? null
                 : new InvoiceDto
@@ -1131,6 +1159,7 @@ public sealed class MemberService : IMemberService
                 .OrderByDescending(c => c.CheckedInAtUtc)
                 .Select(c => (DateTime?)c.CheckedInAtUtc)
                 .FirstOrDefault(),
-            HasAppAccount = x.UserId != null
+            HasAppAccount = x.UserId != null,
+            HasPhoto = x.PhotoUpdatedAtUtc != null
         };
 }

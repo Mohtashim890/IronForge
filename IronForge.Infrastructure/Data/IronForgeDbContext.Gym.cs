@@ -11,6 +11,9 @@ namespace IronForge.Infrastructure.Data
         public DbSet<MembershipPlan> MembershipPlans => Set<MembershipPlan>();
         public DbSet<MemberProfile> MemberProfiles => Set<MemberProfile>();
         public DbSet<CheckIn> CheckIns => Set<CheckIn>();
+        public DbSet<CheckInDenial> CheckInDenials => Set<CheckInDenial>();
+        public DbSet<CheckInDevice> CheckInDevices => Set<CheckInDevice>();
+        public DbSet<MemberPhoto> MemberPhotos => Set<MemberPhoto>();
         public DbSet<Invoice> Invoices => Set<Invoice>();
         public DbSet<Payment> Payments => Set<Payment>();
         public DbSet<InvoiceReminder> InvoiceReminders => Set<InvoiceReminder>();
@@ -100,11 +103,76 @@ namespace IronForge.Infrastructure.Data
             modelBuilder.Entity<CheckIn>(entity =>
             {
                 entity.HasKey(x => x.Id);
+                entity.Property(x => x.Method).HasConversion<string>().HasMaxLength(20);
                 entity.HasIndex(x => new { x.TenantId, x.CheckedInAtUtc });
                 entity.HasIndex(x => new { x.MemberProfileId, x.CheckedInAtUtc });
 
                 entity.HasOne(x => x.MemberProfile)
                     .WithMany(x => x.CheckIns)
+                    .HasForeignKey(x => x.MemberProfileId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(x => x.CheckInDevice)
+                    .WithMany()
+                    .HasForeignKey(x => x.CheckInDeviceId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<CheckInDenial>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Method).HasConversion<string>().HasMaxLength(20);
+                entity.Property(x => x.Reason).HasConversion<string>().HasMaxLength(30);
+                entity.Property(x => x.Message).IsRequired().HasMaxLength(300);
+                entity.HasIndex(x => new { x.TenantId, x.AttemptedAtUtc });
+                entity.HasIndex(x => new { x.MemberProfileId, x.AttemptedAtUtc });
+
+                entity.HasOne(x => x.MemberProfile)
+                    .WithMany()
+                    .HasForeignKey(x => x.MemberProfileId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(x => x.CheckInDevice)
+                    .WithMany()
+                    .HasForeignKey(x => x.CheckInDeviceId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<CheckInDevice>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Name).IsRequired().HasMaxLength(100);
+                entity.Property(x => x.KeyHash).HasMaxLength(100);
+                entity.Property(x => x.PairingCodeHash).HasMaxLength(100);
+                entity.HasIndex(x => x.TenantId);
+
+                // Looked up across tenants by the device itself (ICheckInDeviceDirectory).
+                entity.HasIndex(x => x.KeyHash)
+                    .IsUnique()
+                    .HasFilter("\"KeyHash\" IS NOT NULL");
+                entity.HasIndex(x => x.PairingCodeHash)
+                    .IsUnique()
+                    .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<MemberPhoto>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.ContentType).IsRequired().HasMaxLength(50);
+                entity.Property(x => x.Data).IsRequired();
+                entity.HasIndex(x => x.MemberProfileId).IsUnique();
+
+                entity.HasOne<MemberProfile>()
+                    .WithMany()
                     .HasForeignKey(x => x.MemberProfileId)
                     .OnDelete(DeleteBehavior.Cascade);
 

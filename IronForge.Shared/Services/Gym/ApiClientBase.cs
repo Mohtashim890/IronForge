@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net.Http.Json;
 using IronForge.Shared.Models;
 
@@ -24,6 +24,31 @@ public abstract class ApiClientBase
         catch (HttpRequestException)
         {
             return Offline<T>();
+        }
+    }
+
+    /// <summary>For endpoints that answer 204 No Content when there is nothing (Data is null).</summary>
+    protected async Task<ServiceResult<T?>> GetOptionalAsync<T>(string url, string fallback, CancellationToken ct)
+        where T : class
+    {
+        try
+        {
+            using var response = await Http.GetAsync(url, ct);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+            {
+                return ServiceResult<T?>.Ok(null);
+            }
+
+            var result = await ApiResponseReader.ReadAsync<T>(response, fallback, ct);
+
+            return result.Success
+                ? ServiceResult<T?>.Ok(result.Data)
+                : ServiceResult<T?>.Fail(result.ErrorMessage, result.StatusCode);
+        }
+        catch (HttpRequestException)
+        {
+            return Offline<T?>();
         }
     }
 

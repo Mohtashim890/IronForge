@@ -1,0 +1,375 @@
+@page "/kiosk"
+@layout KioskLayout
+@implements IDisposable
+@inject KioskApiClient Api
+@inject IKioskKeyStore KeyStore
+
+<PageTitle>Check-in | IronForge</PageTitle>
+
+<div class="kiosk-shell">
+    <header class="kiosk-head">
+        <div>
+            <div class="kiosk-gym">@(_info?.GymName ?? "IronForge")</div>
+            @if (_info is not null)
+            {
+                <div class="kiosk-device">@_info.DeviceName</div>
+            }
+        </div>
+        <div class="kiosk-device">@_clock</div>
+    </header>
+
+    <main class="kiosk-main">
+        @switch (_state)
+        {
+            case KioskState.Loading:
+                <div class="if-loading" style="color: inherit">Starting…</div>
+                break;
+
+            case KioskState.Unpaired:
+                <div class="kiosk-card">
+                    <h2 style="margin-top: 0">Pair this device</h2>
+                    <p class="if-muted">
+                        An admin adds the device under <strong>Check-in devices</strong> in the gym dashboard
+                        and gets a pairing code. Enter it here.
+                    </p>
+                    @if (_error is not null)
+                    {
+                        <div class="if-alert error">@_error</div>
+                    }
+                    <form @onsubmit="PairAsync" @onsubmit:preventDefault>
+                        <div class="if-field">
+                            <label for="pairing-code">Pairing code</label>
+                            <input id="pairing-code" @bind="_pairingCode" placeholder="ABCD-2345" autocomplete="off" maxlength="20" style="text-transform: uppercase; font-size: 1.3rem; letter-spacing: 0.1em" />
+                        </div>
+                        <button class="if-btn primary block" type="submit" disabled="@(_busy || string.IsNullOrWhiteSpace(_pairingCode))">Pair</button>
+                    </form>
+                </div>
+                break;
+
+            default:
+                @if (_result is not null)
+                {
+                    <CheckInResultPanel Result="_result" Large="true" />
+                }
+
+                @if (_error is not null)
+                {
+                    <div class="if-alert error" style="width: 100%; max-width: 560px">@_error</div>
+                }
+
+                @if (_info is { MemberPassEnabled: false, GymQrEnabled: false })
+                {
+                    <h1>Please check in at the front desk</h1>
+                    <p class="kiosk-hint">Self check-in is turned off at this gym.</p>
+                }
+
+                <div class="kiosk-split" style="@(_result is null ? "" : "display: none")">
+                    @if (_info?.GymQrEnabled == true)
+                    {
+                        <section class="kiosk-panel" aria-label="Entrance code">
+                            <h2>Scan with the IronForge app</h2>
+                            <p class="kiosk-hint">Open the app, tap <strong>Check in</strong>, then <strong>Scan entrance code</strong>.</p>
+                            @if (_gymQrSvg is not null)
+                            {
+                                <div class="kiosk-qr" role="img" aria-label="Entrance code">@((MarkupString)_gymQrSvg)</div>
+                                <p class="kiosk-hint if-small">The code changes every few seconds. Photos of it don't work.</p>
+                            }
+                            else
+                            {
+                                <div class="if-loading" style="color: inherit">Loading the code…</div>
+                            }
+                        </section>
+                    }
+
+                    @if (_info?.MemberPassEnabled == true)
+                    {
+                        <section class="kiosk-panel" aria-label="Scan your pass">
+                            <h2>@(_info.GymQrEnabled ? "Or show your pass" : "Scan your pass to check in")</h2>
+                            <p class="kiosk-hint">In the app, tap <strong>Check in</strong> and hold your pass up to the camera.</p>
+                            <div style="width: 100%">
+                                <QrScanner AutoStart="true" OnCode="ScanAsync" StartLabel="Start camera" />
+                            </div>
+
+                            @* A USB or Bluetooth QR scanner types the code and presses Enter. *@
+                            <form class="kiosk-wedge" @onsubmit="SubmitWedgeAsync" @onsubmit:preventDefault>
+                                <input class="if-input" @ref="_wedge" @bind="_wedgeCode" inputmode="none" autocomplete="off"
+                                       aria-label="Scanner input" placeholder="USB scanner input" />
+                            </form>
+                        </section>
+                    }
+                </div>
+
+                <button type="button" class="if-btn ghost sm" style="color: inherit; opacity: 0.5" @onclick="() => _confirmUnpair = true">Unpair device</button>
+                break;
+        }
+    </main>
+</div>
+
+<Modal @bind-Open="_confirmUnpair" Title="Unpair this device?">
+    <ChildContent>
+        <p>The device forgets its key. An admin needs a new pairing code to set it up again.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmUnpair = false">Cancel</button>
+        <button class="if-btn danger" @onclick="UnpairAsync">Unpair</button>
+    </Footer>
+</Modal>
+
+@code {
+    private enum KioskState { Loading, Unpaired, Ready }
+
+    /// <summary>How long a result stays on screen before the next member.</summary>
+    private static readonly TimeSpan ResultTime = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// The entrance code changes every 15 s and is accepted for 30 s, so
+    /// fetching every 5 s keeps the code on screen fresh without trusting
+    /// this device's clock.
+    /// </summary>
+    private static readonly TimeSpan GymQrRefresh = TimeSpan.FromSeconds(5);
+
+    /// <summary>Picks up method switches made by an admin, and a removed device.</summary>
+    private static readonly TimeSpan InfoRefresh = TimeSpan.FromMinutes(1);
+
+    private KioskState _state = KioskState.Loading;
+    private KioskInfoDto? _info;
+    private string? _key;
+    private string _pairingCode = "";
+    private string _wedgeCode = "";
+    private ElementReference _wedge;
+    private CheckInResultDto? _result;
+    private CancellationTokenSource? _resultTimer;
+    private Timer? _clockTimer;
+    private Timer? _gymQrTimer;
+    private Timer? _infoTimer;
+    private string? _gymQrCode;
+    private string? _gymQrSvg;
+    private string _clock = "";
+    private bool _busy;
+    private bool _confirmUnpair;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _clock = DateTime.Now.ToString("HH:mm");
+        _clockTimer = new Timer(_ => InvokeAsync(() =>
+        {
+            _clock = DateTime.Now.ToString("HH:mm");
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Browser storage is only reachable once the circuit is interactive.
+        if (firstRender)
+        {
+            _key = await KeyStore.GetAsync();
+            await ConnectAsync();
+            StateHasChanged();
+
+            _gymQrTimer = new Timer(_ => InvokeAsync(RefreshGymQrAsync), null, TimeSpan.Zero, GymQrRefresh);
+            _infoTimer = new Timer(_ => InvokeAsync(RefreshInfoAsync), null, InfoRefresh, InfoRefresh);
+        }
+
+        if (_state == KioskState.Ready && _info?.MemberPassEnabled == true && _result is null && !_confirmUnpair)
+        {
+            try
+            {
+                await _wedge.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSException or InvalidOperationException)
+            {
+                // Not rendered yet; focus on the next render.
+            }
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (string.IsNullOrEmpty(_key))
+        {
+            _state = KioskState.Unpaired;
+            return;
+        }
+
+        var info = await Api.GetInfoAsync(_key);
+
+        if (info.Success)
+        {
+            _info = info.Data;
+            _state = KioskState.Ready;
+            _error = null;
+        }
+        else if (info.StatusCode == 401)
+        {
+            await ForgetKeyAsync(info.ErrorMessage);
+        }
+        else
+        {
+            // Offline or the gym is suspended: keep the key and show why.
+            _state = KioskState.Ready;
+            _error = info.ErrorMessage;
+        }
+    }
+
+    private async Task RefreshInfoAsync()
+    {
+        if (_state != KioskState.Ready)
+            return;
+
+        await ConnectAsync();
+        StateHasChanged();
+    }
+
+    private async Task RefreshGymQrAsync()
+    {
+        if (_state != KioskState.Ready || _key is null || _info?.GymQrEnabled != true)
+        {
+            _gymQrCode = null;
+            _gymQrSvg = null;
+            return;
+        }
+
+        var qr = await Api.GetGymQrAsync(_key);
+
+        if (qr.Success)
+        {
+            if (qr.Data!.Code != _gymQrCode)
+            {
+                _gymQrCode = qr.Data.Code;
+                _gymQrSvg = QrSvg.Render(qr.Data.Code);
+            }
+        }
+        else if (qr.StatusCode == 401)
+        {
+            await ForgetKeyAsync(qr.ErrorMessage);
+        }
+        else
+        {
+            // Turned off meanwhile, or offline: never show a code that may be stale.
+            _gymQrCode = null;
+            _gymQrSvg = null;
+
+            if (qr.StatusCode == 409)
+            {
+                await ConnectAsync();
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task PairAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        var result = await Api.PairAsync(_pairingCode.Trim());
+
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _key = result.Data!.DeviceKey;
+        await KeyStore.SaveAsync(_key);
+        _pairingCode = "";
+        await ConnectAsync();
+        await RefreshGymQrAsync();
+    }
+
+    private async Task SubmitWedgeAsync()
+    {
+        var code = _wedgeCode;
+        _wedgeCode = "";
+        await ScanAsync(code);
+    }
+
+    private async Task ScanAsync(string code)
+    {
+        if (_busy || _key is null || string.IsNullOrWhiteSpace(code))
+            return;
+
+        _busy = true;
+
+        var result = await Api.CheckInAsync(_key, code.Trim());
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _error = null;
+            Show(result.Data!);
+        }
+        else if (result.StatusCode == 401)
+        {
+            // The device was removed in the dashboard.
+            await ForgetKeyAsync(result.ErrorMessage);
+        }
+        else
+        {
+            Show(new CheckInResultDto
+            {
+                Outcome = CheckInOutcome.Denied,
+                Message = result.StatusCode == 503
+                    ? "No connection to the gym. Please see the front desk."
+                    : result.ErrorMessage
+            });
+
+            if (result.StatusCode == 409)
+            {
+                // The member pass was turned off: update what the screen offers.
+                await ConnectAsync();
+            }
+        }
+    }
+
+    private void Show(CheckInResultDto result)
+    {
+        _result = result;
+
+        _resultTimer?.Cancel();
+        _resultTimer = new CancellationTokenSource();
+        var token = _resultTimer.Token;
+
+        _ = Task.Delay(ResultTime, token).ContinueWith(
+            _ => InvokeAsync(() =>
+            {
+                _result = null;
+                StateHasChanged();
+            }),
+            token,
+            TaskContinuationOptions.OnlyOnRanToCompletion,
+            TaskScheduler.Default);
+    }
+
+    private async Task ForgetKeyAsync(string? reason)
+    {
+        await KeyStore.ClearAsync();
+        _key = null;
+        _info = null;
+        _result = null;
+        _gymQrCode = null;
+        _gymQrSvg = null;
+        _state = KioskState.Unpaired;
+        _error = reason;
+    }
+
+    private async Task UnpairAsync()
+    {
+        _confirmUnpair = false;
+        await ForgetKeyAsync(null);
+    }
+
+    public void Dispose()
+    {
+        _resultTimer?.Cancel();
+        _clockTimer?.Dispose();
+        _gymQrTimer?.Dispose();
+        _infoTimer?.Dispose();
+    }
+}

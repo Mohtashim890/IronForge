@@ -1,5 +1,6 @@
-using IronForge.Api.Helpers;
+﻿using IronForge.Api.Helpers;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
 using IronForge.Shared.Models.Gym;
@@ -23,6 +24,8 @@ namespace IronForge.Api.Controllers
         private readonly ICheckInService _checkIns;
         private readonly IRoutineService _routines;
         private readonly IProgressService _progress;
+        private readonly IMemberPassService _pass;
+        private readonly IMemberPhotoService _photos;
 
         public MeController(
             IMemberService members,
@@ -30,8 +33,12 @@ namespace IronForge.Api.Controllers
             IBillingService billing,
             ICheckInService checkIns,
             IRoutineService routines,
-            IProgressService progress)
+            IProgressService progress,
+            IMemberPassService pass,
+            IMemberPhotoService photos)
         {
+            _pass = pass;
+            _photos = photos;
             _members = members;
             _plans = plans;
             _billing = billing;
@@ -39,6 +46,33 @@ namespace IronForge.Api.Controllers
             _routines = routines;
             _progress = progress;
         }
+
+        /// <summary>The secret the app uses to show the rotating check-in pass.</summary>
+        [HttpGet("pass")]
+        public async Task<IActionResult> GetPass(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _pass.GetMyPassAsync(cancellationToken));
+
+        /// <summary>The member scanned the gym's entrance code (gym QR).</summary>
+        [HttpPost("check-ins")]
+        public async Task<IActionResult> CheckIn(GymQrCheckInRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _checkIns.CheckInWithGymQrAsync(request.Code, cancellationToken));
+
+        [HttpPost("pass/reset")]
+        public async Task<IActionResult> ResetPass(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _pass.ResetMyPassAsync(cancellationToken));
+
+        /// <summary>204 without a photo.</summary>
+        [HttpGet("photo")]
+        public async Task<IActionResult> GetPhoto(CancellationToken cancellationToken)
+        {
+            var result = await _photos.GetMineAsync(cancellationToken);
+
+            return result is { Success: true, Data: null } ? NoContent() : this.ToActionResult(result);
+        }
+
+        [HttpPut("photo")]
+        public async Task<IActionResult> UploadPhoto(UploadMemberPhotoRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _photos.UploadMineAsync(request, cancellationToken));
 
         [HttpGet("membership")]
         public async Task<IActionResult> GetMembership(CancellationToken cancellationToken) =>

@@ -269,14 +269,27 @@
 
         _busyId = null;
 
-        if (result.Success)
+        if (!result.Success)
         {
-            _message = $"{member.FullName} checked in at {result.Data!.CheckedInAtUtc.ToLocalTime():HH:mm}.";
-            await ReloadAsync();
+            _error = result.ErrorMessage;
+        }
+        else if (result.Data!.Outcome == CheckInOutcome.Denied)
+        {
+            _error = result.Data.Message;
         }
         else
         {
-            _error = result.ErrorMessage;
+            // Allowed: the visit time; already in: the earlier visit. Plus any warning (overdue).
+            _message = result.Data.Outcome == CheckInOutcome.Allowed
+                ? $"{member.FullName} checked in at {result.Data.CheckIn!.CheckedInAtUtc.ToLocalTime():HH:mm}."
+                : result.Data.Message;
+
+            if (result.Data.Warning is not null)
+            {
+                _message += " " + result.Data.Warning;
+            }
+
+            await ReloadAsync();
         }
     }
 

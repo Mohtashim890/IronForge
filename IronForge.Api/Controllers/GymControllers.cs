@@ -1,5 +1,6 @@
-using IronForge.Api.Helpers;
+﻿using IronForge.Api.Helpers;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
 using IronForge.Application.Gym.Notifications;
@@ -42,6 +43,10 @@ namespace IronForge.Api.Controllers
         [HttpPut("settings")]
         public async Task<IActionResult> UpdateSettings(UpdateGymSettingsRequest request, CancellationToken cancellationToken) =>
             this.ToActionResult(await _settings.UpdateAsync(request, cancellationToken));
+
+        [HttpPut("settings/check-in-methods")]
+        public async Task<IActionResult> UpdateCheckInMethods(UpdateCheckInMethodsRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _settings.UpdateCheckInMethodsAsync(request, cancellationToken));
 
         [HttpPost("settings/join-code")]
         public async Task<IActionResult> RegenerateJoinCode(CancellationToken cancellationToken) =>
@@ -86,12 +91,21 @@ namespace IronForge.Api.Controllers
         private readonly IMemberService _members;
         private readonly IRoutineService _routines;
         private readonly IProgressService _progress;
+        private readonly IMemberPhotoService _photos;
+        private readonly IMemberPassService _passes;
 
-        public MembersController(IMemberService members, IRoutineService routines, IProgressService progress)
+        public MembersController(
+            IMemberService members,
+            IRoutineService routines,
+            IProgressService progress,
+            IMemberPhotoService photos,
+            IMemberPassService passes)
         {
             _members = members;
             _routines = routines;
             _progress = progress;
+            _photos = photos;
+            _passes = passes;
         }
 
         [HttpGet]
@@ -162,6 +176,36 @@ namespace IronForge.Api.Controllers
         [HttpGet("{memberId:int}/progress")]
         public async Task<IActionResult> GetProgress(int memberId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _progress.GetMemberProgressAsync(memberId, cancellationToken));
+
+        /// <summary>204 when the member has no photo.</summary>
+        [HttpGet("{memberId:int}/photo")]
+        public async Task<IActionResult> GetPhoto(int memberId, CancellationToken cancellationToken)
+        {
+            var result = await _photos.GetAsync(memberId, cancellationToken);
+
+            return result is { Success: true, Data: null } ? NoContent() : this.ToActionResult(result);
+        }
+
+        [HttpPut("{memberId:int}/photo")]
+        public async Task<IActionResult> UploadPhoto(int memberId, UploadMemberPhotoRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _photos.UploadAsync(memberId, request, cancellationToken));
+
+        [HttpDelete("{memberId:int}/photo")]
+        public async Task<IActionResult> DeletePhoto(int memberId, CancellationToken cancellationToken)
+        {
+            var result = await _photos.DeleteAsync(memberId, cancellationToken);
+
+            return result.Success ? NoContent() : this.ToErrorResult(result);
+        }
+
+        /// <summary>The member's current pass stops working; their app fetches the new one.</summary>
+        [HttpPost("{memberId:int}/pass/reset")]
+        public async Task<IActionResult> ResetPass(int memberId, CancellationToken cancellationToken)
+        {
+            var result = await _passes.ResetPassAsync(memberId, cancellationToken);
+
+            return result.Success ? NoContent() : this.ToErrorResult(result);
+        }
     }
 
     [ApiController]
@@ -210,9 +254,44 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> CheckIn(CreateCheckInRequest request, CancellationToken cancellationToken) =>
             this.ToActionResult(await _checkIns.CheckInAsync(request.MemberId, cancellationToken));
 
+        /// <summary>Staff scanned a member's pass at the front desk.</summary>
+        [HttpPost("scan")]
+        public async Task<IActionResult> Scan(ScanPassRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _checkIns.ScanPassAsync(request.Code, cancellationToken));
+
+        [HttpGet("denials")]
+        public async Task<IActionResult> ListDenials([FromQuery] int take = 20, CancellationToken cancellationToken = default) =>
+            this.ToActionResult(await _checkIns.ListDenialsAsync(take, cancellationToken));
+
         [HttpGet("attendance")]
         public async Task<IActionResult> Attendance([FromQuery] int days = 30, CancellationToken cancellationToken = default) =>
             this.ToActionResult(await _checkIns.GetAttendanceAsync(days, cancellationToken));
+    }
+
+    [ApiController]
+    [Route("api/gym/checkin-devices")]
+    [Authorize]
+    public sealed class CheckInDevicesController : ControllerBase
+    {
+        private readonly ICheckInDeviceService _devices;
+
+        public CheckInDevicesController(ICheckInDeviceService devices) => _devices = devices;
+
+        [HttpGet]
+        public async Task<IActionResult> List(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _devices.ListAsync(cancellationToken));
+
+        [HttpPost]
+        public async Task<IActionResult> Create(CreateCheckInDeviceRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _devices.CreateAsync(request, cancellationToken));
+
+        [HttpPost("{deviceId:int}/pairing-code")]
+        public async Task<IActionResult> NewPairingCode(int deviceId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _devices.NewPairingCodeAsync(deviceId, cancellationToken));
+
+        [HttpPost("{deviceId:int}/revoke")]
+        public async Task<IActionResult> Revoke(int deviceId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _devices.RevokeAsync(deviceId, cancellationToken));
     }
 
     [ApiController]

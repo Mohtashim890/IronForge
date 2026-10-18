@@ -1,3 +1,5 @@
+﻿using System.Net.Http.Json;
+using IronForge.Shared.CheckIns;
 using IronForge.Shared.Models;
 using IronForge.Shared.Models.Gym;
 using IronForge.Shared.Models.Tenants;
@@ -114,8 +116,45 @@ public sealed class GymApiClient : ApiClientBase
     public Task<ServiceResult<List<CheckInDto>>> GetCheckInsAsync(int take = 50, CancellationToken ct = default) =>
         GetAsync<List<CheckInDto>>(Query("api/gym/checkins", ("take", take)), "Unable to load check-ins.", ct);
 
-    public Task<ServiceResult<CheckInDto>> CheckInAsync(int memberId, CancellationToken ct = default) =>
-        PostAsync<CheckInDto>("api/gym/checkins", new CreateCheckInRequest { MemberId = memberId }, "Unable to check in.", ct);
+    public Task<ServiceResult<CheckInResultDto>> CheckInAsync(int memberId, CancellationToken ct = default) =>
+        PostAsync<CheckInResultDto>("api/gym/checkins", new CreateCheckInRequest { MemberId = memberId }, "Unable to check in.", ct);
+
+    public Task<ServiceResult<CheckInResultDto>> ScanPassAsync(string code, CancellationToken ct = default) =>
+        PostAsync<CheckInResultDto>("api/gym/checkins/scan", new ScanPassRequest { Code = code }, "Unable to check the pass.", ct);
+
+    public Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(bool memberPass, bool gymQr, CancellationToken ct = default) =>
+        PutAsync<GymSettingsDto>(
+            "api/gym/settings/check-in-methods",
+            new UpdateCheckInMethodsRequest { MemberPassEnabled = memberPass, GymQrEnabled = gymQr },
+            "Unable to save the check-in methods.",
+            ct);
+
+    public Task<ServiceResult<List<CheckInDenialDto>>> GetCheckInDenialsAsync(int take = 20, CancellationToken ct = default) =>
+        GetAsync<List<CheckInDenialDto>>(Query("api/gym/checkins/denials", ("take", take)), "Unable to load refused check-ins.", ct);
+
+    public Task<ServiceResult<List<CheckInDeviceDto>>> GetCheckInDevicesAsync(CancellationToken ct = default) =>
+        GetAsync<List<CheckInDeviceDto>>("api/gym/checkin-devices", "Unable to load check-in devices.", ct);
+
+    public Task<ServiceResult<CheckInDevicePairingDto>> CreateCheckInDeviceAsync(string name, CancellationToken ct = default) =>
+        PostAsync<CheckInDevicePairingDto>("api/gym/checkin-devices", new CreateCheckInDeviceRequest { Name = name }, "Unable to add the device.", ct);
+
+    public Task<ServiceResult<CheckInDevicePairingDto>> NewDevicePairingCodeAsync(int deviceId, CancellationToken ct = default) =>
+        PostAsync<CheckInDevicePairingDto>($"api/gym/checkin-devices/{deviceId}/pairing-code", null, "Unable to create a pairing code.", ct);
+
+    public Task<ServiceResult<CheckInDeviceDto>> RevokeCheckInDeviceAsync(int deviceId, CancellationToken ct = default) =>
+        PostAsync<CheckInDeviceDto>($"api/gym/checkin-devices/{deviceId}/revoke", null, "Unable to remove the device.", ct);
+
+    public Task<ServiceResult<MemberPhotoDto?>> GetMemberPhotoAsync(int memberId, CancellationToken ct = default) =>
+        GetOptionalAsync<MemberPhotoDto>($"api/gym/members/{memberId}/photo", "Unable to load the photo.", ct);
+
+    public Task<ServiceResult<MemberPhotoDto>> UploadMemberPhotoAsync(int memberId, string base64, CancellationToken ct = default) =>
+        PutAsync<MemberPhotoDto>($"api/gym/members/{memberId}/photo", new UploadMemberPhotoRequest { Data = base64 }, "Unable to save the photo.", ct);
+
+    public Task<ServiceResult<bool>> DeleteMemberPhotoAsync(int memberId, CancellationToken ct = default) =>
+        DeleteAsync($"api/gym/members/{memberId}/photo", "Unable to remove the photo.", ct);
+
+    public Task<ServiceResult<bool>> ResetMemberPassAsync(int memberId, CancellationToken ct = default) =>
+        PostNoContentAsync($"api/gym/members/{memberId}/pass/reset", null, "Unable to reset the pass.", ct);
 
     public Task<ServiceResult<AttendanceSummaryDto>> GetAttendanceAsync(int days = 30, CancellationToken ct = default) =>
         GetAsync<AttendanceSummaryDto>(Query("api/gym/checkins/attendance", ("days", days)), "Unable to load attendance.", ct);
@@ -206,6 +245,22 @@ public sealed class MemberApiClient : ApiClientBase
     public Task<ServiceResult<List<CheckInDto>>> GetCheckInsAsync(CancellationToken ct = default) =>
         GetAsync<List<CheckInDto>>("api/me/checkins", "Unable to load check-ins.", ct);
 
+    /// <summary>Checks in with the entrance code scanned at the gym.</summary>
+    public Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(string code, CancellationToken ct = default) =>
+        PostAsync<CheckInResultDto>("api/me/check-ins", new GymQrCheckInRequest { Code = code }, "Unable to check in.", ct);
+
+    public Task<ServiceResult<MemberPassDto>> GetPassAsync(CancellationToken ct = default) =>
+        GetAsync<MemberPassDto>("api/me/pass", "Unable to load your pass.", ct);
+
+    public Task<ServiceResult<MemberPassDto>> ResetPassAsync(CancellationToken ct = default) =>
+        PostAsync<MemberPassDto>("api/me/pass/reset", null, "Unable to reset your pass.", ct);
+
+    public Task<ServiceResult<MemberPhotoDto?>> GetPhotoAsync(CancellationToken ct = default) =>
+        GetOptionalAsync<MemberPhotoDto>("api/me/photo", "Unable to load your photo.", ct);
+
+    public Task<ServiceResult<MemberPhotoDto>> UploadPhotoAsync(string base64, CancellationToken ct = default) =>
+        PutAsync<MemberPhotoDto>("api/me/photo", new UploadMemberPhotoRequest { Data = base64 }, "Unable to save your photo.", ct);
+
     public Task<ServiceResult<List<ExerciseDto>>> GetExercisesAsync(string? search = null, string? muscleGroup = null, CancellationToken ct = default) =>
         GetAsync<List<ExerciseDto>>(Query("api/me/exercises", ("search", search), ("muscleGroup", muscleGroup)), "Unable to load exercises.", ct);
 
@@ -244,6 +299,71 @@ public sealed class MemberApiClient : ApiClientBase
 
     public Task<ServiceResult<ProgressSummaryDto>> GetProgressAsync(CancellationToken ct = default) =>
         GetAsync<ProgressSummaryDto>("api/me/progress", "Unable to load progress.", ct);
+}
+
+/// <summary>
+/// A check-in device (kiosk). It has no user session: it pairs with a code
+/// from an admin, then sends its device key with every call.
+/// </summary>
+public sealed class KioskApiClient : ApiClientBase
+{
+    public KioskApiClient(HttpClient http) : base(http)
+    {
+    }
+
+    public Task<ServiceResult<KioskPairingResultDto>> PairAsync(string pairingCode, CancellationToken ct = default) =>
+        PostAsync<KioskPairingResultDto>("api/kiosk/pair", new PairKioskRequest { PairingCode = pairingCode }, "Unable to pair this device.", ct);
+
+    public async Task<ServiceResult<KioskInfoDto>> GetInfoAsync(string deviceKey, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/kiosk/me");
+            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
+
+            using var response = await Http.SendAsync(request, ct);
+            return await ApiResponseReader.ReadAsync<KioskInfoDto>(response, "Unable to reach the gym.", ct);
+        }
+        catch (HttpRequestException)
+        {
+            return ServiceResult<KioskInfoDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
+        }
+    }
+
+    public async Task<ServiceResult<GymQrDto>> GetGymQrAsync(string deviceKey, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/kiosk/gym-qr");
+            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
+
+            using var response = await Http.SendAsync(request, ct);
+            return await ApiResponseReader.ReadAsync<GymQrDto>(response, "Unable to load the entrance code.", ct);
+        }
+        catch (HttpRequestException)
+        {
+            return ServiceResult<GymQrDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
+        }
+    }
+
+    public async Task<ServiceResult<CheckInResultDto>> CheckInAsync(string deviceKey, string code, CancellationToken ct = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/kiosk/check-ins")
+            {
+                Content = JsonContent.Create(new ScanPassRequest { Code = code })
+            };
+            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
+
+            using var response = await Http.SendAsync(request, ct);
+            return await ApiResponseReader.ReadAsync<CheckInResultDto>(response, "Unable to check in.", ct);
+        }
+        catch (HttpRequestException)
+        {
+            return ServiceResult<CheckInResultDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
+        }
+    }
 }
 
 /// <summary>Calls made before signing in: joining a gym and resetting a password.</summary>

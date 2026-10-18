@@ -1,4 +1,4 @@
-using System.Threading.RateLimiting;
+﻿using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace IronForge.Api.Helpers
@@ -12,6 +12,7 @@ namespace IronForge.Api.Helpers
         public const string Auth = "auth";
         public const string Anonymous = "anonymous";
         public const string Webhook = "webhook";
+        public const string Device = "device";
 
         public static IServiceCollection AddIronForgeRateLimiting(this IServiceCollection services)
         {
@@ -22,6 +23,8 @@ namespace IronForge.Api.Helpers
                 options.AddPolicy(Auth, context => PerIp(context, permitLimit: 10, window: TimeSpan.FromMinutes(1)));
                 options.AddPolicy(Anonymous, context => PerIp(context, permitLimit: 30, window: TimeSpan.FromMinutes(1)));
                 options.AddPolicy(Webhook, context => PerIp(context, permitLimit: 300, window: TimeSpan.FromMinutes(1)));
+                // A busy entrance scans a few members a minute; this only stops key guessing.
+                options.AddPolicy(Device, context => PerIp(context, permitLimit: 120, window: TimeSpan.FromMinutes(1)));
             });
         }
 

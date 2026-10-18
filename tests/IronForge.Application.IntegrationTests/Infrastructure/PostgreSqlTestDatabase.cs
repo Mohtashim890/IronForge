@@ -1,4 +1,5 @@
-﻿using IronForge.Infrastructure.Data;
+﻿using IronForge.Application.Execution;
+using IronForge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
 
@@ -64,6 +65,21 @@ public sealed class PostgreSqlTestDatabase : IAsyncLifetime
         return new IronForgeDbContext(
             options,
             executionContext);
+    }
+
+    /// <summary>
+    /// A context whose tenant comes from <paramref name="accessor"/> when a
+    /// query runs, for flows that establish the execution context themselves
+    /// (a check-in device authenticating with its key).
+    /// </summary>
+    public IronForgeDbContext CreateDbContext(IExecutionContextAccessor accessor)
+    {
+        var options =
+            new DbContextOptionsBuilder<IronForgeDbContext>()
+                .UseNpgsql(ConnectionString)
+                .Options;
+
+        return new IronForgeDbContext(options, accessor);
     }
 
     public IronForgeDbContext CreateDbContext(

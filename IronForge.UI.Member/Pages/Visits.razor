@@ -1,4 +1,4 @@
-@page "/visits"
+﻿@page "/visits"
 @attribute [Authorize]
 @inject MemberApiClient Me
 
@@ -13,7 +13,7 @@
 }
 else if (_visits.Count == 0)
 {
-    <div class="m-card if-empty">No visits yet. Check in at the front desk when you arrive.</div>
+    <div class="m-card if-empty">No visits yet. Open the Check in tab when you arrive at the gym.</div>
 }
 else
 {
@@ -22,7 +22,10 @@ else
             @foreach (var visit in _visits)
             {
                 <li>
-                    <span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
+                    <span style="flex: 1">
+                        @GymFormat.DateTime(visit.CheckedInAtUtc)
+                        <span class="if-muted if-small">· @(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", _ => "Front desk" })</span>
+                    </span>
                     <span class="if-muted if-small">@GymFormat.Ago(visit.CheckedInAtUtc)</span>
                 </li>
             }

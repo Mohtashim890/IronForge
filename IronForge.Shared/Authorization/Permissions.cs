@@ -37,10 +37,19 @@ namespace IronForge.Shared.Authorization
         public const string GymNotificationsSend = "gym.notifications.send";
         public const string GymSettingsManage = "gym.settings.manage";
 
+        /// <summary>
+        /// Held only by a paired check-in device (kiosk), never by a role: it
+        /// can scan member passes and nothing else.
+        /// </summary>
+        public const string GymCheckInsDevice = "gym.checkins.device";
+
         // Gym member self-service: always limited to the caller's own profile.
         public const string GymSelfRead = "gym.self.read";
         public const string GymSelfWorkoutsWrite = "gym.self.workouts.write";
         public const string GymSelfPayments = "gym.self.payments";
+
+        /// <summary>Check oneself in by scanning the gym's entrance code.</summary>
+        public const string GymSelfCheckIn = "gym.self.checkin";
 
         // Platform-level: granted by User.Role, independent of the selected tenant.
         public const string PlatformTenantsManage = "platform.tenants.manage";

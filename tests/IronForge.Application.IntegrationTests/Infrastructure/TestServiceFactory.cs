@@ -15,6 +15,7 @@ using IronForge.Application.Entities;
 using IronForge.Application.Execution;
 using IronForge.Application.Gym.AgentTools;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
@@ -45,6 +46,13 @@ public sealed class TestServiceFactory
         Db = db;
         ContextAccessor = new TestExecutionContextAccessor();
         ContextAccessor.Set(context);
+    }
+
+    /// <summary>An anonymous request whose context the code under test establishes (a device).</summary>
+    public TestServiceFactory(IronForgeDbContext db, TestExecutionContextAccessor accessor)
+    {
+        Db = db;
+        ContextAccessor = accessor;
     }
 
     public IronForgeDbContext Db { get; }
@@ -294,6 +302,7 @@ public sealed class TestServiceFactory
             new EfRepository<WorkoutLog>(Db),
             new EfRepository<BodyMetric>(Db),
             new EfRepository<FitnessGoal>(Db),
+            new EfRepository<MemberPhoto>(Db),
             new EfRepository<TenantMembership>(Db),
             new EfRepository<User>(Db),
             BillingEngine,
@@ -304,12 +313,68 @@ public sealed class TestServiceFactory
             Audit,
             Clock);
 
+    public const string PassSigningKey = "integration-test-member-pass-key-long-enough";
+
+    public static CheckInKeys PassKeys { get; } =
+        new(Options.Create(new CheckInOptions { PassSigningKey = PassSigningKey }));
+
     public CheckInService CheckIns =>
         new(
             GymAccess,
             new EfRepository<CheckIn>(Db),
+            new EfRepository<CheckInDenial>(Db),
             new EfRepository<MemberProfile>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<MemberPhoto>(Db),
+            new EfRepository<CheckInDevice>(Db),
+            PassKeys,
             BillingEngine,
+            Audit,
+            Clock);
+
+    public GymSettingsService GymSettings =>
+        new(
+            GymAccess,
+            new EfRepository<GymSettings>(Db),
+            new EfRepository<Tenant>(Db),
+            PaymentGateway,
+            Audit,
+            Clock);
+
+    public MemberPassService MemberPasses =>
+        new(
+            GymAccess,
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MemberPhoto>(Db),
+            PassKeys,
+            BillingEngine,
+            Audit,
+            Clock);
+
+    public MemberPhotoService MemberPhotos =>
+        new(
+            GymAccess,
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MemberPhoto>(Db),
+            Audit,
+            Clock);
+
+    public CheckInDeviceService CheckInDevices =>
+        new(
+            GymAccess,
+            new EfRepository<CheckInDevice>(Db),
+            new EfRepository<CheckIn>(Db),
+            BillingEngine,
+            Audit,
+            Clock);
+
+    public KioskService Kiosk =>
+        new(
+            new CheckInDeviceDirectory(Db),
+            new EfRepository<Tenant>(Db),
+            new EfRepository<GymSettings>(Db),
+            ContextAccessor,
+            Audit,
             Clock);
 
     public GymJoinService Join =>

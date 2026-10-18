@@ -1,4 +1,4 @@
-@page "/settings"
+﻿@page "/settings"
 @attribute [Authorize(Policy = Permissions.GymSettingsManage)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -64,6 +64,46 @@
         </div>
 
         <div class="if-card" style="margin-top: 16px">
+            <div class="if-card-head">
+                <h2>Check-in methods</h2>
+                <a class="if-small" href="/checkin-devices">Check-in devices →</a>
+            </div>
+            <p class="if-muted if-small" style="margin-top: 0">
+                Choose how members check themselves in. Staff can always check a member in by name at the front desk.
+                Changes apply at once, in the app, at the front desk and on every check-in device.
+            </p>
+
+            <label class="if-check-option">
+                <input type="checkbox" @bind="_memberPass" />
+                <span>
+                    <strong>Member pass</strong>
+                    <span class="if-small if-muted">
+                        Members show a QR code from the app that changes every 30 seconds. Staff or a check-in device scan it,
+                        and staff see the member's photo. Works without internet on the phone.
+                    </span>
+                </span>
+            </label>
+
+            <label class="if-check-option">
+                <input type="checkbox" @bind="_gymQr" />
+                <span>
+                    <strong>Entrance code (gym QR)</strong>
+                    <span class="if-small if-muted">
+                        A check-in device shows a QR code that changes every 15 seconds; members scan it with the app's camera.
+                        Needs no scanner at the desk, only a screen. The member's phone needs internet.
+                    </span>
+                </span>
+            </label>
+
+            @if (!_memberPass && !_gymQr)
+            {
+                <div class="if-alert info" style="margin: 10px 0 0">With both off, members are checked in by staff at the front desk only.</div>
+            }
+
+            <button class="if-btn primary" style="margin-top: 12px" disabled="@(_busy || !CheckInChanged)" @onclick="SaveCheckInMethodsAsync">Save check-in methods</button>
+        </div>
+
+        <div class="if-card" style="margin-top: 16px">
             <div class="if-card-head"><h2>Gym details and billing rules</h2></div>
 
             <div class="if-form-grid">
@@ -104,6 +144,12 @@
     private GymSettingsDto? _settings;
     private UpdateGymSettingsRequest _form = new();
     private string _afterDue = "";
+    private bool _memberPass;
+    private bool _gymQr;
+
+    private bool CheckInChanged =>
+        _settings is not null &&
+        (_memberPass != _settings.MemberPassCheckInEnabled || _gymQr != _settings.GymQrCheckInEnabled);
     private bool _busy;
     private string? _error;
     private string? _message;
@@ -146,7 +192,12 @@
             GracePeriodDays = settings.GracePeriodDays
         };
         _afterDue = string.Join(", ", settings.ReminderDaysAfterDue);
+        _memberPass = settings.MemberPassCheckInEnabled;
+        _gymQr = settings.GymQrCheckInEnabled;
     }
+
+    private Task SaveCheckInMethodsAsync() =>
+        RunAsync(() => Gym.UpdateCheckInMethodsAsync(_memberPass, _gymQr), "Check-in methods saved.");
 
     private async Task SaveAsync()
     {

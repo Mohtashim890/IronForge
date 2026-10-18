@@ -1,0 +1,61 @@
+@* Picks a photo (camera or gallery on phones), shrinks it in the browser to
+   at most 640 px as JPEG, and hands the base64 to the page to upload. *@
+
+<label class="if-btn @CssClass @(_busy || Disabled ? "disabled" : "")">
+    @(_busy ? "Preparing…" : Label)
+    <InputFile accept="image/jpeg,image/png,image/webp" class="if-visually-hidden" disabled="@(_busy || Disabled)" OnChange="OnChangeAsync" />
+</label>
+
+@if (_error is not null)
+{
+    <div class="if-alert error" style="margin-top: 8px">@_error</div>
+}
+
+@code {
+    private const int MaxSourceBytes = 15 * 1024 * 1024;
+    private const int MaxResizedBytes = 1024 * 1024;
+
+    private bool _busy;
+    private string? _error;
+
+    [Parameter] public string Label { get; set; } = "Choose photo";
+
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Base64 of the resized JPEG.</summary>
+    [Parameter] public EventCallback<string> OnPicked { get; set; }
+
+    private async Task OnChangeAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+
+        if (e.File.Size > MaxSourceBytes)
+        {
+            _error = "That photo is too large. Choose one under 15 MB.";
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            var resized = await e.File.RequestImageFileAsync("image/jpeg", 640, 640);
+
+            await using var stream = resized.OpenReadStream(MaxResizedBytes);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+
+            await OnPicked.InvokeAsync(Convert.ToBase64String(buffer.ToArray()));
+        }
+        catch (Exception ex) when (ex is IOException or JSException)
+        {
+            _error = "The photo could not be read. Try another one.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

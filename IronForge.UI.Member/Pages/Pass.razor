@@ -1,0 +1,292 @@
+@page "/pass"
+@page "/checkin"
+@attribute [Authorize]
+@implements IDisposable
+@inject MemberApiClient Me
+@inject IAuthService AuthService
+@inject IMemberPassStore PassStore
+
+<PageTitle>Check in | IronForge</PageTitle>
+
+<h1 style="font-size: 1.4rem">Check in</h1>
+
+@if (_loading)
+{
+    <div class="if-loading">Loading…</div>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_status is not null)
+    {
+        <div class="if-alert success">@_status</div>
+    }
+
+    @if (_result is not null)
+    {
+        <div style="margin-bottom: 14px">
+            <CheckInResultPanel Result="_result" />
+        </div>
+    }
+
+    @if (_gymQr)
+    {
+        <div class="m-card">
+            <strong>Scan the entrance code</strong>
+            <p class="if-small if-muted" style="margin: 4px 0 10px">
+                Point your camera at the QR code on the check-in screen at the gym.
+            </p>
+            @if (_scanning)
+            {
+                <QrScanner AutoStart="true" OnCode="CheckInWithGymQrAsync" StartLabel="Start camera" />
+                <button class="if-btn block" style="margin-top: 10px" @onclick="() => _scanning = false">Cancel</button>
+            }
+            else
+            {
+                <button class="if-btn primary block" disabled="@(_busy || _offline)" @onclick="StartScan">⌗ Scan entrance code</button>
+                @if (_offline)
+                {
+                    <p class="if-small if-muted" style="margin: 6px 0 0">Scanning needs internet. @(_pass is null ? "" : "Show your pass instead.")</p>
+                }
+            }
+        </div>
+    }
+
+    @if (_pass is not null)
+    {
+        <div class="m-card m-pass">
+            <div class="if-row" style="justify-content: center; gap: 12px; flex-wrap: nowrap">
+                @if (_pass.PhotoDataUrl is not null)
+                {
+                    <img class="m-pass-photo" src="@_pass.PhotoDataUrl" alt="" />
+                }
+                else
+                {
+                    <span class="if-avatar" style="width: 72px; height: 72px; font-size: 1.4rem">@GymFormat.Initials(_pass.FullName)</span>
+                }
+                <div style="text-align: left">
+                    <div style="font-weight: 700; font-size: 1.15rem">@_pass.FullName</div>
+                    <div class="if-muted if-small">@_pass.GymName</div>
+                    <Badge Tone="@GymFormat.Tone(_pass.Status)">@_pass.Status</Badge>
+                </div>
+            </div>
+
+            <div class="m-pass-qr" role="img" aria-label="Your check-in pass">@((MarkupString)_svg)</div>
+
+            <div class="m-pass-timer" aria-hidden="true"><span style="width: @(_remainingPercent)%"></span></div>
+            <p class="if-small if-muted" style="margin: 8px 0 0">
+                @(_gymQr ? "Or show" : "Show") this pass at the front desk or the check-in screen.
+                It changes every @_pass.StepSeconds seconds, so screenshots don't work.
+            </p>
+
+            @if (_offline)
+            {
+                <div class="if-alert info" style="margin: 12px 0 0">You're offline. The pass still works.</div>
+            }
+
+            @if (_pass.Status != MemberStatus.Active)
+            {
+                <div class="if-alert warning" style="margin: 12px 0 0">
+                    Your membership is @_pass.Status.ToString().ToLowerInvariant(): the gym will not let you in. <a href="/membership">See membership</a>
+                </div>
+            }
+        </div>
+
+        <div class="m-card">
+            <strong>Lost your phone, or someone has your pass?</strong>
+            <p class="if-small if-muted" style="margin: 4px 0 10px">Resetting stops the old pass working on every phone.</p>
+            @if (_confirmReset)
+            {
+                <div class="if-row">
+                    <button class="if-btn danger" disabled="@_busy" @onclick="ResetAsync">Yes, reset my pass</button>
+                    <button class="if-btn" @onclick="() => _confirmReset = false">Cancel</button>
+                </div>
+            }
+            else
+            {
+                <button class="if-btn" disabled="@(_busy || _offline)" @onclick="() => _confirmReset = true">Reset my pass</button>
+            }
+        </div>
+    }
+
+    @if (_pass is null && !_gymQr && _error is null)
+    {
+        <div class="m-card if-empty">Your gym checks you in at the front desk. Tell the staff your name when you arrive.</div>
+    }
+}
+
+@code {
+    private MemberPassDto? _pass;
+    private byte[] _secret = [];
+    private TimeSpan _clockOffset;
+    private long _step = -1;
+    private string _svg = "";
+    private double _remainingPercent = 100;
+    private Timer? _timer;
+    private bool _loading = true;
+    private bool _gymQr;
+    private bool _scanning;
+    private bool _offline;
+    private bool _busy;
+    private bool _confirmReset;
+    private CheckInResultDto? _result;
+    private string? _error;
+    private string? _status;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var membership = await Me.GetMembershipAsync();
+
+        if (membership.Success)
+        {
+            var me = membership.Data!;
+            _gymQr = me.GymQrCheckInEnabled;
+
+            if (me.MemberPassCheckInEnabled)
+            {
+                await LoadPassAsync();
+            }
+            else
+            {
+                // The gym turned the pass off: forget the secret on this phone.
+                await PassStore.ClearAsync();
+            }
+        }
+        else if (membership.StatusCode == 503 && await CachedAsync() is { } cached)
+        {
+            // No connection: the pass is computed on the phone.
+            _offline = true;
+            Use(cached, fresh: false);
+        }
+        else
+        {
+            _error = membership.ErrorMessage;
+        }
+
+        _loading = false;
+
+        if (_pass is not null)
+        {
+            _timer = new Timer(_ => InvokeAsync(Tick), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        }
+    }
+
+    private async Task LoadPassAsync()
+    {
+        var result = await Me.GetPassAsync();
+
+        if (result.Success)
+        {
+            await PassStore.SaveAsync(result.Data!);
+            Use(result.Data!, fresh: true);
+        }
+        else if (result.StatusCode == 503 && await CachedAsync() is { } cached)
+        {
+            _offline = true;
+            Use(cached, fresh: false);
+        }
+        else
+        {
+            // E.g. 409: not approved yet, or the gym switched the pass off meanwhile.
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task<MemberPassDto?> CachedAsync()
+    {
+        var gym = await AuthService.GetActiveTenantAsync();
+        return gym is null ? null : await PassStore.GetAsync(gym.TenantId);
+    }
+
+    private void Use(MemberPassDto pass, bool fresh)
+    {
+        _pass = pass;
+        _secret = Convert.FromBase64String(pass.Secret);
+        _step = -1;
+
+        // Codes follow the server's clock, in case the phone's is off.
+        _clockOffset = fresh ? pass.IssuedAtUtc - DateTime.UtcNow : TimeSpan.Zero;
+    }
+
+    private void Tick()
+    {
+        if (_pass is null)
+            return;
+
+        var now = DateTimeOffset.UtcNow + _clockOffset;
+        var step = MemberPassCode.StepAt(now, _pass.StepSeconds);
+
+        if (step != _step)
+        {
+            _step = step;
+#pragma warning disable CA1416 // The member app runs on MAUI, not in a browser.
+            var code = MemberPassCode.Create(_secret, _pass.TenantId, _pass.MemberId, _pass.KeyVersion, step);
+#pragma warning restore CA1416
+            _svg = QrSvg.Render(code);
+        }
+
+        var elapsed = now.ToUnixTimeSeconds() % _pass.StepSeconds;
+        _remainingPercent = 100.0 * (_pass.StepSeconds - elapsed) / _pass.StepSeconds;
+
+        StateHasChanged();
+    }
+
+    private void StartScan()
+    {
+        _result = null;
+        _error = null;
+        _status = null;
+        _scanning = true;
+    }
+
+    private async Task CheckInWithGymQrAsync(string code)
+    {
+        if (_busy)
+            return;
+
+        _busy = true;
+        _scanning = false;
+
+        var result = await Me.CheckInWithGymQrAsync(code);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _result = result.Data;
+            _error = null;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        _busy = true;
+        _confirmReset = false;
+
+        var result = await Me.ResetPassAsync();
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            await PassStore.SaveAsync(result.Data!);
+            Use(result.Data!, fresh: true);
+            _status = "Your pass was reset. Only this new pass works now.";
+            Tick();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}
