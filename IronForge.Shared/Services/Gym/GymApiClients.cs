@@ -83,6 +83,9 @@ public sealed class GymApiClient : ApiClientBase
     public Task<ServiceResult<MemberSummaryDto>> ReactivateMemberAsync(int memberId, CancellationToken ct = default) =>
         PostAsync<MemberSummaryDto>($"api/gym/members/{memberId}/reactivate", null, "Unable to reactivate the membership.", ct);
 
+    public Task<ServiceResult<TenantInvitationLinkDto>> SendAppInvitationAsync(int memberId, CancellationToken ct = default) =>
+        PostAsync<TenantInvitationLinkDto>($"api/gym/members/{memberId}/app-invitation", null, "Unable to send the app invitation.", ct);
+
     public Task<ServiceResult<MemberSummaryDto>> ChangePlanAsync(int memberId, int planId, CancellationToken ct = default) =>
         PutAsync<MemberSummaryDto>($"api/gym/members/{memberId}/plan", new ChangeMemberPlanRequest { MembershipPlanId = planId }, "Unable to change the plan.", ct);
 

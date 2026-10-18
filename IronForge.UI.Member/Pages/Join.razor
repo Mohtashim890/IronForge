@@ -14,7 +14,29 @@
             <div class="if-alert error">@_error</div>
         }
 
-        @if (_result is not null)
+        @if (_result is { InvitationEmailed: true })
+        {
+            <h1>Check your email 📬</h1>
+            <p>
+                <strong>@_result.GymName</strong> has already registered you as a member.
+                We've emailed you a link to choose your username and password.
+            </p>
+            <p class="if-muted if-small">
+                Open the link, set up your sign-in, then come back here and sign in.
+                No email? Check your spam folder, or ask the front desk to send the invitation again.
+            </p>
+            <a class="if-btn primary block" href="/login">Go to sign in</a>
+        }
+        else if (_result is { AccessGranted: true })
+        {
+            <h1>You're all set 🎉</h1>
+            <p>
+                Your account is now connected to your membership at <strong>@_result.GymName</strong>.
+                Sign in as <strong>@_result.Username</strong>.
+            </p>
+            <a class="if-btn primary block" href="/login">Sign in</a>
+        }
+        else if (_result is not null)
         {
             <h1>Request sent 🎉</h1>
             <p>
@@ -59,9 +81,15 @@
             <div class="if-field"><label>Email</label><input type="email" autocomplete="email" @bind="_request.Email" /></div>
             <div class="if-field"><label>Phone</label><input type="tel" autocomplete="tel" @bind="_request.Phone" /></div>
             <div class="if-field"><label>Username</label><input autocomplete="username" @bind="_request.Username" /></div>
-            <div class="if-field"><label>Password (8+ characters)</label><input type="password" autocomplete="new-password" @bind="_request.Password" /></div>
+            <div class="if-field">
+                <label for="join-password">Password (8+ characters)</label>
+                <PasswordInput Id="join-password" Autocomplete="new-password" @bind-Value="_request.Password" />
+            </div>
 
-            <p class="if-muted if-small">Already have an IronForge account? Use its email, username and password to join with it.</p>
+            <p class="if-muted if-small">
+                Already have an IronForge account? Use its email, username and password to join with it.
+                Did the gym add you already? Use the email you gave them and we'll send you a sign-in link.
+            </p>
 
             <button class="if-btn primary block" disabled="@_busy" @onclick="JoinAsync">@(_busy ? "Sending…" : "Request to join")</button>
             <button class="if-btn ghost block" style="margin-top: 6px" @onclick="() => _gym = null">Use a different code</button>

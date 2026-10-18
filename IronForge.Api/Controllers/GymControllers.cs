@@ -134,6 +134,10 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> Reactivate(int memberId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _members.ReactivateAsync(memberId, cancellationToken));
 
+        [HttpPost("{memberId:int}/app-invitation")]
+        public async Task<IActionResult> SendAppInvitation(int memberId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _members.SendAppInvitationAsync(memberId, cancellationToken));
+
         [HttpPut("{memberId:int}/plan")]
         public async Task<IActionResult> ChangePlan(int memberId, ChangeMemberPlanRequest request, CancellationToken cancellationToken) =>
             this.ToActionResult(await _members.ChangePlanAsync(memberId, request, cancellationToken));

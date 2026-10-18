@@ -324,7 +324,8 @@ public sealed class TestServiceFactory
             Notifications,
             new EfUnitOfWork(Db),
             Audit,
-            Clock);
+            Clock,
+            Invitations);
 
     public RoutineService Routines =>
         new(

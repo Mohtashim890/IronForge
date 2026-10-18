@@ -207,6 +207,150 @@ public sealed class GymWorkflowTests
     }
 
     [Fact]
+    public async Task StaffAddedMember_JoiningWithTheCode_IsEmailedASignInLink_AndCanThenSignIn()
+    {
+        var gym = await SeedGymAsync();
+
+        // Added at the front desk without an app invitation.
+        var created = await AsAdmin(gym, s => s.GymMembers.CreateAsync(new CreateMemberRequest
+        {
+            FullName = "Xyz Khan",
+            Email = "xyz@example.com",
+            MembershipPlanId = gym.PlanId,
+            SendAppInvitation = false
+        }));
+        Assert.True(created.Success, created.ErrorMessage);
+
+        var joined = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = "Xyz Khan",
+            Email = "XYZ@example.com",
+            Username = "xyz",
+            Password = "Password123!"
+        }));
+
+        // Knowing the email is not enough to take over the membership: a link is emailed.
+        Assert.True(joined.Success, joined.ErrorMessage);
+        Assert.True(joined.Data!.InvitationEmailed);
+        Assert.False(joined.Data.AccessGranted);
+        Assert.Null((await Anonymous(s => s.Auth.SignInAsync(Login("xyz")))).Response);
+
+        string token;
+
+        await using (var db = Database.CreateDbContext())
+        {
+            var email = await db.Set<EmailOutboxMessage>()
+                .Where(x => x.ToEmail == "xyz@example.com" && x.Subject.Contains("invited"))
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstAsync();
+
+            token = System.Text.RegularExpressions.Regex.Match(email.HtmlBody, "token=([A-Za-z0-9_\\-%]+)").Groups[1].Value;
+            Assert.False(string.IsNullOrEmpty(token));
+
+            // Still one profile, still active: no join request was created.
+            var profile = await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Email == "xyz@example.com");
+            Assert.Equal(MemberStatus.Active, profile.Status);
+            Assert.Null(profile.UserId);
+        }
+
+        var accepted = await Anonymous(s => s.Invitations.AcceptAsync(new IronForge.Shared.Models.Tenants.AcceptInvitationRequest
+        {
+            Token = Uri.UnescapeDataString(token),
+            Username = "xyz",
+            Password = "Password123!"
+        }));
+        Assert.True(accepted.Success, accepted.ErrorMessage);
+
+        var signIn = await Anonymous(s => s.Auth.SignInAsync(Login("xyz")));
+        Assert.NotNull(signIn.Response);
+    }
+
+    [Fact]
+    public async Task StaffAddedMember_WithAnAccountFromAnotherGym_IsConnectedByItsPassword()
+    {
+        var gym = await SeedGymAsync();
+        var otherGym = await SeedGymAsync();
+
+        var created = await AsAdmin(gym, s => s.GymMembers.CreateAsync(new CreateMemberRequest
+        {
+            FullName = "Omar",
+            Email = "omar@example.com",
+            MembershipPlanId = gym.PlanId,
+            SendAppInvitation = false
+        }));
+        Assert.True(created.Success, created.ErrorMessage);
+
+        // The account is created later, at another gym.
+        await SeedMemberAsync(otherGym, "omar@example.com");
+        var username = "omar" + otherGym.TenantId;
+
+        var wrong = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = "Omar",
+            Email = "omar@example.com",
+            Username = username,
+            Password = "Wrong-password-1"
+        }));
+        Assert.Equal(401, wrong.StatusCode);
+
+        var joined = await Anonymous(s => s.Join.JoinAsync(new GymJoinRequest
+        {
+            JoinCode = gym.JoinCode,
+            FullName = "Omar",
+            Email = "omar@example.com",
+            Username = username,
+            Password = "Password123!"
+        }));
+
+        Assert.True(joined.Success, joined.ErrorMessage);
+        Assert.True(joined.Data!.AccessGranted);
+
+        await using var db = Database.CreateDbContext();
+        var profile = await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Email == "omar@example.com" && x.TenantId == gym.TenantId);
+        Assert.NotNull(profile.UserId);
+        Assert.True(await db.TenantMemberships.AnyAsync(x => x.UserId == profile.UserId && x.TenantId == gym.TenantId && x.IsActive));
+    }
+
+    [Fact]
+    public async Task Staff_CanSendAnAppInvitation_OnlyToMembersWithoutAnAccount()
+    {
+        var gym = await SeedGymAsync();
+
+        var created = await AsAdmin(gym, s => s.GymMembers.CreateAsync(new CreateMemberRequest
+        {
+            FullName = "Nida",
+            Email = "nida@example.com",
+            MembershipPlanId = gym.PlanId,
+            SendAppInvitation = false
+        }));
+        Assert.True(created.Success, created.ErrorMessage);
+
+        var invitation = await AsAdmin(gym, s => s.GymMembers.SendAppInvitationAsync(created.Data!.Id));
+        Assert.True(invitation.Success, invitation.ErrorMessage);
+        Assert.Contains("token=", invitation.Data!.AcceptUrl);
+
+        var accepted = await Anonymous(s => s.Invitations.AcceptAsync(new IronForge.Shared.Models.Tenants.AcceptInvitationRequest
+        {
+            Token = invitation.Data.Token,
+            Username = "nida",
+            Password = "Password123!"
+        }));
+        Assert.True(accepted.Success, accepted.ErrorMessage);
+        Assert.NotNull((await Anonymous(s => s.Auth.SignInAsync(Login("nida")))).Response);
+
+        // Now linked: nothing to invite.
+        var again = await AsAdmin(gym, s => s.GymMembers.SendAppInvitationAsync(created.Data!.Id));
+        Assert.Equal(409, again.StatusCode);
+
+        // Trainers cannot manage members.
+        var trainer = await SeedUserAsync(gym, "coach@example.com", TenantRoles.Trainer);
+        var denied = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.GymMembers.SendAppInvitationAsync(created.Data!.Id));
+        Assert.Equal(403, denied.StatusCode);
+    }
+
+    [Fact]
     public async Task InvitedMemberWithoutAProfile_WaitsForApproval()
     {
         var gym = await SeedGymAsync();

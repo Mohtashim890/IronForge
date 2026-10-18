@@ -31,7 +31,17 @@
                 @(accepted.AccountCreated ? "Your account was created and you" : "You")
                 joined <strong>@accepted.TenantName</strong> as @accepted.Role.
             </p>
-            <p class="invite-muted">Sign in as <strong>@accepted.Username</strong> to start.</p>
+            @if (accepted.Role == "Member")
+            {
+                <p class="invite-muted">
+                    Open the <strong>IronForge mobile app</strong> and sign in as
+                    <strong>@accepted.Username</strong> to see your membership, pay invoices and track workouts.
+                </p>
+            }
+            else
+            {
+                <p class="invite-muted">Sign in as <strong>@accepted.Username</strong> to start.</p>
+            }
 
             <button type="button"
                     class="invite-submit"
@@ -84,11 +94,9 @@
 
                 <div class="invite-field">
                     <label for="invite-password">Password</label>
-                    <InputText id="invite-password"
-                               type="password"
-                               class="form-control"
-                               autocomplete="@(preview.AccountExists ? "current-password" : "new-password")"
-                               @bind-Value="model.Password" />
+                    <PasswordInput Id="invite-password"
+                                   Autocomplete="@(preview.AccountExists ? "current-password" : "new-password")"
+                                   @bind-Value="model.Password" />
                     <ValidationMessage For="@(() => model.Password)" />
                 </div>
 
@@ -96,11 +104,9 @@
                 {
                     <div class="invite-field">
                         <label for="invite-confirm">Confirm password</label>
-                        <InputText id="invite-confirm"
-                                   type="password"
-                                   class="form-control"
-                                   autocomplete="new-password"
-                                   @bind-Value="model.ConfirmPassword" />
+                        <PasswordInput Id="invite-confirm"
+                                       Autocomplete="new-password"
+                                       @bind-Value="model.ConfirmPassword" />
                         <ValidationMessage For="@(() => model.ConfirmPassword)" />
                     </div>
                 }

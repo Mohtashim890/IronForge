@@ -330,6 +330,56 @@
     box-shadow: 0 0 0 3px rgba(232, 89, 12, 0.15);
 }
 
+/* Password box with a Show/Hide button (PasswordInput). */
+.if-password {
+    position: relative;
+}
+
+.if-password input {
+    width: 100%;
+    border: 1px solid var(--if-border-strong);
+    border-radius: 8px;
+    padding: 9px 64px 9px 12px;
+    font-size: 0.92rem;
+    background: var(--if-surface);
+    color: var(--if-text);
+}
+
+/* Our Show/Hide button replaces the browser's own reveal icon (Edge, WebView2). */
+.if-password input::-ms-reveal,
+.if-password input::-ms-clear {
+    display: none;
+}
+
+.if-password input:focus {
+    outline: none;
+    border-color: var(--if-accent);
+    box-shadow: 0 0 0 3px rgba(232, 89, 12, 0.15);
+}
+
+.if-password-toggle {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 48px;
+    min-height: 32px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--if-muted, #6b7280);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.if-password-toggle:hover,
+.if-password-toggle:focus-visible {
+    color: var(--if-accent);
+    background: var(--if-accent-soft, rgba(232, 89, 12, 0.08));
+}
+
 .if-form-grid {
     display: grid;
     gap: 0 16px;

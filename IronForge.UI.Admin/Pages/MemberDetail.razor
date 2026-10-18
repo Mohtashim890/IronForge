@@ -73,6 +73,30 @@
             <StatTile Label="App account" Value="@(s.HasAppAccount ? "Yes" : "Not yet")" Sub="@s.Email" />
         </div>
 
+        @if (!s.HasAppAccount && s.Status != MemberStatus.Pending)
+        {
+            <AuthorizeView Policy="@Permissions.GymMembersManage">
+                <div class="if-alert info" style="margin-top: 16px">
+                    <div class="if-row" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
+                        <span>
+                            <strong>No app sign-in yet.</strong>
+                            @s.FullName needs an invitation to choose a username and password for the IronForge app.
+                        </span>
+                        <button class="if-btn primary sm" disabled="@_busy" @onclick="SendInvitationAsync">
+                            @(_inviteLink is null ? "Send app invitation" : "Send a new invitation")
+                        </button>
+                    </div>
+                    @if (_inviteLink is not null)
+                    {
+                        <div class="if-field" style="margin: 10px 0 0">
+                            <label>Invitation link (emailed to @s.Email; you can also share it directly)</label>
+                            <input class="if-mono" readonly value="@_inviteLink" onclick="this.select()" />
+                        </div>
+                    }
+                </div>
+            </AuthorizeView>
+        }
+
         <div class="if-tabs" style="margin-top: 20px">
             @foreach (var tab in new[] { "Overview", "Billing", "Training", "Visits" })
             {
@@ -327,6 +351,7 @@
     private bool _busy;
     private string? _error;
     private string? _message;
+    private string? _inviteLink;
 
     private bool _freezing;
     private FreezeMemberRequest _freeze = new() { Until = DateOnly.FromDateTime(DateTime.Today.AddDays(14)) };
@@ -343,6 +368,27 @@
         _currency = _plans.FirstOrDefault()?.Currency ?? "";
 
         await LoadAsync();
+    }
+
+    private async Task SendInvitationAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await Gym.SendAppInvitationAsync(MemberId);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _inviteLink = result.Data!.AcceptUrl;
+            _message = $"Invitation sent to {_member!.Summary.Email}. The previous link, if any, no longer works.";
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
     }
 
     private async Task LoadAsync()

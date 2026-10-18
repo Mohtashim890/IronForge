@@ -5,6 +5,7 @@ using IronForge.Application.Entities;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Notifications;
 using IronForge.Application.Persistence;
+using IronForge.Application.Tenants.Invitations;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Gym;
 using Microsoft.AspNetCore.Identity;
@@ -83,6 +84,7 @@ public sealed class GymJoinService : IGymJoinService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
+    private readonly ITenantInvitationService _invitations;
 
     public GymJoinService(
         IRepository<GymSettings> settings,
@@ -95,8 +97,10 @@ public sealed class GymJoinService : IGymJoinService
         INotificationService notifications,
         IUnitOfWork unitOfWork,
         IAuditService audit,
-        TimeProvider clock)
+        TimeProvider clock,
+        ITenantInvitationService invitations)
     {
+        _invitations = invitations;
         _settings = settings;
         _tenants = tenants;
         _users = users;
@@ -151,11 +155,17 @@ public sealed class GymJoinService : IGymJoinService
 
         var existingProfile = await _directory.FindMemberByEmailAsync(tenant.Id, email, cancellationToken);
 
+        if (existingProfile is { UserId: null, AnonymizedAtUtc: null } && existingProfile.IsApproved)
+        {
+            // Staff added this person, but they have no sign-in yet.
+            return await ConnectStaffAddedMemberAsync(tenant, request, email, username, cancellationToken);
+        }
+
         if (existingProfile is not null && !existingProfile.IsDeclinedRequest)
         {
             return GymResults.Conflict<GymJoinResultDto>(
                 existingProfile.IsApproved
-                    ? "You are already a member of this gym. Sign in instead."
+                    ? "You are already a member of this gym. Sign in instead, or use \"Forgot password\" if you don't remember it."
                     : "Your request to join this gym is already waiting for approval.");
         }
 
@@ -312,6 +322,119 @@ public sealed class GymJoinService : IGymJoinService
             Username = user.Username,
             AccountCreated = existingUser is null,
             Status = member.Status
+        });
+    }
+
+    /// <summary>
+    /// The gym already added this person (Members page) without an app
+    /// account. Knowing the email is not proof of owning it, so the profile is
+    /// never handed over on the email alone:
+    /// - an existing account with this email: its username and password prove
+    ///   ownership, and the account is linked to the membership;
+    /// - no account: an invitation is emailed; accepting it creates the
+    ///   account and links the membership (TenantInvitationService).
+    /// </summary>
+    private async Task<ServiceResult<GymJoinResultDto>> ConnectStaffAddedMemberAsync(
+        Tenant tenant,
+        GymJoinRequest request,
+        string email,
+        string username,
+        CancellationToken cancellationToken)
+    {
+        var profile = await _directory.FindMemberByEmailTrackedAsync(tenant.Id, email, cancellationToken);
+
+        if (profile is null || profile.UserId is not null)
+        {
+            return GymResults.Conflict<GymJoinResultDto>("You are already a member of this gym. Sign in instead.");
+        }
+
+        var existingUser = await _users.FirstOrDefaultAsync(
+            x => x.Email.ToLower() == email,
+            cancellationToken);
+
+        if (existingUser is null)
+        {
+            var invitation = await _invitations.IssueAsync(tenant.Id, email, TenantRoles.Member, cancellationToken);
+
+            if (!invitation.Success)
+            {
+                return ServiceResult<GymJoinResultDto>.Fail(invitation.ErrorMessage, invitation.StatusCode);
+            }
+
+            await _audit.RecordAsync(
+                AuditCategory.Membership,
+                "MemberAppInvitationRequested",
+                AuditOutcome.Succeeded,
+                AuditActorType.User,
+                "MemberProfile",
+                profile.Id.ToString(),
+                reason: "Joined with the gym code after staff had added them; an invitation was emailed.",
+                cancellationToken: cancellationToken,
+                tenantId: tenant.Id);
+
+            return ServiceResult<GymJoinResultDto>.Ok(new GymJoinResultDto
+            {
+                GymName = tenant.Name,
+                Status = profile.Status,
+                InvitationEmailed = true
+            });
+        }
+
+        var valid =
+            existingUser.IsActive &&
+            string.Equals(existingUser.Username, username, StringComparison.OrdinalIgnoreCase) &&
+            _passwordHasher.VerifyHashedPassword(existingUser, existingUser.PasswordHash, request.Password)
+                != PasswordVerificationResult.Failed;
+
+        if (!valid)
+        {
+            return ServiceResult<GymJoinResultDto>.Fail(
+                "An account with this email already exists. Enter its username and password.",
+                401);
+        }
+
+        profile.UserId = existingUser.Id;
+
+        var membership = await _memberships.FirstOrDefaultTrackedAsync(
+            x => x.TenantId == tenant.Id && x.UserId == existingUser.Id,
+            cancellationToken);
+
+        if (membership is null)
+        {
+            _memberships.Add(new TenantMembership
+            {
+                TenantId = tenant.Id,
+                UserId = existingUser.Id,
+                Role = TenantRoles.Member,
+                IsActive = true,
+                CreatedAtUtc = _clock.GetUtcNow().UtcDateTime
+            });
+        }
+        else if (membership.Role == TenantRoles.Member)
+        {
+            // Staff approved this person when they added them.
+            membership.IsActive = true;
+        }
+
+        await _members.SaveChangesAsync(cancellationToken);
+
+        await _audit.RecordAsync(
+            AuditCategory.Membership,
+            "MemberAccountLinked",
+            AuditOutcome.Succeeded,
+            AuditActorType.User,
+            "MemberProfile",
+            profile.Id.ToString(),
+            reason: $"Account '{existingUser.Username}' linked with the gym code.",
+            cancellationToken: cancellationToken,
+            tenantId: tenant.Id);
+
+        return ServiceResult<GymJoinResultDto>.Ok(new GymJoinResultDto
+        {
+            GymName = tenant.Name,
+            Username = existingUser.Username,
+            Status = profile.Status,
+            AccessGranted = true
         });
     }
 

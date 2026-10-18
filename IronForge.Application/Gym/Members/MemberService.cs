@@ -10,6 +10,7 @@ using IronForge.Application.Tenants.Invitations;
 using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Gym;
+using IronForge.Shared.Models.Tenants;
 using IronForge.Shared.Subscriptions;
 
 namespace IronForge.Application.Gym.Members;
@@ -76,6 +77,15 @@ public interface IMemberService
     /// payments are kept for accounting, under an anonymous name.
     /// </summary>
     Task<ServiceResult<bool>> AnonymizeAsync(
+        int memberId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Emails a member without an app account a link to choose their username
+    /// and password, and returns the link so staff can also share it directly.
+    /// A new link replaces the previous one.
+    /// </summary>
+    Task<ServiceResult<TenantInvitationLinkDto>> SendAppInvitationAsync(
         int memberId,
         CancellationToken cancellationToken = default);
 
@@ -1037,6 +1047,43 @@ public sealed class MemberService : IMemberService
         return member is null
             ? (null, GymResults.NotFound<MemberSummaryDto>("Member"))
             : (member, null);
+    }
+
+    public async Task<ServiceResult<TenantInvitationLinkDto>> SendAppInvitationAsync(
+        int memberId,
+        CancellationToken cancellationToken = default)
+    {
+        var (member, failure) = await LoadForChangeAsync(memberId, cancellationToken);
+
+        if (member is null)
+        {
+            return GymResults.From<TenantInvitationLinkDto, MemberSummaryDto>(failure!);
+        }
+
+        if (member.UserId is not null)
+        {
+            return GymResults.Conflict<TenantInvitationLinkDto>(
+                "This member already has an app account. They can sign in, or reset a forgotten password from the sign-in page.");
+        }
+
+        if (!member.IsApproved)
+        {
+            return GymResults.Invalid<TenantInvitationLinkDto>(
+                "Approve the member first. Their app access starts with the approval.");
+        }
+
+        var invitation = await _invitations.IssueAsync(
+            member.TenantId,
+            member.Email,
+            TenantRoles.Member,
+            cancellationToken);
+
+        if (invitation.Success)
+        {
+            await RecordAsync("MemberAppInvitationSent", member, $"invitation emailed to {member.Email}", cancellationToken);
+        }
+
+        return invitation;
     }
 
     private async Task<ServiceResult<MemberSummaryDto>> SummaryAsync(int memberId, CancellationToken cancellationToken)

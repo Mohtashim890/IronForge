@@ -135,5 +135,14 @@ namespace IronForge.Shared.Models.Gym
         public bool AccountCreated { get; set; }
 
         public MemberStatus Status { get; set; }
+
+        /// <summary>
+        /// The gym had already added this person. No request was made: an
+        /// invitation to set up their sign-in was emailed to them instead.
+        /// </summary>
+        public bool InvitationEmailed { get; set; }
+
+        /// <summary>The account was linked to the person's existing membership and can sign in now.</summary>
+        public bool AccessGranted { get; set; }
     }
 }

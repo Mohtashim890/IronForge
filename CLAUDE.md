@@ -39,7 +39,7 @@ Work branch: `feature/gym-platform`. Do not commit or push unless the user asks.
 
 | Project | Type | Role |
 |---|---|---|
-| `IronForge.Shared` | Razor class library | Contracts shared by every front end:<br>- DTOs in `Models/Gym/*`, `Models/Tenants/*`, `Models/Agents/*`<br>- `Authorization/Permissions.cs`, `TenantRoles.cs`<br>- `Subscriptions/SubscriptionCatalog.cs` (modules and plans)<br>- API clients in `Services/*` and `Services/Gym/GymApiClients.cs`<br>- auth (`AuthService`, `JwtAuthenticationStateProvider`, `JwtAuthorizationHandler`, `JwtClaims`)<br>- shared pages (Login, TenantSelection, AcceptInvitation, ForgotPassword, ResetPassword, RedirectToLogin)<br>- UI kit `Components/Gym/*` (StatTile, BarChart, LineChart, Badge, Modal, NotificationBell, NotificationList, GymFormat, Svg)<br>- global CSS `wwwroot/css/ironforge-app.css` |
+| `IronForge.Shared` | Razor class library | Contracts shared by every front end:<br>- DTOs in `Models/Gym/*`, `Models/Tenants/*`, `Models/Agents/*`<br>- `Authorization/Permissions.cs`, `TenantRoles.cs`<br>- `Subscriptions/SubscriptionCatalog.cs` (modules and plans)<br>- API clients in `Services/*` and `Services/Gym/GymApiClients.cs`<br>- auth (`AuthService`, `JwtAuthenticationStateProvider`, `JwtAuthorizationHandler`, `JwtClaims`)<br>- shared pages (Login, TenantSelection, AcceptInvitation, ForgotPassword, ResetPassword, RedirectToLogin)<br>- UI kit `Components/Gym/*` (StatTile, BarChart, LineChart, Badge, Modal, NotificationBell, NotificationList, PasswordInput (Show/Hide toggle; use it for every password field), GymFormat, Svg)<br>- global CSS `wwwroot/css/ironforge-app.css` |
 | `IronForge.UI.Admin` | RCL | Gym dashboard pages and layout (`Layout/MainLayout`, `NavMenu`, `NavItem`); hosted by `IronForge.Web` |
 | `IronForge.UI.Member` | RCL | Member app pages and layout (`Layout/MemberLayout`, bottom tabs); hosted by MAUI `IronForge` |
 | `IronForge.UI.Platform` | RCL | Operator console pages and layout (`Layout/PlatformLayout`, indigo `platform-theme`); hosted by `IronForge.Platform` |
@@ -161,6 +161,8 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   1. Create an Active profile with NextBillingDate = start date.
   2. Issue the first invoice immediately.
   3. Optionally send an app invitation. On accept, `TenantInvitationService.LinkMemberProfileAsync` links the profile by email; with no profile, it creates a Pending one.
+  4. A staff-added member without an account gets credentials only through an invitation: staff use "Send app invitation" on the member page (`POST api/gym/members/{id}/app-invitation`, `MemberService.SendAppInvitationAsync`; emails the link and returns it to share; a new link revokes the old one).
+- **Join with code by a staff-added member** (approved profile, no `UserId`): no request is created and the email alone never hands over the profile. With no account for the email, an invitation is emailed (`GymJoinResultDto.InvitationEmailed`). With an existing account, its username and password link it and grant access (`AccessGranted`).
 - **Approve**: Pending → Active, NextBillingDate ??= today, first invoice issued, welcome notification. **Reject**: → Cancelled.
 - **Freeze**: Active → Frozen until a date; NextBillingDate and PaidThrough shift forward by the freeze length. The billing job unfreezes the member after FrozenUntil.
 - **Cancel**: voids Open invoices for future periods; NextBillingDate becomes null.
@@ -331,7 +333,7 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 191 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 194 tests; Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.
