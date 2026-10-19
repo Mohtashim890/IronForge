@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using IronForge.Shared.Models.Gym;
 using IronForge.Shared.Services;
 
@@ -12,6 +12,22 @@ namespace IronForge.Services
     public sealed class SecureMemberPassStore : IMemberPassStore
     {
         public const string StorageKey = "ironforge_member_pass";
+
+        private const string PhoneIdKey = "ironforge_phone_id";
+
+        /// <summary>Not a secret: it only tells this installation apart. Survives sign-out.</summary>
+        public Task<string> GetPhoneIdAsync()
+        {
+            var id = Preferences.Default.Get<string?>(PhoneIdKey, null);
+
+            if (string.IsNullOrEmpty(id))
+            {
+                id = Guid.NewGuid().ToString("N");
+                Preferences.Default.Set(PhoneIdKey, id);
+            }
+
+            return Task.FromResult(id);
+        }
 
         public async Task<MemberPassDto?> GetAsync(int tenantId)
         {

@@ -30,6 +30,9 @@ public sealed class CheckInTests
 
     private DateOnly Today => DateOnly.FromDateTime(_clock.Now.UtcDateTime);
 
+    /// <summary>The member's own phone (app installation id).</summary>
+    private const string Phone = "phone-of-the-member";
+
     // ---- Member pass -------------------------------------------------------------
 
     [Fact]
@@ -38,7 +41,7 @@ public sealed class CheckInTests
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
 
-        var pass = await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync());
+        var pass = await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone));
         Assert.True(pass.Success, pass.ErrorMessage);
 
         var code = Code(pass.Data!);
@@ -71,7 +74,7 @@ public sealed class CheckInTests
     {
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         // A code from five minutes ago (an old screenshot).
         var old = Code(pass, _clock.Now.AddMinutes(-5));
@@ -90,7 +93,7 @@ public sealed class CheckInTests
 
         // Reset (lost phone): the old pass stops working, the new one works.
         var current = Code(pass);
-        var reset = await AsMember(gym, ali, s => s.MemberPasses.ResetMyPassAsync());
+        var reset = await AsMember(gym, ali, s => s.MemberPasses.ResetMyPassAsync(Phone));
         Assert.Equal(pass.KeyVersion + 1, reset.Data!.KeyVersion);
 
         var revoked = await AsAdmin(gym, s => s.CheckIns.ScanPassAsync(current));
@@ -107,7 +110,7 @@ public sealed class CheckInTests
         var gymB = await SeedGymAsync();
         var bea = await SeedMemberAsync(gymB, "bea@example.com");
 
-        var pass = (await AsMember(gymB, bea, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gymB, bea, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         var result = await AsAdmin(gymA, s => s.CheckIns.ScanPassAsync(Code(pass)));
 
@@ -129,7 +132,7 @@ public sealed class CheckInTests
         var gym = await SeedGymAsync();
         var pending = await SeedMemberAsync(gym, "new@example.com", MemberStatus.Pending, approved: false);
 
-        var pass = await AsMember(gym, pending, s => s.MemberPasses.GetMyPassAsync());
+        var pass = await AsMember(gym, pending, s => s.MemberPasses.GetMyPassAsync(Phone));
 
         Assert.Equal(409, pass.StatusCode);
     }
@@ -182,7 +185,7 @@ public sealed class CheckInTests
     {
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         var scan = await AsMember(gym, ali, s => s.CheckIns.ScanPassAsync(Code(pass)));
 
@@ -196,7 +199,7 @@ public sealed class CheckInTests
     {
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         var created = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Front entrance" }));
         Assert.True(created.Success, created.ErrorMessage);
@@ -275,7 +278,7 @@ public sealed class CheckInTests
         var gymA = await SeedGymAsync();
         var gymB = await SeedGymAsync();
         var bea = await SeedMemberAsync(gymB, "bea@example.com");
-        var pass = (await AsMember(gymB, bea, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gymB, bea, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         var created = await AsAdmin(gymA, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "A entrance" }));
         var key = (await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode))).Data!.DeviceKey;
@@ -377,7 +380,7 @@ public sealed class CheckInTests
     {
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
 
         await AsAdmin(gym, s => s.MemberPhotos.UploadAsync(ali.MemberId,
             new UploadMemberPhotoRequest { Data = Convert.ToBase64String(JpegBytes) }));
@@ -414,14 +417,14 @@ public sealed class CheckInTests
         Assert.True(qr.Success, qr.ErrorMessage);
         Assert.StartsWith("IFG1.", qr.Data!.Code);
 
-        var result = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(qr.Data.Code));
+        var result = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(qr.Data.Code, Phone));
 
         Assert.Equal(CheckInOutcome.Allowed, result.Data!.Outcome);
         Assert.Equal(CheckInMethod.GymQr, result.Data.CheckIn!.Method);
         Assert.True(result.Data.CheckIn.SelfCheckIn);
 
         // Scanning again right away: already in, not a second visit.
-        var again = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(qr.Data.Code));
+        var again = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(qr.Data.Code, Phone));
         Assert.Equal(CheckInOutcome.AlreadyCheckedIn, again.Data!.Outcome);
 
         await using var db = Database.CreateDbContext();
@@ -445,20 +448,20 @@ public sealed class CheckInTests
         var codeB = (await GymQrAsync(keyB)).Code;
 
         // A photo of gym B's screen does not work at gym A.
-        var foreign = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeB));
+        var foreign = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeB, Phone));
         Assert.Equal(CheckInDenialReason.InvalidGymQr, foreign.Data!.DenialReason);
 
         // A code with a made-up signature.
-        var forged = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeA[..^4] + "0000"));
+        var forged = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeA[..^4] + "0000", Phone));
         Assert.Equal(CheckInDenialReason.InvalidGymQr, forged.Data!.DenialReason);
 
         // A member's pass is not an entrance code.
-        var notGymQr = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync("IF1.1.2.3.4.0123456789abcdef01234567"));
+        var notGymQr = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync("IF1.1.2.3.4.0123456789abcdef01234567", Phone));
         Assert.Equal(CheckInDenialReason.InvalidGymQr, notGymQr.Data!.DenialReason);
 
         // 31 seconds later the code shown then is too old.
         _clock.Now = _clock.Now.AddSeconds(31);
-        var expired = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeA));
+        var expired = await AsMember(gymA, ali, s => s.CheckIns.CheckInWithGymQrAsync(codeA, Phone));
         Assert.Equal(CheckInDenialReason.ExpiredGymQr, expired.Data!.DenialReason);
 
         await using var db = Database.CreateDbContext();
@@ -477,7 +480,7 @@ public sealed class CheckInTests
 
         await AsAdmin(gym, s => s.CheckInDevices.RevokeAsync(deviceId));
 
-        var result = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(code));
+        var result = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync(code, Phone));
 
         Assert.Equal(CheckInDenialReason.InvalidGymQr, result.Data!.DenialReason);
     }
@@ -496,7 +499,7 @@ public sealed class CheckInTests
         });
         Assert.Equal(409, deviceQr.StatusCode);
 
-        var memberScan = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync("IFG1.1.1.1.0123456789abcdef01234567"));
+        var memberScan = await AsMember(gym, ali, s => s.CheckIns.CheckInWithGymQrAsync("IFG1.1.1.1.0123456789abcdef01234567", Phone));
         Assert.Equal(409, memberScan.StatusCode);
 
         var membership = await AsMember(gym, ali, s => s.GymMembers.GetMyMembershipAsync());
@@ -513,7 +516,7 @@ public sealed class CheckInTests
         var deviceCheckIn = await AsDevice(async s =>
         {
             await s.Kiosk.AuthenticateAsync(key);
-            return await s.CheckIns.CheckInWithGymQrAsync(code);
+            return await s.CheckIns.CheckInWithGymQrAsync(code, Phone);
         });
         Assert.Equal(403, deviceCheckIn.StatusCode);
     }
@@ -523,12 +526,12 @@ public sealed class CheckInTests
     {
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync())).Data!;
+        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
         var (_, key) = await PairDeviceAsync(gym, "Entrance");
 
         await SetMethodsAsync(gym, memberPass: false, gymQr: false);
 
-        var getPass = await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync());
+        var getPass = await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone));
         var staffScan = await AsAdmin(gym, s => s.CheckIns.ScanPassAsync(Code(pass)));
         var kioskScan = await AsDevice(async s =>
         {

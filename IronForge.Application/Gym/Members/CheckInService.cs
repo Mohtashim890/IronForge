@@ -34,6 +34,7 @@ public interface ICheckInService
     /// </summary>
     Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(
         string code,
+        string? phoneId,
         CancellationToken cancellationToken = default);
 
     /// <summary>The entrance code the calling check-in device shows now.</summary>
@@ -215,6 +216,7 @@ public sealed class CheckInService : ICheckInService
 
     public async Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(
         string code,
+        string? phoneId,
         CancellationToken cancellationToken = default)
     {
         var current = await _access.GetCurrentMemberAsync(
@@ -234,6 +236,15 @@ public sealed class CheckInService : ICheckInService
         {
             return GymResults.Conflict<CheckInResultDto>(
                 "Your gym does not use the entrance code. Show your pass, or check in at the front desk.");
+        }
+
+        // Only from the member's own phone: someone signed in to the member's
+        // account on another phone cannot check in for them.
+        var phone = await PhoneBinding.CheckAsync(member, phoneId, _clock, _members, cancellationToken);
+
+        if (phone is not null)
+        {
+            return GymResults.From<CheckInResultDto, bool>(phone);
         }
 
         if (!GymQrCode.TryParse(code, out var qr) || qr!.TenantId != member.TenantId)
@@ -322,7 +333,8 @@ public sealed class CheckInService : ICheckInService
                     MemberId = x.MemberProfileId,
                     MemberName = x.MemberProfile!.FullName,
                     CheckedInAtUtc = x.CheckedInAtUtc,
-                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr,
+                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                    Warning = x.Warning,
                     Method = x.Method,
                     DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
                 }),
@@ -461,7 +473,8 @@ public sealed class CheckInService : ICheckInService
                     MemberId = x.MemberProfileId,
                     MemberName = name,
                     CheckedInAtUtc = x.CheckedInAtUtc,
-                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr,
+                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                    Warning = x.Warning,
                     Method = x.Method,
                     DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
                 }),

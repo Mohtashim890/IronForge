@@ -284,7 +284,8 @@ public sealed class MemberService : IMemberService
                         MemberId = x.MemberProfileId,
                         MemberName = member.FullName,
                         CheckedInAtUtc = x.CheckedInAtUtc,
-                        SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr,
+                        SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                    Warning = x.Warning,
                         Method = x.Method,
                         DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
                     }),
@@ -957,6 +958,7 @@ public sealed class MemberService : IMemberService
             HasPhoto = member.PhotoUpdatedAtUtc != null,
             MemberPassCheckInEnabled = gym?.Settings.MemberPassCheckInEnabled ?? false,
             GymQrCheckInEnabled = gym?.Settings.GymQrCheckInEnabled ?? false,
+            RequirePhoneUnlock = gym?.Settings.RequirePhoneUnlock ?? true,
             NextDueInvoice = next is null
                 ? null
                 : new InvoiceDto

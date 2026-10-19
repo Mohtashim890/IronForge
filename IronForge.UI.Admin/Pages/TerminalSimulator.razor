@@ -1,0 +1,334 @@
+﻿@page "/access/terminal-simulator"
+@attribute [Authorize(Policy = Permissions.GymSettingsManage)]
+@implements IDisposable
+@using IronForge.UI.Admin.Simulator
+@inject GymApiClient Gym
+@inject TerminalSimulatorHub Hub
+@inject IHttpClientFactory HttpFactory
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<PageTitle>Terminal simulator | IronForge</PageTitle>
+
+<div class="if-page">
+    <p><a href="/checkin-devices" class="if-small">← Check-in devices</a></p>
+
+    <div class="if-page-head">
+        <div>
+            <h1>ZKTeco terminal simulator</h1>
+            <p>A virtual fingerprint terminal that talks to IronForge exactly like the hardware (ZKTeco push protocol), so you can try the whole flow without one.</p>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (!Enabled)
+    {
+        <div class="if-card if-empty">The terminal simulator is turned off on this server (TerminalSimulator:Enabled).</div>
+    }
+    else if (_settings is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+    else if (!_settings.AccessControlEnabled)
+    {
+        <div class="if-card if-empty">Fingerprint terminals need the <strong>Access control</strong> module. It is part of the Enterprise plan, or an add-on the platform operator can turn on.</div>
+    }
+    else
+    {
+        <div class="if-card" style="margin-bottom: 16px">
+            <div class="if-card-head">
+                <h2>Terminal</h2>
+                <button class="if-btn sm" disabled="@_busy" @onclick="CreateSimulatedTerminalAsync">Add a simulated terminal</button>
+            </div>
+            @if (_terminals.Count == 0)
+            {
+                <div class="if-empty">No fingerprint terminal registered yet. Add a simulated one to start.</div>
+            }
+            else
+            {
+                <select class="if-input" style="max-width: 420px" value="@_serial" @onchange="SelectAsync">
+                    @foreach (var device in _terminals)
+                    {
+                        <option value="@device.SerialNumber">@device.Name (SN @device.SerialNumber)</option>
+                    }
+                </select>
+            }
+        </div>
+
+        @if (_terminal is not null)
+        {
+            var screen = _terminal.Screen;
+
+            <div class="if-grid-2">
+                <div class="if-card">
+                    <div class="sim-device">
+                        <div class="sim-brand">ZKTeco · @_terminal.Name</div>
+                        <div class="sim-screen @screen.Tone.ToString().ToLowerInvariant()">
+                            <div class="sim-status">
+                                <span>@_terminal.LocalNow.ToString("ddd d MMM HH:mm")</span>
+                                <span>@(!_terminal.IsOn ? "off" : _terminal.IsOnline ? "● online" : "○ offline")</span>
+                            </div>
+                            <div class="sim-title">@screen.Title</div>
+                            <div class="sim-detail">@screen.Detail</div>
+                        </div>
+                        <div class="sim-sensor" title="Fingerprint sensor">◎</div>
+                    </div>
+
+                    <div class="if-row" style="margin-top: 14px; flex-wrap: wrap">
+                        @if (_terminal.IsOn)
+                        {
+                            <button class="if-btn" @onclick="_terminal.PowerOff">Power off</button>
+                        }
+                        else
+                        {
+                            <button class="if-btn primary" @onclick="_terminal.PowerOn">Power on</button>
+                        }
+                        <button class="if-btn" @onclick="() => _terminal.SetOnline(!_terminal.IsOnline)">@(_terminal.IsOnline ? "Unplug network" : "Plug network in")</button>
+                        <button class="if-btn" @onclick="() => _terminal.AdvanceClock(1)">Clock +1 day</button>
+                        <button class="if-btn" @onclick="() => _terminal.AdvanceClock(30)">Clock +30 days</button>
+                        @if (_terminal.ClockOffsetDays > 0)
+                        {
+                            <button class="if-btn ghost" @onclick="() => _terminal.AdvanceClock(-_terminal.ClockOffsetDays)">Reset clock</button>
+                        }
+                    </div>
+
+                    @if (_terminal.ConnectionProblem is not null)
+                    {
+                        <div class="if-alert warning" style="margin: 12px 0 0">@_terminal.ConnectionProblem</div>
+                    }
+
+                    <p class="if-small if-muted" style="margin: 12px 0 0">
+                        @if (_terminal.WaitingUploads > 0)
+                        {
+                            <span>@_terminal.WaitingUploads record(s) waiting to be sent to IronForge. </span>
+                        }
+                        Last contact: @(_terminal.LastContactAtUtc is { } at ? GymFormat.Ago(at) : "never").
+                    </p>
+                </div>
+
+                <div class="if-card">
+                    <div class="if-card-head"><h2>Try it</h2></div>
+                    <ol class="if-small" style="margin: 0; padding-left: 18px; line-height: 1.75">
+                        <li><strong>Power on.</strong> The terminal calls IronForge; on first contact IronForge asks for its user list.</li>
+                        <li><strong>Load existing fingerprints</strong> (below): the people this gym enrolled before IronForge. The terminal sends them; their fingerprints stay here.</li>
+                        <li>Open <a href="/access/terminal-users" target="_blank">Terminal users</a> and <strong>link all name matches</strong>. Mark staff as "Not a member".</li>
+                        <li>Within a minute the terminal receives each member's <em>valid until</em> date. <strong>Place fingers</strong>: active members get in, expired or frozen ones are refused by the terminal itself.</li>
+                        <li><strong>Unplug the network</strong> and keep placing fingers: the terminal still decides. Move the clock past someone's date: they are refused offline. Plug back in: entries upload as visits on the <a href="/checkins" target="_blank">Front desk</a>.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="if-card" style="margin-top: 16px">
+                <div class="if-card-head">
+                    <h2>Enrolled on this terminal</h2>
+                    <div class="if-row">
+                        @if (_terminal.Users.Count == 0)
+                        {
+                            <button class="if-btn sm primary" disabled="@_busy" @onclick="LoadExistingAsync">Load existing fingerprints</button>
+                        }
+                        <button class="if-btn sm" @onclick="() => _terminal.PlaceFinger(null)">Unknown finger</button>
+                    </div>
+                </div>
+
+                @if (_terminal.Users.Count == 0)
+                {
+                    <div class="if-empty">Nobody enrolled. Load the gym's existing fingerprints, or enrol someone new.</div>
+                }
+                else
+                {
+                    <table class="if-table">
+                        <thead><tr><th>User no.</th><th>Name</th><th>Finger</th><th>Valid until (from IronForge)</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var user in _terminal.Users)
+                            {
+                                var expired = user.EndsAt is { } end && _terminal.LocalNow > end;
+
+                                <tr>
+                                    <td class="if-mono">@user.Pin</td>
+                                    <td>@user.Name</td>
+                                    <td>@(user.HasFingerprint ? "✓" : "not yet")</td>
+                                    <td>
+                                        @if (user.EndsAt is null)
+                                        {
+                                            <span class="if-muted">no limit (not managed by IronForge)</span>
+                                        }
+                                        else if (expired)
+                                        {
+                                            <Badge Tone="danger">@user.EndsAt.Value.ToString("d MMM yyyy")</Badge>
+                                        }
+                                        else
+                                        {
+                                            <span>@user.EndsAt.Value.ToString("d MMM yyyy")</span>
+                                        }
+                                    </td>
+                                    <td style="text-align: right; white-space: nowrap">
+                                        @if (!user.HasFingerprint)
+                                        {
+                                            <button class="if-btn sm" @onclick="() => _terminal.EnrollFinger(user.Pin)">Enrol finger</button>
+                                        }
+                                        <button class="if-btn sm primary" disabled="@(!_terminal.IsOn || !user.HasFingerprint)" @onclick="() => _terminal.PlaceFinger(user.Pin)">Place finger</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <form class="if-row" style="margin-top: 12px" @onsubmit="Enroll" @onsubmit:preventDefault>
+                    <input class="if-input" style="max-width: 280px" @bind="_newName" placeholder="Name of a new person" maxlength="24" />
+                    <button class="if-btn" type="submit" disabled="@string.IsNullOrWhiteSpace(_newName)">Enrol at the terminal</button>
+                </form>
+            </div>
+
+            <div class="if-card" style="margin-top: 16px">
+                <div class="if-card-head">
+                    <h2>Protocol traffic</h2>
+                    <span class="if-small if-muted">what the terminal and IronForge send each other (newest first)</span>
+                </div>
+                <pre class="sim-log">@foreach (var line in _terminal.Log)
+{<span class="@(line.Direction == "→" ? "out" : line.Direction == "←" ? "in" : "note")">@line.At.ToString("HH:mm:ss") @line.Direction @line.Text
+</span>}</pre>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private GymSettingsDto? _settings;
+    private List<CheckInDeviceDto> _terminals = [];
+    private string? _serial;
+    private SimulatedTerminal? _terminal;
+    private Timer? _refresh;
+    private string _newName = "";
+    private bool _busy;
+    private string? _error;
+
+    private bool Enabled => !string.Equals(Configuration["TerminalSimulator:Enabled"], "false", StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Enabled)
+            return;
+
+        _settings = (await Gym.GetSettingsAsync()).Data;
+
+        if (_settings?.AccessControlEnabled == true)
+        {
+            await LoadTerminalsAsync();
+        }
+
+        // The clock and "last contact" move on their own.
+        _refresh = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadTerminalsAsync()
+    {
+        var devices = await Gym.GetCheckInDevicesAsync();
+
+        _terminals = (devices.Data ?? [])
+            .Where(x => x.Kind == CheckInDeviceKind.ZkTecoTerminal && !x.IsRevoked)
+            .ToList();
+
+        Attach(_terminals.FirstOrDefault(x => x.SerialNumber == _serial) ?? _terminals.FirstOrDefault());
+    }
+
+    private void Attach(CheckInDeviceDto? device)
+    {
+        if (_terminal is not null)
+        {
+            _terminal.Changed -= OnChanged;
+        }
+
+        _serial = device?.SerialNumber;
+        _terminal = device is null
+            ? null
+            : Hub.GetOrCreate(
+                device.SerialNumber!,
+                device.Name,
+                _settings!.TimeZoneId,
+                () => HttpFactory.CreateClient(IronForgeClientServiceCollectionExtensions.ApiClientName));
+
+        if (_terminal is not null)
+        {
+            _terminal.Changed += OnChanged;
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private Task SelectAsync(ChangeEventArgs e)
+    {
+        Attach(_terminals.FirstOrDefault(x => x.SerialNumber == e.Value?.ToString()));
+        return Task.CompletedTask;
+    }
+
+    private async Task CreateSimulatedTerminalAsync()
+    {
+        _busy = true;
+
+        var serial = "SIM" + Random.Shared.Next(10_000_000, 99_999_999).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var result = await Gym.RegisterTerminalAsync(new RegisterTerminalRequest
+        {
+            Name = $"Simulated terminal {_terminals.Count + 1}",
+            SerialNumber = serial
+        });
+
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _serial = result.Data!.SerialNumber;
+        await LoadTerminalsAsync();
+    }
+
+    /// <summary>
+    /// People the gym enrolled before IronForge: most of them are members
+    /// (some with the name typed differently), plus staff, plus someone who
+    /// left. Numbers start at 1001 like a typical ZKTeco installation.
+    /// </summary>
+    private async Task LoadExistingAsync()
+    {
+        _busy = true;
+
+        var members = (await Gym.GetMembersAsync(new MemberQuery { PageSize = 12 })).Data?.Items ?? [];
+        var people = new List<(string Pin, string Name)>();
+        var pin = 1001;
+
+        foreach (var member in members)
+        {
+            // Old terminals often hold names in capitals.
+            var name = pin % 3 == 0 ? member.FullName.ToUpperInvariant() : member.FullName;
+            people.Add(((pin++).ToString(System.Globalization.CultureInfo.InvariantCulture), name));
+        }
+
+        people.Add(((pin++).ToString(System.Globalization.CultureInfo.InvariantCulture), "Coach Bilal"));
+        people.Add(((pin++).ToString(System.Globalization.CultureInfo.InvariantCulture), "Cleaner Asad"));
+        people.Add(((pin++).ToString(System.Globalization.CultureInfo.InvariantCulture), "Left In 2024"));
+
+        _terminal!.LoadExistingUsers(people);
+        _busy = false;
+    }
+
+    private void Enroll()
+    {
+        _terminal?.Enroll(_newName);
+        _newName = "";
+    }
+
+    public void Dispose()
+    {
+        _refresh?.Dispose();
+
+        if (_terminal is not null)
+        {
+            _terminal.Changed -= OnChanged;
+        }
+    }
+}

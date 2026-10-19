@@ -45,6 +45,12 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>A check-in device shows a rotating code; members scan it with the app.</summary>
         public bool GymQrCheckInEnabled { get; set; }
+
+        /// <summary>The app asks for the phone's fingerprint, face or screen lock before a pass or a scan.</summary>
+        public bool RequirePhoneUnlock { get; set; }
+
+        /// <summary>The Access control module (fingerprint terminals) is part of the gym's subscription.</summary>
+        public bool AccessControlEnabled { get; set; }
     }
 
     /// <summary>
@@ -56,6 +62,8 @@ namespace IronForge.Shared.Models.Gym
         public bool MemberPassEnabled { get; set; }
 
         public bool GymQrEnabled { get; set; }
+
+        public bool RequirePhoneUnlock { get; set; } = true;
     }
 
     public sealed class UpdateGymSettingsRequest

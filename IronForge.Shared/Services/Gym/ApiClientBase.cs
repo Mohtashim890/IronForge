@@ -108,6 +108,36 @@ public abstract class ApiClientBase
         }
     }
 
+    /// <summary>A call with extra request headers (e.g. the phone id of the member app).</summary>
+    protected async Task<ServiceResult<T>> SendAsync<T>(
+        HttpMethod method,
+        string url,
+        object? body,
+        IReadOnlyDictionary<string, string> headers,
+        string fallback,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(method, url)
+            {
+                Content = body is null ? null : JsonContent.Create(body)
+            };
+
+            foreach (var (name, value) in headers)
+            {
+                request.Headers.TryAddWithoutValidation(name, value);
+            }
+
+            using var response = await Http.SendAsync(request, ct);
+            return await ApiResponseReader.ReadAsync<T>(response, fallback, ct);
+        }
+        catch (HttpRequestException)
+        {
+            return Offline<T>();
+        }
+    }
+
     /// <summary>Builds a query string from non-null values.</summary>
     protected static string Query(string path, params (string Name, object? Value)[] values)
     {

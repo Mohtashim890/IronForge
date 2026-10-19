@@ -70,6 +70,9 @@ namespace IronForge
             // The member pass works offline from secure storage.
             builder.Services.AddSingleton<IMemberPassStore, SecureMemberPassStore>();
 
+            // Fingerprint, face or screen lock before the pass shows (against handing the phone over).
+            builder.Services.AddSingleton<IPhoneUnlock, MauiPhoneUnlock>();
+
             // The member app: gym members only.
             builder.Services.AddIronForgeApiClients(new ClientAppProfile
             {

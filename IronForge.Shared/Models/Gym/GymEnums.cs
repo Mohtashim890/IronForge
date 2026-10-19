@@ -94,7 +94,19 @@
         Kiosk = 2,
 
         /// <summary>The member scanned the gym's rotating code (shown on a check-in device) with the app.</summary>
-        GymQr = 3
+        GymQr = 3,
+
+        /// <summary>A fingerprint terminal recognised the member and let them in.</summary>
+        Terminal = 4
+    }
+
+    public enum CheckInDeviceKind
+    {
+        /// <summary>A tablet or PC running /kiosk, paired with a code.</summary>
+        Kiosk = 0,
+
+        /// <summary>A ZKTeco fingerprint terminal speaking the push (ADMS) protocol, registered by serial number.</summary>
+        ZkTecoTerminal = 1
     }
 
     public enum CheckInOutcome

@@ -13,6 +13,7 @@ using IronForge.Application.Auth.Services;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
+using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.AgentTools;
 using IronForge.Application.Gym.Billing;
 using IronForge.Application.Gym.CheckIns;
@@ -349,6 +350,7 @@ public sealed class TestServiceFactory
             PassKeys,
             BillingEngine,
             Audit,
+            Notifications,
             Clock);
 
     public MemberPhotoService MemberPhotos =>
@@ -364,7 +366,40 @@ public sealed class TestServiceFactory
             GymAccess,
             new EfRepository<CheckInDevice>(Db),
             new EfRepository<CheckIn>(Db),
+            new EfRepository<TerminalUserSync>(Db),
             BillingEngine,
+            Audit,
+            Clock);
+
+    private TerminalProtocolService? _terminal;
+
+    /// <summary>One per request, like the API's scope: it remembers the authenticated terminal.</summary>
+    public TerminalProtocolService Terminal => _terminal ??=
+        new(
+            new CheckInDeviceDirectory(Db),
+            ContextAccessor,
+            GymAccess,
+            new EfRepository<Tenant>(Db),
+            new EfRepository<CheckInDevice>(Db),
+            new EfRepository<TerminalUser>(Db),
+            new EfRepository<TerminalUserSync>(Db),
+            new EfRepository<TerminalCommand>(Db),
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<CheckIn>(Db),
+            BillingEngine,
+            Audit,
+            Clock);
+
+    public TerminalAdminService TerminalAdmin =>
+        new(
+            GymAccess,
+            new CheckInDeviceDirectory(Db),
+            new EfRepository<CheckInDevice>(Db),
+            new EfRepository<TerminalUser>(Db),
+            new EfRepository<TerminalUserSync>(Db),
+            new EfRepository<TerminalCommand>(Db),
+            new EfRepository<MemberProfile>(Db),
             Audit,
             Clock);
 

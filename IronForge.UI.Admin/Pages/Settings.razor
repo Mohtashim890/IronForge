@@ -95,6 +95,18 @@
                 </span>
             </label>
 
+            <label class="if-check-option">
+                <input type="checkbox" @bind="_phoneUnlock" />
+                <span>
+                    <strong>Ask for the phone's fingerprint, face or screen lock</strong>
+                    <span class="if-small if-muted">
+                        Before the app shows the pass or scans the entrance code, the member confirms it's them on their phone.
+                        The pass then hides again after a minute. Stops a member handing the phone to a friend.
+                        A pass also works on one phone at a time: moving it resets it and emails the member.
+                    </span>
+                </span>
+            </label>
+
             @if (!_memberPass && !_gymQr)
             {
                 <div class="if-alert info" style="margin: 10px 0 0">With both off, members are checked in by staff at the front desk only.</div>
@@ -146,10 +158,13 @@
     private string _afterDue = "";
     private bool _memberPass;
     private bool _gymQr;
+    private bool _phoneUnlock;
 
     private bool CheckInChanged =>
         _settings is not null &&
-        (_memberPass != _settings.MemberPassCheckInEnabled || _gymQr != _settings.GymQrCheckInEnabled);
+        (_memberPass != _settings.MemberPassCheckInEnabled ||
+         _gymQr != _settings.GymQrCheckInEnabled ||
+         _phoneUnlock != _settings.RequirePhoneUnlock);
     private bool _busy;
     private string? _error;
     private string? _message;
@@ -194,10 +209,18 @@
         _afterDue = string.Join(", ", settings.ReminderDaysAfterDue);
         _memberPass = settings.MemberPassCheckInEnabled;
         _gymQr = settings.GymQrCheckInEnabled;
+        _phoneUnlock = settings.RequirePhoneUnlock;
     }
 
     private Task SaveCheckInMethodsAsync() =>
-        RunAsync(() => Gym.UpdateCheckInMethodsAsync(_memberPass, _gymQr), "Check-in methods saved.");
+        RunAsync(
+            () => Gym.UpdateCheckInMethodsAsync(new UpdateCheckInMethodsRequest
+            {
+                MemberPassEnabled = _memberPass,
+                GymQrEnabled = _gymQr,
+                RequirePhoneUnlock = _phoneUnlock
+            }),
+            "Check-in methods saved.");
 
     private async Task SaveAsync()
     {

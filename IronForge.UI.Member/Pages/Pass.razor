@@ -5,6 +5,7 @@
 @inject MemberApiClient Me
 @inject IAuthService AuthService
 @inject IMemberPassStore PassStore
+@inject IPhoneUnlock PhoneUnlock
 
 <PageTitle>Check in | IronForge</PageTitle>
 
@@ -33,6 +34,18 @@ else
         </div>
     }
 
+    @if (_onAnotherPhone)
+    {
+        <div class="m-card">
+            <strong>Your pass is on another phone</strong>
+            <p class="if-small if-muted" style="margin: 4px 0 10px">
+                A pass works on one phone at a time. Moving it here stops the pass on the other phone,
+                and we'll email you about it.
+            </p>
+            <button class="if-btn primary block" disabled="@_busy" @onclick="MoveHereAsync">Move my pass to this phone</button>
+        </div>
+    }
+
     @if (_gymQr)
     {
         <div class="m-card">
@@ -47,7 +60,7 @@ else
             }
             else
             {
-                <button class="if-btn primary block" disabled="@(_busy || _offline)" @onclick="StartScan">⌗ Scan entrance code</button>
+                <button class="if-btn primary block" disabled="@(_busy || _offline)" @onclick="StartScanAsync">⌗ Scan entrance code</button>
                 @if (_offline)
                 {
                     <p class="if-small if-muted" style="margin: 6px 0 0">Scanning needs internet. @(_pass is null ? "" : "Show your pass instead.")</p>
@@ -75,13 +88,36 @@ else
                 </div>
             </div>
 
-            <div class="m-pass-qr" role="img" aria-label="Your check-in pass">@((MarkupString)_svg)</div>
+            @if (IsShowing)
+            {
+                <div class="m-pass-qr" role="img" aria-label="Your check-in pass">@((MarkupString)_svg)</div>
 
-            <div class="m-pass-timer" aria-hidden="true"><span style="width: @(_remainingPercent)%"></span></div>
-            <p class="if-small if-muted" style="margin: 8px 0 0">
-                @(_gymQr ? "Or show" : "Show") this pass at the front desk or the check-in screen.
-                It changes every @_pass.StepSeconds seconds, so screenshots don't work.
-            </p>
+                <div class="m-pass-timer" aria-hidden="true"><span style="width: @(_remainingPercent)%"></span></div>
+                <p class="if-small if-muted" style="margin: 8px 0 0">
+                    @(_gymQr ? "Or show" : "Show") this pass at the front desk or the check-in screen.
+                    It changes every @_pass.StepSeconds seconds, so screenshots don't work.
+                    @if (_pass.RequirePhoneUnlock)
+                    {
+                        <span>It hides again in @SecondsLeft s.</span>
+                    }
+                </p>
+            }
+            else
+            {
+                <div class="m-pass-locked">
+                    <span class="m-pass-lock" aria-hidden="true">🔒</span>
+                    <p class="if-small if-muted" style="margin: 0 0 10px">
+                        Your gym asks you to confirm it's you, with your fingerprint, face or screen lock.
+                        Don't hand your phone to anyone else to get in.
+                    </p>
+                    <button class="if-btn primary block" disabled="@_busy" @onclick="ShowPassAsync">Show my pass</button>
+                </div>
+            }
+
+            @if (_unlockNote is not null)
+            {
+                <div class="if-alert info" style="margin: 12px 0 0">@_unlockNote</div>
+            }
 
             @if (_offline)
             {
@@ -113,22 +149,29 @@ else
         </div>
     }
 
-    @if (_pass is null && !_gymQr && _error is null)
+    @if (_pass is null && !_gymQr && !_onAnotherPhone && _error is null)
     {
         <div class="m-card if-empty">Your gym checks you in at the front desk. Tell the staff your name when you arrive.</div>
     }
 }
 
 @code {
+    /// <summary>After an unlock the pass shows this long, then the member unlocks again.</summary>
+    private static readonly TimeSpan ShowFor = TimeSpan.FromSeconds(60);
+
     private MemberPassDto? _pass;
+    private string _phoneId = "";
     private byte[] _secret = [];
     private TimeSpan _clockOffset;
     private long _step = -1;
     private string _svg = "";
     private double _remainingPercent = 100;
     private Timer? _timer;
+    private DateTime? _showingUntil;
     private bool _loading = true;
     private bool _gymQr;
+    private bool _requireUnlock = true;
+    private bool _onAnotherPhone;
     private bool _scanning;
     private bool _offline;
     private bool _busy;
@@ -136,15 +179,23 @@ else
     private CheckInResultDto? _result;
     private string? _error;
     private string? _status;
+    private string? _unlockNote;
+
+    private bool IsShowing => _pass is not null && (!_pass.RequirePhoneUnlock || _showingUntil > DateTime.UtcNow);
+
+    private int SecondsLeft => _showingUntil is { } until ? Math.Max(0, (int)(until - DateTime.UtcNow).TotalSeconds) : 0;
 
     protected override async Task OnInitializedAsync()
     {
+        _phoneId = await PassStore.GetPhoneIdAsync();
+
         var membership = await Me.GetMembershipAsync();
 
         if (membership.Success)
         {
             var me = membership.Data!;
             _gymQr = me.GymQrCheckInEnabled;
+            _requireUnlock = me.RequirePhoneUnlock;
 
             if (me.MemberPassCheckInEnabled)
             {
@@ -168,21 +219,25 @@ else
         }
 
         _loading = false;
-
-        if (_pass is not null)
-        {
-            _timer = new Timer(_ => InvokeAsync(Tick), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
-        }
+        _timer = new Timer(_ => InvokeAsync(Tick), null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
     }
 
     private async Task LoadPassAsync()
     {
-        var result = await Me.GetPassAsync();
+        var result = await Me.GetPassAsync(_phoneId);
 
         if (result.Success)
         {
+            _onAnotherPhone = false;
             await PassStore.SaveAsync(result.Data!);
             Use(result.Data!, fresh: true);
+        }
+        else if (result.StatusCode == MemberApiClient.PassOnAnotherPhone)
+        {
+            // Never show a pass this phone is not the home of.
+            _onAnotherPhone = true;
+            _pass = null;
+            await PassStore.ClearAsync();
         }
         else if (result.StatusCode == 503 && await CachedAsync() is { } cached)
         {
@@ -207,15 +262,68 @@ else
         _pass = pass;
         _secret = Convert.FromBase64String(pass.Secret);
         _step = -1;
+        _showingUntil = null;
 
         // Codes follow the server's clock, in case the phone's is off.
         _clockOffset = fresh ? pass.IssuedAtUtc - DateTime.UtcNow : TimeSpan.Zero;
     }
 
+    /// <summary>
+    /// The phone's owner check before the pass or a scan. Unlocked, or a
+    /// phone that cannot check (shown with a note), goes ahead; a phone with
+    /// no screen lock at all does not, as anyone holding it could use the pass.
+    /// </summary>
+    private async Task<bool> ConfirmOwnerAsync(string reason)
+    {
+        _unlockNote = null;
+
+        if (!_requireUnlock)
+            return true;
+
+        switch (await PhoneUnlock.UnlockAsync(reason))
+        {
+            case PhoneUnlockResult.Unlocked:
+                return true;
+
+            case PhoneUnlockResult.NotSupported:
+                _unlockNote = "This device cannot confirm it's you; staff may check your photo.";
+                return true;
+
+            case PhoneUnlockResult.NotSetUp:
+                _error = "Set a screen lock (PIN, fingerprint or face) on this phone to use your gym pass.";
+                return false;
+
+            default:
+                _error = "Not confirmed. Try again.";
+                return false;
+        }
+    }
+
+    private async Task ShowPassAsync()
+    {
+        _error = null;
+        _busy = true;
+
+        if (await ConfirmOwnerAsync("Show your gym pass"))
+        {
+            _showingUntil = DateTime.UtcNow + ShowFor;
+            _step = -1;
+            Tick();
+        }
+
+        _busy = false;
+    }
+
     private void Tick()
     {
-        if (_pass is null)
+        if (_pass is null || !IsShowing)
+        {
+            // Hidden: drop the drawn code so nothing old stays on screen.
+            _svg = "";
+            _step = -1;
+            StateHasChanged();
             return;
+        }
 
         var now = DateTimeOffset.UtcNow + _clockOffset;
         var step = MemberPassCode.StepAt(now, _pass.StepSeconds);
@@ -235,12 +343,16 @@ else
         StateHasChanged();
     }
 
-    private void StartScan()
+    private async Task StartScanAsync()
     {
         _result = null;
         _error = null;
         _status = null;
-        _scanning = true;
+
+        if (await ConfirmOwnerAsync("Check in at your gym"))
+        {
+            _scanning = true;
+        }
     }
 
     private async Task CheckInWithGymQrAsync(string code)
@@ -251,7 +363,7 @@ else
         _busy = true;
         _scanning = false;
 
-        var result = await Me.CheckInWithGymQrAsync(code);
+        var result = await Me.CheckInWithGymQrAsync(code, _phoneId);
 
         _busy = false;
 
@@ -259,6 +371,35 @@ else
         {
             _result = result.Data;
             _error = null;
+        }
+        else if (result.StatusCode == MemberApiClient.PassOnAnotherPhone)
+        {
+            _onAnotherPhone = true;
+            _error = null;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task MoveHereAsync()
+    {
+        _error = null;
+
+        if (!await ConfirmOwnerAsync("Move your gym pass to this phone"))
+            return;
+
+        _busy = true;
+        var result = await Me.MovePassHereAsync(_phoneId);
+        _busy = false;
+
+        if (result.Success)
+        {
+            _onAnotherPhone = false;
+            await PassStore.SaveAsync(result.Data!);
+            Use(result.Data!, fresh: true);
+            _status = "Your pass is on this phone now. The pass on your other phone no longer works.";
         }
         else
         {
@@ -268,11 +409,13 @@ else
 
     private async Task ResetAsync()
     {
-        _busy = true;
         _confirmReset = false;
 
-        var result = await Me.ResetPassAsync();
+        if (!await ConfirmOwnerAsync("Reset your gym pass"))
+            return;
 
+        _busy = true;
+        var result = await Me.ResetPassAsync(_phoneId);
         _busy = false;
 
         if (result.Success)
@@ -280,7 +423,6 @@ else
             await PassStore.SaveAsync(result.Data!);
             Use(result.Data!, fresh: true);
             _status = "Your pass was reset. Only this new pass works now.";
-            Tick();
         }
         else
         {

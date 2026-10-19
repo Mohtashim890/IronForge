@@ -1,0 +1,299 @@
+@page "/access/terminal-users"
+@attribute [Authorize(Policy = Permissions.GymMembersRead)]
+@inject GymApiClient Gym
+
+<PageTitle>Terminal users | IronForge</PageTitle>
+
+<div class="if-page">
+    <p><a href="/checkin-devices" class="if-small">← Check-in devices</a></p>
+
+    <div class="if-page-head">
+        <div>
+            <h1>Fingerprint terminal users</h1>
+            <p>People enrolled on the gym's ZKTeco terminals. Link each one to a member: IronForge then tells the terminals who may enter.</p>
+        </div>
+        <AuthorizeView Policy="@Permissions.GymMembersManage">
+            <div class="if-row">
+                <button class="if-btn" @onclick="() => _importing = true">Import from ZKTeco software</button>
+                <button class="if-btn" @onclick="() => _adding = true">Add a member to the terminals</button>
+            </div>
+        </AuthorizeView>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_users is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+    else
+    {
+        var waiting = _users.Where(x => x.MemberId is null && !x.Ignored).ToList();
+        var linked = _users.Where(x => x.MemberId is not null).ToList();
+        var ignored = _users.Where(x => x.Ignored).ToList();
+        var suggested = waiting.Count(x => x.SuggestedMemberId is not null);
+
+        <div class="if-grid">
+            <StatTile Label="Waiting to be linked" Value="@waiting.Count.ToString()" Tone="@(waiting.Count > 0 ? "warning" : null)" />
+            <StatTile Label="Linked members" Value="@linked.Count.ToString()" Tone="success" />
+            <StatTile Label="Not members (staff)" Value="@ignored.Count.ToString()" />
+            <StatTile Label="With a fingerprint" Value="@_users.Count(x => x.HasFingerprint).ToString()" Sub="templates stay on the terminal" />
+        </div>
+
+        <div class="if-card" style="margin-top: 16px">
+            <div class="if-card-head">
+                <h2>Waiting to be linked</h2>
+                @if (suggested > 0)
+                {
+                    <AuthorizeView Policy="@Permissions.GymMembersManage">
+                        <button class="if-btn primary sm" disabled="@_busy" @onclick="LinkSuggestedAsync">Link all @suggested name matches</button>
+                    </AuthorizeView>
+                }
+            </div>
+            @if (waiting.Count == 0)
+            {
+                <div class="if-empty">Nobody is waiting. New people enrolled on a terminal appear here.</div>
+            }
+            else
+            {
+                <table class="if-table">
+                    <thead><tr><th>User no.</th><th>Name on the terminal</th><th>Finger</th><th>Suggested member</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var user in waiting)
+                        {
+                            <tr>
+                                <td class="if-mono">@user.Pin</td>
+                                <td>@(user.TerminalName ?? "—")</td>
+                                <td>@(user.HasFingerprint ? "✓" : "—")</td>
+                                <td>
+                                    @if (user.SuggestedMemberId is { } memberId)
+                                    {
+                                        <a href="@($"/members/{memberId}")">@user.SuggestedMemberName</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="if-muted">no exact name match</span>
+                                    }
+                                </td>
+                                <td style="text-align: right; white-space: nowrap">
+                                    <AuthorizeView Policy="@Permissions.GymMembersManage">
+                                        @if (user.SuggestedMemberId is { } id)
+                                        {
+                                            <button class="if-btn sm primary" disabled="@_busy" @onclick="() => LinkAsync(user, id)">Link</button>
+                                        }
+                                        <button class="if-btn sm" disabled="@_busy" @onclick="() => Choose(user)">Choose member</button>
+                                        <button class="if-btn sm ghost" disabled="@_busy" title="Staff or anyone else who is not a member: left as is on the terminal" @onclick="() => SetIgnoredAsync(user, true)">Not a member</button>
+                                    </AuthorizeView>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <div class="if-card" style="margin-top: 16px">
+            <div class="if-card-head"><h2>Linked members</h2></div>
+            @if (linked.Count == 0)
+            {
+                <div class="if-empty">No members linked yet.</div>
+            }
+            else
+            {
+                <table class="if-table">
+                    <thead><tr><th>User no.</th><th>Member</th><th>On the terminals</th><th>Last entry</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var user in linked)
+                        {
+                            <tr>
+                                <td class="if-mono">@user.Pin @(user.HasFingerprint ? "· ✓" : "")</td>
+                                <td>
+                                    <a href="@($"/members/{user.MemberId}")">@user.MemberName</a>
+                                    @if (user.MemberStatus is { } status)
+                                    {
+                                        <span> </span><Badge Tone="@GymFormat.Tone(status)">@status</Badge>
+                                    }
+                                </td>
+                                <td>
+                                    @if (user.AccessEnabled is null)
+                                    {
+                                        <span class="if-muted">sent at the next poll</span>
+                                    }
+                                    else if (user.AccessEnabled == true)
+                                    {
+                                        <span>May enter until @GymFormat.Date(user.ValidUntil)</span>
+                                    }
+                                    else
+                                    {
+                                        <Badge Tone="danger">Refused</Badge>
+                                    }
+                                </td>
+                                <td>@(user.LastEntryAtUtc is { } at ? GymFormat.Ago(at) : "—")</td>
+                                <td style="text-align: right">
+                                    <AuthorizeView Policy="@Permissions.GymMembersManage">
+                                        <button class="if-btn sm" disabled="@_busy" @onclick="() => LinkAsync(user, null)">Unlink</button>
+                                    </AuthorizeView>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <p class="if-small if-muted" style="margin: 10px 0 0">
+                    The end date lets a terminal keep deciding when it is offline: it is the end of the grace period of the next payment.
+                    Paying, freezing or expiring updates it at the terminal's next poll (within a minute).
+                </p>
+            }
+        </div>
+
+        @if (ignored.Count > 0)
+        {
+            <div class="if-card" style="margin-top: 16px">
+                <div class="if-card-head"><h2>Not members</h2></div>
+                <ul class="if-list">
+                    @foreach (var user in ignored)
+                    {
+                        <li>
+                            <span class="if-mono">@user.Pin</span>
+                            <span style="flex: 1">@(user.TerminalName ?? "—")</span>
+                            <AuthorizeView Policy="@Permissions.GymMembersManage">
+                                <button class="if-btn sm ghost" disabled="@_busy" @onclick="() => SetIgnoredAsync(user, false)">Undo</button>
+                            </AuthorizeView>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+    }
+</div>
+
+<Modal Open="@(_choosing is not null)" OpenChanged="open => { if (!open) _choosing = null; }" Title="@($"Link terminal user {_choosing?.Pin}")">
+    <ChildContent>
+        <p class="if-small if-muted">Name on the terminal: <strong>@(_choosing?.TerminalName ?? "—")</strong></p>
+        <MemberSearch OnPicked="member => LinkAsync(_choosing!, member.Id)" />
+    </ChildContent>
+</Modal>
+
+<Modal @bind-Open="_adding" Title="Add a member to the terminals">
+    <ChildContent>
+        <p class="if-small if-muted">The member gets the next free user number. Then enrol their finger on the terminal under that number.</p>
+        <MemberSearch OnPicked="CreateAsync" />
+    </ChildContent>
+</Modal>
+
+<Modal @bind-Open="_importing" Title="Import users from ZKTeco software" Wide="true">
+    <ChildContent>
+        <p class="if-small if-muted">
+            In ZKBio Time or ZKAccess, export the personnel list as CSV and paste it here: one person per line, user number first, then the name.
+            Only numbers and names are imported, never fingerprints. You can also let the terminal send its list itself (Check-in devices → Fetch users).
+        </p>
+        <div class="if-field">
+            <textarea rows="10" class="if-mono" @bind="_csv" placeholder="User ID,Name&#10;1001,Sara Khan&#10;1002,Omar Ali"></textarea>
+        </div>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _importing = false">Cancel</button>
+        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_csv))" @onclick="ImportAsync">Import</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<TerminalUserDto>? _users;
+    private TerminalUserDto? _choosing;
+    private bool _adding;
+    private bool _importing;
+    private bool _busy;
+    private string _csv = "";
+    private string? _error;
+    private string? _message;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetTerminalUsersAsync();
+
+        _users = result.Data ?? [];
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private void Choose(TerminalUserDto user) => _choosing = user;
+
+    private async Task LinkAsync(TerminalUserDto user, int? memberId)
+    {
+        _choosing = null;
+
+        await RunAsync(
+            () => Gym.LinkTerminalUserAsync(user.Id, memberId),
+            memberId is null
+                ? $"User {user.Pin} unlinked. The terminals stop letting them in at their next poll."
+                : $"User {user.Pin} linked. The terminals get their access at the next poll.");
+    }
+
+    private async Task LinkSuggestedAsync()
+    {
+        _busy = true;
+        var result = await Gym.LinkSuggestedTerminalUsersAsync();
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _message = result.Success ? $"{result.Data} terminal users linked by name." : null;
+        await LoadAsync();
+    }
+
+    private Task SetIgnoredAsync(TerminalUserDto user, bool ignored) =>
+        RunAsync(
+            () => Gym.SetTerminalUserIgnoredAsync(user.Id, ignored),
+            ignored ? $"User {user.Pin} marked as not a member: left as is on the terminals." : $"User {user.Pin} is waiting to be linked again.");
+
+    private async Task CreateAsync(MemberSummaryDto member)
+    {
+        _adding = false;
+        _busy = true;
+        var result = await Gym.CreateTerminalUserAsync(member.Id);
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _message = result.Success
+            ? $"{member.FullName} is user number {result.Data!.Pin}. On the terminal: Menu → User Mgt. → find {result.Data.Pin} → enrol a fingerprint."
+            : null;
+        await LoadAsync();
+    }
+
+    private async Task ImportAsync()
+    {
+        _busy = true;
+        var result = await Gym.ImportTerminalUsersAsync(_csv);
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _importing = false;
+        _csv = "";
+        _message = $"Imported: {result.Data!.Added} new, {result.Data.Updated} updated." +
+                   (result.Data.Errors.Count > 0 ? " Skipped: " + string.Join(" ", result.Data.Errors) : "");
+        await LoadAsync();
+    }
+
+    private async Task RunAsync(Func<Task<ServiceResult<TerminalUserDto>>> action, string success)
+    {
+        _busy = true;
+        var result = await action();
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _message = result.Success ? success : null;
+        await LoadAsync();
+    }
+}

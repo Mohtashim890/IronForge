@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = Permissions.GymSettingsManage)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 
 <PageTitle>Check-in devices | IronForge</PageTitle>
 
@@ -9,9 +10,16 @@
     <div class="if-page-head">
         <div>
             <h1>Check-in devices</h1>
-            <p>A tablet or PC at the entrance where members scan their pass and check themselves in.</p>
+            <p>Kiosks (a tablet or PC where members check themselves in) and ZKTeco fingerprint terminals.</p>
         </div>
-        <button class="if-btn primary" @onclick="() => _adding = true">Add device</button>
+        <div class="if-row">
+            @if (_settings?.AccessControlEnabled == true)
+            {
+                <a class="if-btn" href="/access/terminal-users">Terminal users</a>
+                <button class="if-btn" @onclick="() => _addingTerminal = true">Add fingerprint terminal</button>
+            }
+            <button class="if-btn primary" @onclick="() => _adding = true">Add kiosk</button>
+        </div>
     </div>
 
     @if (_error is not null)
@@ -19,10 +27,15 @@
         <div class="if-alert error">@_error</div>
     }
 
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
     <div class="if-card" style="margin-bottom: 16px">
-        <div class="if-card-head"><h2>How to set one up</h2></div>
+        <div class="if-card-head"><h2>Kiosk: how to set one up</h2></div>
         <ol style="margin: 0; padding-left: 20px; line-height: 1.7">
-            <li>Click <strong>Add device</strong> and give it a name, e.g. "Front entrance".</li>
+            <li>Click <strong>Add kiosk</strong> and give it a name, e.g. "Front entrance".</li>
             <li>On the tablet, open <code>@KioskUrl</code> and type the pairing code (valid for 15 minutes).</li>
             <li>Point the camera at the entrance or plug in a USB QR scanner. Members show the pass from the IronForge app.</li>
         </ol>
@@ -30,6 +43,26 @@
             The device can only check members in. If a tablet is lost, remove it here: it stops working at once.
         </p>
     </div>
+
+    @if (_settings?.AccessControlEnabled == true)
+    {
+        <div class="if-card" style="margin-bottom: 16px">
+            <div class="if-card-head">
+                <h2>Fingerprint terminal (ZKTeco): how to connect one</h2>
+                <a class="if-small" href="/access/terminal-simulator">Try the terminal simulator →</a>
+            </div>
+            <ol style="margin: 0; padding-left: 20px; line-height: 1.7">
+                <li>On the terminal, read its serial number (Menu → System Info → Device Info).</li>
+                <li>Click <strong>Add fingerprint terminal</strong> and enter that serial number. Optionally restrict it to the gym's fixed IP address.</li>
+                <li>On the terminal: Menu → Comm. → Cloud Server Setting (ADMS). Server address <code>@ServerAddress</code>, port 443 with HTTPS on if your model offers it, otherwise port 80.</li>
+                <li>The terminal sends its list of enrolled people. Link them to members under <a href="/access/terminal-users">Terminal users</a>.</li>
+            </ol>
+            <p class="if-small if-muted" style="margin: 10px 0 0">
+                Fingerprints never leave the terminal. IronForge only tells it who may enter and until when, so it keeps deciding at the door
+                when the internet is down, and it sends every entry back here as a visit.
+            </p>
+        </div>
+    }
 
     @if (_devices is null)
     {
@@ -56,7 +89,21 @@
                     @foreach (var device in _devices)
                     {
                         <tr>
-                            <td><strong>@device.Name</strong><div class="if-small if-muted">added @GymFormat.Date(device.CreatedAtUtc)</div></td>
+                            <td>
+                                <strong>@device.Name</strong>
+                                @if (device.Kind == CheckInDeviceKind.ZkTecoTerminal)
+                                {
+                                    <div class="if-small if-muted">Fingerprint terminal · SN <span class="if-mono">@device.SerialNumber</span>@(device.AllowedIp is null ? "" : $" · only from {device.AllowedIp}")</div>
+                                    @if (!device.IsRevoked && device.IsPaired)
+                                    {
+                                        <div class="if-small if-muted">@device.UsersInSync users in step@(device.UsersPending > 0 ? $", {device.UsersPending} waiting to be sent" : "")</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="if-small if-muted">Kiosk · added @GymFormat.Date(device.CreatedAtUtc)</div>
+                                }
+                            </td>
                             <td>
                                 @if (device.IsRevoked)
                                 {
@@ -68,11 +115,11 @@
                                 }
                                 else if (device.IsPaired)
                                 {
-                                    <Badge Tone="success">Paired</Badge>
+                                    <Badge Tone="success">@(device.Kind == CheckInDeviceKind.ZkTecoTerminal ? "Connected" : "Paired")</Badge>
                                 }
                                 else
                                 {
-                                    <Badge Tone="warning">Not paired</Badge>
+                                    <Badge Tone="warning">@(device.Kind == CheckInDeviceKind.ZkTecoTerminal ? "Waiting for the terminal" : "Not paired")</Badge>
                                 }
                             </td>
                             <td>@(device.LastSeenAtUtc is { } seen ? GymFormat.Ago(seen) : "—")</td>
@@ -80,7 +127,15 @@
                             <td style="text-align: right; white-space: nowrap">
                                 @if (!device.IsRevoked)
                                 {
-                                    <button class="if-btn sm" disabled="@_busy" @onclick="() => NewCodeAsync(device)">@(device.IsPaired ? "Re-pair" : "New code")</button>
+                                    @if (device.Kind == CheckInDeviceKind.ZkTecoTerminal)
+                                    {
+                                        <button class="if-btn sm" disabled="@_busy" title="The terminal uploads its enrolled people again" @onclick="() => FetchUsersAsync(device)">Fetch users</button>
+                                        <button class="if-btn sm" disabled="@_busy" title="Send every member's access again, e.g. after a reset" @onclick="() => ResendAsync(device)">Resend</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="if-btn sm" disabled="@_busy" @onclick="() => NewCodeAsync(device)">@(device.IsPaired ? "Re-pair" : "New code")</button>
+                                    }
                                     <button class="if-btn sm danger" disabled="@_busy" @onclick="() => _removing = device">Remove</button>
                                 }
                             </td>
@@ -92,7 +147,29 @@
     }
 </div>
 
-<Modal @bind-Open="_adding" Title="Add a check-in device">
+<Modal @bind-Open="_addingTerminal" Title="Add a fingerprint terminal">
+    <ChildContent>
+        <div class="if-field">
+            <label for="terminal-name">Name</label>
+            <input id="terminal-name" @bind="_terminal.Name" maxlength="100" placeholder="Turnstile, main door" />
+        </div>
+        <div class="if-field">
+            <label for="terminal-serial">Serial number</label>
+            <input id="terminal-serial" class="if-mono" @bind="_terminal.SerialNumber" maxlength="40" placeholder="CJDE212460012" />
+        </div>
+        <div class="if-field">
+            <label for="terminal-ip">Only accept it from this IP address (optional)</label>
+            <input id="terminal-ip" class="if-mono" @bind="_terminal.AllowedIp" maxlength="45" placeholder="203.0.113.10" />
+        </div>
+        <p class="if-small if-muted">A terminal proves who it is only by its serial number, so a fixed IP address makes it much harder to impersonate.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _addingTerminal = false">Cancel</button>
+        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_terminal.Name) || string.IsNullOrWhiteSpace(_terminal.SerialNumber))" @onclick="RegisterTerminalAsync">Add terminal</button>
+    </Footer>
+</Modal>
+
+<Modal @bind-Open="_adding" Title="Add a kiosk">
     <ChildContent>
         <div class="if-field">
             <label for="device-name">Name</label>
@@ -146,8 +223,51 @@
 
     private string KioskUrl => Navigation.ToAbsoluteUri("/kiosk").ToString();
 
+    private string ServerAddress => Configuration["Terminals:ServerAddress"] ?? "your IronForge API address";
+
+    private GymSettingsDto? _settings;
+    private bool _addingTerminal;
+    private RegisterTerminalRequest _terminal = new();
+    private string? _message;
+
     protected override async Task OnInitializedAsync()
     {
+        _settings = (await Gym.GetSettingsAsync()).Data;
+        await LoadAsync();
+    }
+
+    private async Task RegisterTerminalAsync()
+    {
+        _busy = true;
+        var result = await Gym.RegisterTerminalAsync(_terminal);
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _addingTerminal = false;
+        _terminal = new RegisterTerminalRequest();
+        _message = $"{result.Data!.Name} added. Point the terminal at {ServerAddress}; it appears as connected when it calls in.";
+        await LoadAsync();
+    }
+
+    private Task FetchUsersAsync(CheckInDeviceDto device) =>
+        TerminalActionAsync(Gym.RequestTerminalUsersAsync(device.Id), "The terminal will send its users at its next poll.");
+
+    private Task ResendAsync(CheckInDeviceDto device) =>
+        TerminalActionAsync(Gym.ResyncTerminalAsync(device.Id), "Everything is sent again at the terminal's next poll.");
+
+    private async Task TerminalActionAsync(Task<ServiceResult<bool>> action, string success)
+    {
+        _busy = true;
+        var result = await action;
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _message = result.Success ? success : null;
         await LoadAsync();
     }
 

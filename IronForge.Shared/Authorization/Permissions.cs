@@ -43,6 +43,13 @@ namespace IronForge.Shared.Authorization
         /// </summary>
         public const string GymCheckInsDevice = "gym.checkins.device";
 
+        /// <summary>
+        /// Held only by a registered access terminal (ZKTeco), never by a
+        /// role: it uploads entries and enrolled users and receives its
+        /// user list. Nothing else.
+        /// </summary>
+        public const string GymAccessTerminal = "gym.access.terminal";
+
         // Gym member self-service: always limited to the caller's own profile.
         public const string GymSelfRead = "gym.self.read";
         public const string GymSelfWorkoutsWrite = "gym.self.workouts.write";

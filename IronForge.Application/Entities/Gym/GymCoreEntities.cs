@@ -48,6 +48,13 @@ namespace IronForge.Application.Entities
         public bool GymQrCheckInEnabled { get; set; }
 
         /// <summary>
+        /// The app asks for the phone's fingerprint, face or screen lock before
+        /// it shows the pass or scans the entrance code (against handing the
+        /// phone to someone else).
+        /// </summary>
+        public bool RequirePhoneUnlock { get; set; } = true;
+
+        /// <summary>
         /// Last invoice number issued. Only incremented atomically in the
         /// database (IInvoiceNumberGenerator), never through the entity.
         /// </summary>
@@ -154,6 +161,15 @@ namespace IronForge.Application.Entities
         /// <summary>When the current photo was set; null without a photo.</summary>
         public DateTime? PhotoUpdatedAtUtc { get; set; }
 
+        /// <summary>
+        /// SHA-256 of the app installation the pass lives on. A pass works on
+        /// one phone at a time; moving it is allowed but resets the pass and
+        /// tells the member, so a shared account is noticed.
+        /// </summary>
+        public string? PassPhoneIdHash { get; set; }
+
+        public DateTime? PassPhoneBoundAtUtc { get; set; }
+
         public List<Invoice> Invoices { get; set; } = [];
 
         public List<CheckIn> CheckIns { get; set; } = [];
@@ -180,6 +196,12 @@ namespace IronForge.Application.Entities
         public int? CheckInDeviceId { get; set; }
 
         public CheckInDevice? CheckInDevice { get; set; }
+
+        /// <summary>
+        /// Set when the person got in although the rules would have refused
+        /// them (a terminal deciding offline with an older user list).
+        /// </summary>
+        public string? Warning { get; set; }
     }
 
     /// <summary>
@@ -225,6 +247,20 @@ namespace IronForge.Application.Entities
         public int TenantId { get; set; }
 
         public string Name { get; set; } = "";
+
+        public CheckInDeviceKind Kind { get; set; }
+
+        /// <summary>
+        /// A ZKTeco terminal identifies itself by serial number (upper-case,
+        /// unique on the platform). Kiosks have none.
+        /// </summary>
+        public string? SerialNumber { get; set; }
+
+        /// <summary>Accept the terminal only from this IP address (the gym's fixed line), when set.</summary>
+        public string? AllowedIp { get; set; }
+
+        /// <summary>When the terminal's user list was last compared with the memberships.</summary>
+        public DateTime? LastSyncedAtUtc { get; set; }
 
         /// <summary>SHA-256 of the device key; null until paired.</summary>
         public string? KeyHash { get; set; }
@@ -285,5 +321,88 @@ namespace IronForge.Application.Entities
         public DateTime ExpiresAtUtc { get; set; }
 
         public DateTime? UsedAtUtc { get; set; }
+    }
+
+    /// <summary>
+    /// A person enrolled on the gym's fingerprint terminals, by terminal user
+    /// number (PIN). One numbering per gym, as gyms keep the same PIN on every
+    /// terminal. The fingerprint template never leaves the terminal: IronForge
+    /// records only that one exists.
+    /// </summary>
+    public class TerminalUser
+    {
+        public int Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        public string Pin { get; set; } = "";
+
+        /// <summary>The name stored on the terminal (from its user list or an import).</summary>
+        public string? TerminalName { get; set; }
+
+        public bool HasFingerprint { get; set; }
+
+        /// <summary>The member this terminal user is; null until staff link them.</summary>
+        public int? MemberProfileId { get; set; }
+
+        public MemberProfile? MemberProfile { get; set; }
+
+        /// <summary>Not a member (e.g. staff): IronForge never changes this user on the terminals.</summary>
+        public DateTime? IgnoredAtUtc { get; set; }
+
+        public DateTime FirstSeenAtUtc { get; set; }
+
+        public DateTime? LinkedAtUtc { get; set; }
+
+        public DateTime? LastEntryAtUtc { get; set; }
+    }
+
+    /// <summary>What a terminal was last told about one user, to send only changes.</summary>
+    public class TerminalUserSync
+    {
+        public int Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        public int CheckInDeviceId { get; set; }
+
+        public string Pin { get; set; } = "";
+
+        public string Name { get; set; } = "";
+
+        public bool Enabled { get; set; }
+
+        public DateOnly ValidUntil { get; set; }
+
+        /// <summary>When the command went into the queue.</summary>
+        public DateTime QueuedAtUtc { get; set; }
+
+        /// <summary>When the terminal reported it applied it.</summary>
+        public DateTime? ConfirmedAtUtc { get; set; }
+    }
+
+    /// <summary>A command waiting for a terminal, delivered when it polls (ZKTeco getrequest).</summary>
+    public class TerminalCommand
+    {
+        public long Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        public int CheckInDeviceId { get; set; }
+
+        /// <summary>The protocol text after "C:{Id}:", e.g. "DATA UPDATE USERINFO PIN=1043...".</summary>
+        public string Text { get; set; } = "";
+
+        /// <summary>The user it concerns, so a failure can be retried.</summary>
+        public string? Pin { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+
+        public DateTime? SentAtUtc { get; set; }
+
+        public DateTime? CompletedAtUtc { get; set; }
+
+        /// <summary>The terminal's answer: 0 is success, negative is an error.</summary>
+        public int? ReturnCode { get; set; }
     }
 }

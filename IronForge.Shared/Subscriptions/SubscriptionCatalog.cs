@@ -41,6 +41,9 @@
         /// <summary>Announcements and member notifications.</summary>
         public const string GymEngagement = "gym.engagement";
 
+        /// <summary>Access-control hardware: ZKTeco fingerprint terminals synced with memberships.</summary>
+        public const string GymAccess = "gym.access";
+
         /// <summary>
         /// Every module the platform knows. Core modules come with plans.
         /// Custom modules hold tools built for one client; they are never part
@@ -53,6 +56,7 @@
             new(GymBilling, "Billing", "Invoices, card and cash payments, and payment reminders."),
             new(GymCoaching, "Coaching", "Workout routines, progress tracking and the AI fitness coach."),
             new(GymEngagement, "Engagement", "Announcements and member notifications."),
+            new(GymAccess, "Access control", "ZKTeco fingerprint terminals: members enter with their finger; IronForge keeps each terminal in step with memberships."),
             new(Audit, "Activity insights", "Search the gym's audit log.")
         ];
 
@@ -107,7 +111,7 @@
             MonthlyAgentTokenLimit: 2_000_000,
             ModelProfiles: [ModelProfileNames.Standard, ModelProfileNames.Economy]);
 
-        /// <summary>Professional with a larger AI budget for big gyms and chains.</summary>
+        /// <summary>Professional with access control and a larger AI budget, for big gyms and chains.</summary>
         public static readonly SubscriptionPlan Enterprise = new(
             "enterprise",
             "Enterprise",
@@ -116,7 +120,8 @@
                 PlatformModules.GymBilling,
                 PlatformModules.GymEngagement,
                 PlatformModules.GymCoaching,
-                PlatformModules.Audit
+                PlatformModules.Audit,
+                PlatformModules.GymAccess
             ],
             MonthlyAgentTokenLimit: 10_000_000,
             ModelProfiles: [ModelProfileNames.Standard, ModelProfileNames.Economy]);

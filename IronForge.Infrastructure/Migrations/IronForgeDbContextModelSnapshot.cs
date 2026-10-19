@@ -607,6 +607,10 @@ namespace IronForge.Api.Migrations
                     b.Property<int>("TenantId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Warning")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CheckInDeviceId");
@@ -675,6 +679,10 @@ namespace IronForge.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AllowedIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -685,7 +693,15 @@ namespace IronForge.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateTime?>("LastSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastSyncedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
@@ -706,6 +722,10 @@ namespace IronForge.Api.Migrations
                     b.Property<DateTime?>("RevokedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<int>("TenantId")
                         .HasColumnType("integer");
 
@@ -718,6 +738,10 @@ namespace IronForge.Api.Migrations
                     b.HasIndex("PairingCodeHash")
                         .IsUnique()
                         .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                    b.HasIndex("SerialNumber")
+                        .IsUnique()
+                        .HasFilter("\"SerialNumber\" IS NOT NULL");
 
                     b.HasIndex("TenantId");
 
@@ -1008,6 +1032,9 @@ namespace IronForge.Api.Migrations
 
                     b.Property<int>("ReminderDaysBeforeDue")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("RequirePhoneUnlock")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("StripeChargesEnabled")
                         .HasColumnType("boolean");
@@ -1315,6 +1342,13 @@ namespace IronForge.Api.Migrations
 
                     b.Property<int>("PassKeyVersion")
                         .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PassPhoneBoundAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PassPhoneIdHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
@@ -1823,6 +1857,148 @@ namespace IronForge.Api.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("TenantMemberships");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalCommand", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CheckInDeviceId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Pin")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<int?>("ReturnCode")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("CheckInDeviceId", "CompletedAtUtc");
+
+                    b.ToTable("TerminalCommands");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalUser", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("HasFingerprint")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("IgnoredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastEntryAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LinkedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("MemberProfileId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Pin")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TerminalName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberProfileId");
+
+                    b.HasIndex("TenantId", "MemberProfileId")
+                        .IsUnique()
+                        .HasFilter("\"MemberProfileId\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "Pin")
+                        .IsUnique();
+
+                    b.ToTable("TerminalUsers");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalUserSync", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CheckInDeviceId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("ConfirmedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Pin")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<DateTime>("QueuedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("ValidUntil")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("CheckInDeviceId", "Pin")
+                        .IsUnique();
+
+                    b.ToTable("TerminalUserSyncs");
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.User", b =>
@@ -2463,6 +2639,52 @@ namespace IronForge.Api.Migrations
                     b.Navigation("Tenant");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalCommand", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.CheckInDevice", null)
+                        .WithMany()
+                        .HasForeignKey("CheckInDeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalUser", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.MemberProfile", "MemberProfile")
+                        .WithMany()
+                        .HasForeignKey("MemberProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MemberProfile");
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.TerminalUserSync", b =>
+                {
+                    b.HasOne("IronForge.Application.Entities.CheckInDevice", null)
+                        .WithMany()
+                        .HasForeignKey("CheckInDeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.WorkoutLog", b =>

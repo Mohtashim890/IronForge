@@ -28,6 +28,11 @@ public interface ICheckInDeviceDirectory
         string keyHash,
         CancellationToken cancellationToken = default);
 
+    /// <summary>A registered fingerprint terminal by its (normalized) serial number, in any gym.</summary>
+    Task<CheckInDevice?> FindTerminalBySerialAsync(
+        string serialNumber,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Updates LastSeenAtUtc at most once a minute, without loading the device.</summary>
     Task TouchAsync(
         int deviceId,
@@ -108,6 +113,7 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
     private readonly IGymAccessService _access;
     private readonly IRepository<CheckInDevice> _devices;
     private readonly IRepository<CheckIn> _checkIns;
+    private readonly IRepository<TerminalUserSync> _syncs;
     private readonly IBillingEngine _billing;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
@@ -116,6 +122,7 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
         IGymAccessService access,
         IRepository<CheckInDevice> devices,
         IRepository<CheckIn> checkIns,
+        IRepository<TerminalUserSync> syncs,
         IBillingEngine billing,
         IAuditService audit,
         TimeProvider clock)
@@ -123,6 +130,7 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
         _access = access;
         _devices = devices;
         _checkIns = checkIns;
+        _syncs = syncs;
         _billing = billing;
         _audit = audit;
         _clock = clock;
@@ -156,8 +164,25 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
                 cancellationToken))
             .ToDictionary(x => x.DeviceId, x => x.Count);
 
-        return ServiceResult<List<CheckInDeviceDto>>.Ok(
-            devices.Select(x => Map(x, now, counts.GetValueOrDefault(x.Id))).ToList());
+        var syncs = (await _syncs.QueryAsync(
+                q => q
+                    .GroupBy(x => x.CheckInDeviceId)
+                    .Select(x => new
+                    {
+                        DeviceId = x.Key,
+                        Confirmed = x.Count(s => s.ConfirmedAtUtc != null),
+                        Pending = x.Count(s => s.ConfirmedAtUtc == null)
+                    }),
+                cancellationToken))
+            .ToDictionary(x => x.DeviceId);
+
+        return ServiceResult<List<CheckInDeviceDto>>.Ok(devices.Select(x =>
+        {
+            var dto = Map(x, now, counts.GetValueOrDefault(x.Id));
+            dto.UsersInSync = syncs.GetValueOrDefault(x.Id)?.Confirmed ?? 0;
+            dto.UsersPending = syncs.GetValueOrDefault(x.Id)?.Pending ?? 0;
+            return dto;
+        }).ToList());
     }
 
     public async Task<ServiceResult<CheckInDevicePairingDto>> CreateAsync(
@@ -210,6 +235,11 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
         if (device.RevokedAtUtc is not null)
         {
             return GymResults.Conflict<CheckInDevicePairingDto>("This device was removed. Add a new device instead.");
+        }
+
+        if (device.Kind != CheckInDeviceKind.Kiosk)
+        {
+            return GymResults.Invalid<CheckInDevicePairingDto>("Fingerprint terminals do not pair: they are known by their serial number.");
         }
 
         var code = IssuePairingCode(device);
@@ -285,7 +315,11 @@ public sealed class CheckInDeviceService : ICheckInDeviceService
     {
         Id = device.Id,
         Name = device.Name,
-        IsPaired = device.KeyHash is not null,
+        Kind = device.Kind,
+        SerialNumber = device.SerialNumber,
+        AllowedIp = device.AllowedIp,
+        // A terminal counts as paired once it has been in touch.
+        IsPaired = device.Kind == CheckInDeviceKind.ZkTecoTerminal ? device.LastSeenAtUtc is not null : device.KeyHash is not null,
         IsRevoked = device.RevokedAtUtc is not null,
         PairingExpiresAtUtc = device.PairingCodeHash is not null && device.PairingExpiresAtUtc > now
             ? device.PairingExpiresAtUtc

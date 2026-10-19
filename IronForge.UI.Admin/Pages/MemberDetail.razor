@@ -320,7 +320,7 @@
                     <ul class="if-list">
                         @foreach (var visit in _member.RecentCheckIns)
                         {
-                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
+                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", CheckInMethod.Terminal => "Fingerprint", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
                         }
                     </ul>
                 }

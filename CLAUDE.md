@@ -12,6 +12,7 @@ Objectives (the locked v1 scope):
 1. **Gym staff** (Admin, Trainer) run their gym from the **web dashboard**:
    - members (with photos), join requests, membership plans, invoices and payments
    - check-ins: front desk (pass scan or name search), unattended kiosks (`/kiosk`), check-in devices
+   - ZKTeco fingerprint terminals (module `gym.access`): terminal users, linking, terminal simulator
    - exercise library and routines, announcements, settings, staff, AI agents, approvals, activity log
 2. **Gym members** use the **MAUI mobile app**:
    - Check in tab: rotating QR pass (works offline) and/or scanning the gym's entrance code, as the gym chose; photo
@@ -31,7 +32,7 @@ Objectives (the locked v1 scope):
 **Out of scope for v1** (do not add unless the user asks):
 - class booking, POS/shop, payroll, nutrition tracking, push notifications, streaming chat
 - staff shift clock-in (check-in means staff checking members in)
-- check-in Phase 3 (doors, turnstiles, RFID cards behind a `gym.access` add-on module) is a planned follow-up, not built
+- other access hardware than ZKTeco push-protocol terminals (RFID-only readers, other brands' turnstile controllers); IronForge never stores biometric templates
 - automated billing of tenants by the platform (operators set tenant subscription status manually)
 - a tenant-less platform AI agent, multiple currencies per gym
 
@@ -73,7 +74,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
   - `GymDirectory` (`IGymDirectory`): join, invitation accept, billing job tenant list, admin recipients
   - `PlatformInsightsService` (`IPlatformInsightsService`): operator views, permission-checked
   - `TenantInvitationStore`
-  - `CheckInDeviceDirectory` (`ICheckInDeviceDirectory`): a kiosk looks itself up by the hash of its pairing code or device key
+  - `CheckInDeviceDirectory` (`ICheckInDeviceDirectory`): a kiosk looks itself up by the hash of its pairing code or device key; a fingerprint terminal by its serial number
 - **Background jobs and webhooks** set the context themselves:
   ```
   accessor.Set(new ExecutionContext { TenantId = x, Source = ExecutionSource.Background })
@@ -91,7 +92,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - `IUnitOfWork.ExecuteInTransactionAsync` covers multi-save operations. All repositories in a scope share one DbContext.
 - Money is `numeric(12,2)`. Enums are stored as strings via `HasConversion<string>()`. Instants are UTC (`DateTime`). Calendar dates (billing, due dates, workouts) are `DateOnly` in the **gym's time zone**; use `GymCalendar.Today(clock, tz)`.
 - `TimeProvider` is injected for all "now" logic (`TimeProvider.System` in production, `TestClock` in tests).
-- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `GymCheckInMethods`. Add one with:
+- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `AccessTerminalsAndPhoneBinding`. Add one with:
   ```
   ConnectionStrings__DefaultConnection="Host=localhost;Database=design;Username=x;Password=x" dotnet ef migrations add <Name> --project IronForge.Infrastructure --startup-project IronForge.Infrastructure
   ```
@@ -127,13 +128,13 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - **Subscription access**: `Tenant.HasAccess(now)` requires IsActive and status Active, PastDue, or Trial-not-ended. It is checked at tenant selection and token refresh.
 
 ### 3.5 Subscriptions (code-defined, locked) — `SubscriptionCatalog.cs`
-- **Modules**: `gym.core`, `gym.billing`, `gym.coaching`, `gym.engagement`, `audit`. Custom per-client modules are possible as add-ons.
+- **Modules**: `gym.core`, `gym.billing`, `gym.coaching`, `gym.engagement`, `audit`, `gym.access` (fingerprint terminals; no agent tools). Custom per-client modules are possible as add-ons.
 
 | Plan | Modules | Tokens / month | Model profiles |
 |---|---|---|---|
 | Starter | core + billing + engagement | 500k | economy |
 | Professional (default) | + coaching + audit | 2M | standard + economy |
-| Enterprise | same as Professional | 10M | standard + economy |
+| Enterprise | Professional + access | 10M | standard + economy |
 
 - A tool is offered only if its module is enabled.
 - An agent template is installed only if **all** its required `Modules` are enabled. `OptionalModules` (e.g. coaching for the Gym Admin agent) do not block the install; their tools are dropped until the module is enabled. A unit test enforces that `Modules` + `OptionalModules` equal its tools' modules.
@@ -194,6 +195,15 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - The key is sent in `X-Device-Key`; `KioskService.AuthenticateAsync` sets the execution context as the device (`Actor.DeviceId`, `Source = Device`, permission `gym.checkins.device` only, never held by a role). `GymAccessService` lets a device do nothing else.
   - A request carrying both a JWT and a device key is refused (400). Revoking a device stops it at once; a suspended gym's devices get 403.
   - Kiosk UI: `/kiosk` in the gym dashboard host (`KioskLayout`, anonymous; key in `ProtectedLocalStorage` via `IKioskKeyStore`). Depending on the switches it shows the entrance code (`QrSvg`, QRCoder), scans passes with the camera or a USB/Bluetooth scanner that types like a keyboard, both side by side, or "check in at the front desk". It never shows the photo or the name behind a copied or forged pass.
+- **Against handing the phone over** (member pass and entrance code):
+  - **Phone unlock**: `GymSettings.RequirePhoneUnlock` (default on, Settings → Check-in methods). The app asks `IPhoneUnlock` (MAUI `MauiPhoneUnlock`: Android BiometricPrompt with screen-lock fallback, API 29+; iOS/Mac LocalAuthentication; Windows Hello) before showing the pass (it hides again after 60 s), scanning, moving or resetting. No screen lock set up → refused; platform cannot check → allowed with a note. Client-side control: the server cannot verify it.
+  - **One phone per pass**: the app sends a random installation id (`X-Phone-Id`, `IMemberPassStore.GetPhoneIdAsync`); `MemberProfile.PassPhoneIdHash` binds the first phone. Another phone gets 423 for `GET api/me/pass` and `POST api/me/check-ins` until `POST api/me/pass/move-here`, which resets the pass (old phone's codes die), emails the member and audits `PassMovedToAnotherPhone`. Staff reset clears the binding.
+- **Fingerprint terminals** (`Gym/Access/*`, module `gym.access`): ZKTeco push protocol (ADMS/iclock) at `/iclock/cdata|getrequest|devicecmd` (`ZkTecoController`, plain text, anonymous, rate limit `device`; HTTPS redirection is skipped for `/iclock`, and Caddy serves `http://api.…/iclock/*`).
+  - A terminal is a `CheckInDevice` with `Kind = ZkTecoTerminal`, registered by an admin by serial number (unique platform-wide, `POST api/gym/access/terminals`), optional `AllowedIp`. `TerminalProtocolService.AuthenticateAsync` finds it by SN (`ICheckInDeviceDirectory`), checks access and module, and sets the device context with permission `gym.access.terminal` only.
+  - **Migration** of an existing installation: on first contact the terminal is sent `DATA QUERY USERINFO`; its OPERLOG upload (USER lines) creates `TerminalUser` rows (PIN, terminal name, `HasFingerprint`). FP/BIODATA templates are parsed only to set `HasFingerprint` and dropped (`ZkTecoProtocol.ParseUsers`); tests assert no template reaches the database. Also CSV import (`PIN,Name`). Staff link PINs to members on `/access/terminal-users` (exact normalized-name suggestions, bulk "link all", "Not a member" for staff, "add a member" = next PIN, then enrol a finger on the terminal).
+  - **Sync / offline decisions**: on a poll at most once a minute (immediately after a link change), `SyncAsync` compares `TerminalAccessRules.For` (CheckInPolicy + end of the grace period of the next or oldest overdue invoice) with `TerminalUserSync` and queues `DATA UPDATE USERINFO PIN=…\tName=…\tStartDatetime=…\tEndDatetime=…` (`TerminalCommand`). A refused member gets yesterday as end date, so the terminal refuses them by itself offline. Unlinked/ignored users are never touched; IronForge never sends `DATA DELETE` (it would delete fingerprints). Field support (StartDatetime/EndDatetime) varies by firmware: verify on the gym's model.
+  - **Entries**: ATTLOG lines become `CheckIn` (`Method = Terminal`, device, gym-local time converted to UTC, 30-minute duplicate window, unknown PINs listed for linking). If the rules would have refused, the visit is kept with `CheckIn.Warning`, audited `TerminalEntryNotAllowed`, and the terminal is synced at once.
+  - **Simulator** (`/access/terminal-simulator`, `UI.Admin/Simulator`, `TerminalSimulatorHub` singleton in the Web host, `TerminalSimulator:Enabled`): a virtual terminal speaking the same protocol to the API, with its own user list, offline switch and clock offset. Demo: Iron Paradise has the add-on and a registered terminal `SIMPARADISE01`.
 - **Member app camera** (entrance code): the shared `QrScanner` runs in the BlazorWebView. Android: `CAMERA` permission plus `CameraWebChromeClient` (grants only video capture, only to the app's own pages, asks for the runtime permission; forwards file choosing etc. to the original client), hooked in `MainPage.xaml.cs`. iOS/Mac: `NSCameraUsageDescription` and inline media playback. Windows: `webcam` capability.
 - **Member photos** (`MemberPhotoService`, `MemberPhoto` table, bytea, ≤ 1 MB): JPEG/PNG/WebP detected from the bytes; clients shrink to 640 px first (`PhotoPicker`).
   - Staff can set or remove a photo (`api/gym/members/{id}/photo`); a staff photo is locked for the member. A member may set their own (`api/me/photo`) until staff set one.
@@ -342,6 +352,7 @@ Rate-limit policies (`RateLimitPolicies`): `auth` 10/min (also kiosk pairing), `
 ### 6.2 Front ends
 - `ApiSettings:BaseUrl` (Web/Platform: dev `https://localhost:7226/`, prod `http://ironforge-api:8080`)
 - `DataProtection:KeysPath` (prod `/keys`)
+- `Terminals:ServerAddress` (shown in the terminal setup steps; prod `api.mohtashim.dev`), `TerminalSimulator:Enabled`
 - Local ports: Web 7056/5033, Platform 7090/5090, API 7226/5022
 
 ### 6.3 Environment templates
@@ -357,7 +368,7 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 240 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 269 tests; Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.

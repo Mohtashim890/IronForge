@@ -1,4 +1,5 @@
 ﻿using IronForge.Api.Helpers;
+using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.Billing;
 using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Fitness;
@@ -292,6 +293,53 @@ namespace IronForge.Api.Controllers
         [HttpPost("{deviceId:int}/revoke")]
         public async Task<IActionResult> Revoke(int deviceId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _devices.RevokeAsync(deviceId, cancellationToken));
+    }
+
+    /// <summary>Fingerprint terminals (module gym.access): registration and the terminal users.</summary>
+    [ApiController]
+    [Route("api/gym/access")]
+    [Authorize]
+    public sealed class AccessController : ControllerBase
+    {
+        private readonly ITerminalAdminService _terminals;
+
+        public AccessController(ITerminalAdminService terminals) => _terminals = terminals;
+
+        [HttpPost("terminals")]
+        public async Task<IActionResult> Register(RegisterTerminalRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.RegisterAsync(request, cancellationToken));
+
+        [HttpPost("terminals/{deviceId:int}/request-users")]
+        public async Task<IActionResult> RequestUsers(int deviceId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.RequestUserListAsync(deviceId, cancellationToken));
+
+        [HttpPost("terminals/{deviceId:int}/resync")]
+        public async Task<IActionResult> Resync(int deviceId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.ResyncAsync(deviceId, cancellationToken));
+
+        [HttpGet("users")]
+        public async Task<IActionResult> ListUsers(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.ListUsersAsync(cancellationToken));
+
+        [HttpPut("users/{terminalUserId:int}/member")]
+        public async Task<IActionResult> Link(int terminalUserId, LinkTerminalUserRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.LinkAsync(terminalUserId, request, cancellationToken));
+
+        [HttpPost("users/link-suggested")]
+        public async Task<IActionResult> LinkSuggested(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.LinkSuggestedAsync(cancellationToken));
+
+        [HttpPut("users/{terminalUserId:int}/ignored")]
+        public async Task<IActionResult> SetIgnored(int terminalUserId, [FromQuery] bool value, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.SetIgnoredAsync(terminalUserId, value, cancellationToken));
+
+        [HttpPost("users")]
+        public async Task<IActionResult> CreateForMember(CreateTerminalUserRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.CreateForMemberAsync(request, cancellationToken));
+
+        [HttpPost("users/import")]
+        public async Task<IActionResult> Import(ImportTerminalUsersRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _terminals.ImportAsync(request, cancellationToken));
     }
 
     [ApiController]

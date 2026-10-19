@@ -14,6 +14,9 @@ namespace IronForge.Infrastructure.Data
         public DbSet<CheckInDenial> CheckInDenials => Set<CheckInDenial>();
         public DbSet<CheckInDevice> CheckInDevices => Set<CheckInDevice>();
         public DbSet<MemberPhoto> MemberPhotos => Set<MemberPhoto>();
+        public DbSet<TerminalUser> TerminalUsers => Set<TerminalUser>();
+        public DbSet<TerminalUserSync> TerminalUserSyncs => Set<TerminalUserSync>();
+        public DbSet<TerminalCommand> TerminalCommands => Set<TerminalCommand>();
         public DbSet<Invoice> Invoices => Set<Invoice>();
         public DbSet<Payment> Payments => Set<Payment>();
         public DbSet<InvoiceReminder> InvoiceReminders => Set<InvoiceReminder>();
@@ -76,6 +79,7 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.EmergencyContact).HasMaxLength(200);
                 entity.Property(x => x.Notes).HasMaxLength(2000);
                 entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+                entity.Property(x => x.PassPhoneIdHash).HasMaxLength(100);
                 entity.Ignore(x => x.IsApproved);
                 entity.Ignore(x => x.IsDeclinedRequest);
 
@@ -104,6 +108,7 @@ namespace IronForge.Infrastructure.Data
             {
                 entity.HasKey(x => x.Id);
                 entity.Property(x => x.Method).HasConversion<string>().HasMaxLength(20);
+                entity.Property(x => x.Warning).HasMaxLength(300);
                 entity.HasIndex(x => new { x.TenantId, x.CheckedInAtUtc });
                 entity.HasIndex(x => new { x.MemberProfileId, x.CheckedInAtUtc });
 
@@ -150,7 +155,15 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.Name).IsRequired().HasMaxLength(100);
                 entity.Property(x => x.KeyHash).HasMaxLength(100);
                 entity.Property(x => x.PairingCodeHash).HasMaxLength(100);
+                entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
+                entity.Property(x => x.SerialNumber).HasMaxLength(40);
+                entity.Property(x => x.AllowedIp).HasMaxLength(45);
                 entity.HasIndex(x => x.TenantId);
+
+                // A terminal names itself by serial number before any tenant is known.
+                entity.HasIndex(x => x.SerialNumber)
+                    .IsUnique()
+                    .HasFilter("\"SerialNumber\" IS NOT NULL");
 
                 // Looked up across tenants by the device itself (ICheckInDeviceDirectory).
                 entity.HasIndex(x => x.KeyHash)
@@ -159,6 +172,57 @@ namespace IronForge.Infrastructure.Data
                 entity.HasIndex(x => x.PairingCodeHash)
                     .IsUnique()
                     .HasFilter("\"PairingCodeHash\" IS NOT NULL");
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<TerminalUser>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Pin).IsRequired().HasMaxLength(24);
+                entity.Property(x => x.TerminalName).HasMaxLength(100);
+                entity.HasIndex(x => new { x.TenantId, x.Pin }).IsUnique();
+                entity.HasIndex(x => new { x.TenantId, x.MemberProfileId })
+                    .IsUnique()
+                    .HasFilter("\"MemberProfileId\" IS NOT NULL");
+
+                entity.HasOne(x => x.MemberProfile)
+                    .WithMany()
+                    .HasForeignKey(x => x.MemberProfileId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<TerminalUserSync>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Pin).IsRequired().HasMaxLength(24);
+                entity.Property(x => x.Name).IsRequired().HasMaxLength(100);
+                entity.HasIndex(x => new { x.CheckInDeviceId, x.Pin }).IsUnique();
+
+                entity.HasOne<CheckInDevice>()
+                    .WithMany()
+                    .HasForeignKey(x => x.CheckInDeviceId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            modelBuilder.Entity<TerminalCommand>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Text).IsRequired().HasMaxLength(2000);
+                entity.Property(x => x.Pin).HasMaxLength(24);
+                entity.HasIndex(x => new { x.CheckInDeviceId, x.CompletedAtUtc });
+
+                entity.HasOne<CheckInDevice>()
+                    .WithMany()
+                    .HasForeignKey(x => x.CheckInDeviceId)
+                    .OnDelete(DeleteBehavior.Cascade);
 
                 TenantOwned(entity);
                 entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);

@@ -7,6 +7,7 @@ using IronForge.Application.Gym.Common;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Gym;
+using IronForge.Shared.Subscriptions;
 
 namespace IronForge.Application.Gym.Settings;
 
@@ -237,10 +238,12 @@ public sealed class GymSettingsService : IGymSettingsService
         }
 
         if (settings.MemberPassCheckInEnabled != request.MemberPassEnabled ||
-            settings.GymQrCheckInEnabled != request.GymQrEnabled)
+            settings.GymQrCheckInEnabled != request.GymQrEnabled ||
+            settings.RequirePhoneUnlock != request.RequirePhoneUnlock)
         {
             settings.MemberPassCheckInEnabled = request.MemberPassEnabled;
             settings.GymQrCheckInEnabled = request.GymQrEnabled;
+            settings.RequirePhoneUnlock = request.RequirePhoneUnlock;
             settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
 
             await _settings.SaveChangesAsync(cancellationToken);
@@ -251,7 +254,7 @@ public sealed class GymSettingsService : IGymSettingsService
                 AuditOutcome.Succeeded,
                 resourceType: "GymSettings",
                 resourceId: settings.Id.ToString(),
-                reason: $"member pass {(request.MemberPassEnabled ? "on" : "off")}, entrance code {(request.GymQrEnabled ? "on" : "off")}",
+                reason: $"member pass {(request.MemberPassEnabled ? "on" : "off")}, entrance code {(request.GymQrEnabled ? "on" : "off")}, phone unlock {(request.RequirePhoneUnlock ? "required" : "not required")}",
                 cancellationToken: cancellationToken);
         }
 
@@ -364,7 +367,9 @@ public sealed class GymSettingsService : IGymSettingsService
             StripeConnectedAccountId = settings.StripeConnectedAccountId,
             PaymentsSimulated = _gateway.IsSimulated,
             MemberPassCheckInEnabled = settings.MemberPassCheckInEnabled,
-            GymQrCheckInEnabled = settings.GymQrCheckInEnabled
+            GymQrCheckInEnabled = settings.GymQrCheckInEnabled,
+            RequirePhoneUnlock = settings.RequirePhoneUnlock,
+            AccessControlEnabled = tenant?.GetEnabledModules().Contains(PlatformModules.GymAccess) ?? false
         };
     }
 

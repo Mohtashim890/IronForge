@@ -92,6 +92,9 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>Server time when issued, so the app can correct a wrong phone clock.</summary>
         public DateTime IssuedAtUtc { get; set; }
+
+        /// <summary>Ask for the phone's fingerprint, face or screen lock before showing the pass.</summary>
+        public bool RequirePhoneUnlock { get; set; }
     }
 
     public sealed class MemberPhotoDto
@@ -119,6 +122,19 @@ namespace IronForge.Shared.Models.Gym
         public int Id { get; set; }
 
         public string Name { get; set; } = "";
+
+        public CheckInDeviceKind Kind { get; set; }
+
+        /// <summary>A terminal's serial number (it identifies itself with it).</summary>
+        public string? SerialNumber { get; set; }
+
+        /// <summary>A terminal only accepted from this IP address, when set.</summary>
+        public string? AllowedIp { get; set; }
+
+        /// <summary>Terminal users whose latest state the terminal has confirmed / still has to receive.</summary>
+        public int UsersInSync { get; set; }
+
+        public int UsersPending { get; set; }
 
         public bool IsPaired { get; set; }
 

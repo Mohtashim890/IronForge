@@ -1,6 +1,7 @@
 ﻿using IronForge.Application.Agents.Tools;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Configurations;
+using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.AgentTools;
 using IronForge.Application.Gym.Billing;
 using IronForge.Application.Gym.CheckIns;
@@ -86,6 +87,8 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddScoped<ICheckInDeviceService, CheckInDeviceService>();
         services.AddScoped<ICheckInDeviceDirectory, CheckInDeviceDirectory>();
         services.AddScoped<IKioskService, KioskService>();
+        services.AddScoped<ITerminalProtocolService, TerminalProtocolService>();
+        services.AddScoped<ITerminalAdminService, TerminalAdminService>();
         services.AddScoped<IGymDashboardService, GymDashboardService>();
         services.AddScoped<IGymJoinService, GymJoinService>();
         services.AddScoped<IRoutineService, RoutineService>();

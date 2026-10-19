@@ -359,7 +359,11 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
 }
-app.UseHttpsRedirection();
+// ZKTeco terminals often speak plain HTTP only: their protocol paths are not
+// redirected (Caddy forwards only /iclock/* over HTTP; see deploy/Caddyfile).
+app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/iclock"),
+    branch => branch.UseHttpsRedirection());
 app.UseCors("IronForgeCors");
 
 app.MapHealthChecks(

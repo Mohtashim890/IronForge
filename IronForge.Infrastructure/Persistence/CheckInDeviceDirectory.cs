@@ -1,6 +1,7 @@
-using IronForge.Application.Entities;
+﻿using IronForge.Application.Entities;
 using IronForge.Application.Gym.CheckIns;
 using IronForge.Infrastructure.Data;
+using IronForge.Shared.Models.Gym;
 using Microsoft.EntityFrameworkCore;
 
 namespace IronForge.Infrastructure.Persistence;
@@ -38,6 +39,18 @@ public sealed class CheckInDeviceDirectory : ICheckInDeviceDirectory
             .IgnoreQueryFilters()
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.KeyHash == keyHash, cancellationToken);
+    }
+
+    public Task<CheckInDevice?> FindTerminalBySerialAsync(
+        string serialNumber,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.CheckInDevices
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.SerialNumber == serialNumber && x.Kind == CheckInDeviceKind.ZkTecoTerminal,
+                cancellationToken);
     }
 
     public Task TouchAsync(

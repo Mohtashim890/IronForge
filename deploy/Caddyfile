@@ -1,4 +1,4 @@
-(base_security_headers) {
+﻿(base_security_headers) {
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
         X-Content-Type-Options "nosniff"
@@ -43,6 +43,19 @@ mcp-client.mohtashim.dev {
 mcp.mohtashim.dev {
     import security_headers
     reverse_proxy ironforge-mcp:8080
+}
+
+# ZKTeco fingerprint terminals (push protocol). Many models speak plain HTTP
+# only, so their fixed paths are served on port 80 too; everything else on
+# this host still redirects to HTTPS. Prefer terminals with HTTPS (port 443).
+http://api.mohtashim.dev {
+    handle /iclock/* {
+        reverse_proxy ironforge-api:8080
+    }
+
+    handle {
+        redir https://api.mohtashim.dev{uri} permanent
+    }
 }
 
 # API (mobile app, web apps, Stripe webhooks, payment pages).

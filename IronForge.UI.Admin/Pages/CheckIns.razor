@@ -90,7 +90,13 @@
                 @foreach (var visit in _recent)
                 {
                     <li>
-                        <a href="@($"/members/{visit.MemberId}")" style="flex: 1">@visit.MemberName</a>
+                        <a href="@($"/members/{visit.MemberId}")" style="flex: 1">
+                            @visit.MemberName
+                            @if (visit.Warning is not null)
+                            {
+                                <span title="@visit.Warning"> <Badge Tone="warning">⚠ let in by mistake</Badge></span>
+                            }
+                        </a>
                         <span class="if-small if-muted">@MethodText(visit.Method, visit.DeviceName)</span>
                         <span class="if-muted if-small">@GymFormat.DateTime(visit.CheckedInAtUtc)</span>
                     </li>
@@ -270,6 +276,7 @@
     {
         CheckInMethod.Kiosk => device ?? "Kiosk",
         CheckInMethod.GymQr => $"Entrance code{(device is null ? "" : $" ({device})")}",
+        CheckInMethod.Terminal => $"Fingerprint{(device is null ? "" : $" ({device})")}",
         CheckInMethod.PassScan => "Pass scan",
         _ => "Front desk"
     };

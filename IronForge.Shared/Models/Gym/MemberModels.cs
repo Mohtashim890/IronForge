@@ -236,6 +236,12 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>The check-in device, for <see cref="CheckInMethod.Kiosk"/>.</summary>
         public string? DeviceName { get; set; }
+
+        /// <summary>
+        /// The person got in although IronForge would have refused them, e.g.
+        /// a fingerprint terminal that had not received an update yet.
+        /// </summary>
+        public string? Warning { get; set; }
     }
 
     public sealed class CreateCheckInRequest
@@ -298,5 +304,8 @@ namespace IronForge.Shared.Models.Gym
 
         /// <summary>The gym shows an entrance code the member scans with the app.</summary>
         public bool GymQrCheckInEnabled { get; set; }
+
+        /// <summary>Unlock the phone (fingerprint, face or screen lock) before showing the pass or scanning.</summary>
+        public bool RequirePhoneUnlock { get; set; }
     }
 }

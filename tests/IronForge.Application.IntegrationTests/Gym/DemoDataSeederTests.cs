@@ -49,8 +49,9 @@ public sealed class DemoDataSeederTests
         Assert.True(await check.Invoices.IgnoreQueryFilters().AnyAsync(x => x.Status == InvoiceStatus.Overdue));
         Assert.True(await check.CheckIns.IgnoreQueryFilters().CountAsync() > 500);
 
-        // Every gym has an entrance kiosk; visits use every check-in method.
-        Assert.Equal(4, await check.CheckInDevices.IgnoreQueryFilters().CountAsync());
+        // Every gym has an entrance kiosk, Iron Paradise also a fingerprint terminal; visits use every self check-in method.
+        Assert.Equal(5, await check.CheckInDevices.IgnoreQueryFilters().CountAsync());
+        Assert.True(await check.CheckInDevices.IgnoreQueryFilters().AnyAsync(x => x.SerialNumber == "SIMPARADISE01"));
         Assert.Equal(4, await check.CheckIns.IgnoreQueryFilters().Select(x => x.Method).Distinct().CountAsync());
         Assert.True(await check.CheckIns.IgnoreQueryFilters().AnyAsync(x => x.CheckInDeviceId != null));
         Assert.True(await check.CheckInDenials.IgnoreQueryFilters().AnyAsync());

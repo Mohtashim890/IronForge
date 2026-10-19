@@ -50,16 +50,24 @@ namespace IronForge.Api.Controllers
         /// <summary>The secret the app uses to show the rotating check-in pass.</summary>
         [HttpGet("pass")]
         public async Task<IActionResult> GetPass(CancellationToken cancellationToken) =>
-            this.ToActionResult(await _pass.GetMyPassAsync(cancellationToken));
+            this.ToActionResult(await _pass.GetMyPassAsync(PhoneId, cancellationToken));
 
         /// <summary>The member scanned the gym's entrance code (gym QR).</summary>
         [HttpPost("check-ins")]
         public async Task<IActionResult> CheckIn(GymQrCheckInRequest request, CancellationToken cancellationToken) =>
-            this.ToActionResult(await _checkIns.CheckInWithGymQrAsync(request.Code, cancellationToken));
+            this.ToActionResult(await _checkIns.CheckInWithGymQrAsync(request.Code, PhoneId, cancellationToken));
+
+        /// <summary>Moves the pass to the calling phone; the other phone's pass stops working.</summary>
+        [HttpPost("pass/move-here")]
+        public async Task<IActionResult> MovePass(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _pass.MoveMyPassAsync(PhoneId, cancellationToken));
+
+        /// <summary>The app installation, so a pass works on one phone at a time.</summary>
+        private string? PhoneId => Request.Headers[PhoneBinding.Header].FirstOrDefault();
 
         [HttpPost("pass/reset")]
         public async Task<IActionResult> ResetPass(CancellationToken cancellationToken) =>
-            this.ToActionResult(await _pass.ResetMyPassAsync(cancellationToken));
+            this.ToActionResult(await _pass.ResetMyPassAsync(PhoneId, cancellationToken));
 
         /// <summary>204 without a photo.</summary>
         [HttpGet("photo")]

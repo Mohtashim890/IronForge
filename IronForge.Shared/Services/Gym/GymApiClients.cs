@@ -122,12 +122,37 @@ public sealed class GymApiClient : ApiClientBase
     public Task<ServiceResult<CheckInResultDto>> ScanPassAsync(string code, CancellationToken ct = default) =>
         PostAsync<CheckInResultDto>("api/gym/checkins/scan", new ScanPassRequest { Code = code }, "Unable to check the pass.", ct);
 
-    public Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(bool memberPass, bool gymQr, CancellationToken ct = default) =>
-        PutAsync<GymSettingsDto>(
-            "api/gym/settings/check-in-methods",
-            new UpdateCheckInMethodsRequest { MemberPassEnabled = memberPass, GymQrEnabled = gymQr },
-            "Unable to save the check-in methods.",
-            ct);
+    public Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(UpdateCheckInMethodsRequest request, CancellationToken ct = default) =>
+        PutAsync<GymSettingsDto>("api/gym/settings/check-in-methods", request, "Unable to save the check-in methods.", ct);
+
+    // ---- Fingerprint terminals (module gym.access) ----
+
+    public Task<ServiceResult<CheckInDeviceDto>> RegisterTerminalAsync(RegisterTerminalRequest request, CancellationToken ct = default) =>
+        PostAsync<CheckInDeviceDto>("api/gym/access/terminals", request, "Unable to register the terminal.", ct);
+
+    public Task<ServiceResult<bool>> RequestTerminalUsersAsync(int deviceId, CancellationToken ct = default) =>
+        PostAsync<bool>($"api/gym/access/terminals/{deviceId}/request-users", null, "Unable to ask the terminal for its users.", ct);
+
+    public Task<ServiceResult<bool>> ResyncTerminalAsync(int deviceId, CancellationToken ct = default) =>
+        PostAsync<bool>($"api/gym/access/terminals/{deviceId}/resync", null, "Unable to resync the terminal.", ct);
+
+    public Task<ServiceResult<List<TerminalUserDto>>> GetTerminalUsersAsync(CancellationToken ct = default) =>
+        GetAsync<List<TerminalUserDto>>("api/gym/access/users", "Unable to load terminal users.", ct);
+
+    public Task<ServiceResult<TerminalUserDto>> LinkTerminalUserAsync(int terminalUserId, int? memberId, CancellationToken ct = default) =>
+        PutAsync<TerminalUserDto>($"api/gym/access/users/{terminalUserId}/member", new LinkTerminalUserRequest { MemberId = memberId }, "Unable to link the terminal user.", ct);
+
+    public Task<ServiceResult<int>> LinkSuggestedTerminalUsersAsync(CancellationToken ct = default) =>
+        PostAsync<int>("api/gym/access/users/link-suggested", null, "Unable to link the suggested members.", ct);
+
+    public Task<ServiceResult<TerminalUserDto>> SetTerminalUserIgnoredAsync(int terminalUserId, bool ignored, CancellationToken ct = default) =>
+        PutAsync<TerminalUserDto>(Query($"api/gym/access/users/{terminalUserId}/ignored", ("value", ignored)), null, "Unable to update the terminal user.", ct);
+
+    public Task<ServiceResult<TerminalUserDto>> CreateTerminalUserAsync(int memberId, CancellationToken ct = default) =>
+        PostAsync<TerminalUserDto>("api/gym/access/users", new CreateTerminalUserRequest { MemberId = memberId }, "Unable to add the member to the terminals.", ct);
+
+    public Task<ServiceResult<TerminalImportResultDto>> ImportTerminalUsersAsync(string csv, CancellationToken ct = default) =>
+        PostAsync<TerminalImportResultDto>("api/gym/access/users/import", new ImportTerminalUsersRequest { Csv = csv }, "Unable to import the users.", ct);
 
     public Task<ServiceResult<List<CheckInDenialDto>>> GetCheckInDenialsAsync(int take = 20, CancellationToken ct = default) =>
         GetAsync<List<CheckInDenialDto>>(Query("api/gym/checkins/denials", ("take", take)), "Unable to load refused check-ins.", ct);
@@ -245,15 +270,24 @@ public sealed class MemberApiClient : ApiClientBase
     public Task<ServiceResult<List<CheckInDto>>> GetCheckInsAsync(CancellationToken ct = default) =>
         GetAsync<List<CheckInDto>>("api/me/checkins", "Unable to load check-ins.", ct);
 
-    /// <summary>Checks in with the entrance code scanned at the gym.</summary>
-    public Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(string code, CancellationToken ct = default) =>
-        PostAsync<CheckInResultDto>("api/me/check-ins", new GymQrCheckInRequest { Code = code }, "Unable to check in.", ct);
+    /// <summary>Status code when the pass lives on another phone; the member may move it.</summary>
+    public const int PassOnAnotherPhone = 423;
 
-    public Task<ServiceResult<MemberPassDto>> GetPassAsync(CancellationToken ct = default) =>
-        GetAsync<MemberPassDto>("api/me/pass", "Unable to load your pass.", ct);
+    /// <summary>Checks in with the entrance code scanned at the gym, from the phone the pass is on.</summary>
+    public Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(string code, string phoneId, CancellationToken ct = default) =>
+        SendAsync<CheckInResultDto>(HttpMethod.Post, "api/me/check-ins", new GymQrCheckInRequest { Code = code }, Phone(phoneId), "Unable to check in.", ct);
 
-    public Task<ServiceResult<MemberPassDto>> ResetPassAsync(CancellationToken ct = default) =>
-        PostAsync<MemberPassDto>("api/me/pass/reset", null, "Unable to reset your pass.", ct);
+    public Task<ServiceResult<MemberPassDto>> GetPassAsync(string phoneId, CancellationToken ct = default) =>
+        SendAsync<MemberPassDto>(HttpMethod.Get, "api/me/pass", null, Phone(phoneId), "Unable to load your pass.", ct);
+
+    /// <summary>Moves the pass to this phone; the other phone's pass stops working.</summary>
+    public Task<ServiceResult<MemberPassDto>> MovePassHereAsync(string phoneId, CancellationToken ct = default) =>
+        SendAsync<MemberPassDto>(HttpMethod.Post, "api/me/pass/move-here", null, Phone(phoneId), "Unable to move your pass.", ct);
+
+    public Task<ServiceResult<MemberPassDto>> ResetPassAsync(string phoneId, CancellationToken ct = default) =>
+        SendAsync<MemberPassDto>(HttpMethod.Post, "api/me/pass/reset", null, Phone(phoneId), "Unable to reset your pass.", ct);
+
+    private static Dictionary<string, string> Phone(string phoneId) => new() { ["X-Phone-Id"] = phoneId };
 
     public Task<ServiceResult<MemberPhotoDto?>> GetPhotoAsync(CancellationToken ct = default) =>
         GetOptionalAsync<MemberPhotoDto>("api/me/photo", "Unable to load your photo.", ct);

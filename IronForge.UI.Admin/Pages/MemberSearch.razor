@@ -1,0 +1,38 @@
+@inject GymApiClient Gym
+
+@* Find a member by name, email or phone and pick one. *@
+
+<input class="if-input" placeholder="Type a member's name, email or phone" @bind="_search" @bind:event="oninput" @onkeyup="SearchAsync" aria-label="Find a member" />
+
+<ul class="if-list" style="margin-top: 8px">
+    @foreach (var member in _matches)
+    {
+        <li>
+            <span class="if-avatar">@GymFormat.Initials(member.FullName)</span>
+            <div style="flex: 1">
+                <strong>@member.FullName</strong>
+                <div class="if-small if-muted">@member.Email</div>
+            </div>
+            <Badge Tone="@GymFormat.Tone(member.Status)">@member.Status</Badge>
+            <button class="if-btn sm primary" @onclick="() => OnPicked.InvokeAsync(member)">Choose</button>
+        </li>
+    }
+</ul>
+
+@code {
+    private string _search = "";
+    private List<MemberSummaryDto> _matches = [];
+
+    [Parameter] public EventCallback<MemberSummaryDto> OnPicked { get; set; }
+
+    private async Task SearchAsync(KeyboardEventArgs e)
+    {
+        if (_search.Trim().Length < 2)
+        {
+            _matches = [];
+            return;
+        }
+
+        _matches = (await Gym.GetMembersAsync(new MemberQuery { Search = _search.Trim(), PageSize = 8 })).Data?.Items ?? [];
+    }
+}

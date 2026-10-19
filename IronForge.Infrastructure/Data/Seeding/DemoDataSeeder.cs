@@ -160,7 +160,9 @@ public sealed class DemoDataSeeder
             CreatedAtUtc = _now.AddDays(-400),
             Plan = spec.Plan,
             SubscriptionStatus = spec.Status,
-            TrialEndsAtUtc = spec.TrialDaysLeft is { } days ? _now.AddDays(days) : null
+            TrialEndsAtUtc = spec.TrialDaysLeft is { } days ? _now.AddDays(days) : null,
+            // The showcase gym has fingerprint terminals as an add-on (Enterprise includes them).
+            AddOnModules = spec.Slug == "ironparadise" ? [PlatformModules.GymAccess] : []
         };
 
         _db.Tenants.Add(tenant);
@@ -237,6 +239,22 @@ public sealed class DemoDataSeeder
         };
 
         _db.CheckInDevices.Add(kiosk);
+
+        // A fingerprint terminal registered but not connected yet: open the
+        // terminal simulator, power it on and load the "existing" fingerprints.
+        if (tenant.GetEnabledModules().Contains(PlatformModules.GymAccess) && spec.Slug == "ironparadise")
+        {
+            _db.CheckInDevices.Add(new CheckInDevice
+            {
+                TenantId = tenant.Id,
+                Name = "Main door (simulated ZKTeco)",
+                Kind = CheckInDeviceKind.ZkTecoTerminal,
+                SerialNumber = "SIMPARADISE01",
+                CreatedByUserId = admin.Id,
+                CreatedAtUtc = _now.AddDays(-1)
+            });
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         var coaching = enabled.Contains(PlatformModules.GymCoaching);

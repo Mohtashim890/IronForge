@@ -35,6 +35,10 @@ builder.Services.AddScoped<ITokenStore, WebTokenStore>();
 // A check-in device (/kiosk) keeps its device key in the same protected storage.
 builder.Services.AddScoped<IKioskKeyStore, WebKioskKeyStore>();
 
+// Virtual ZKTeco terminals for demos and testing (/access/terminal-simulator).
+// They run in this server and speak the terminal protocol to the API.
+builder.Services.AddSingleton<IronForge.UI.Admin.Simulator.TerminalSimulatorHub>();
+
 // The gym staff dashboard: Admins and Trainers.
 builder.Services.AddIronForgeApiClients(new ClientAppProfile
 {
