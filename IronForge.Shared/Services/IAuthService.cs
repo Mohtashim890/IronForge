@@ -11,6 +11,11 @@ namespace IronForge.Shared.Services
         Task<ServiceResult<LoginResponse>> LoginAsync(
         string username,
         string password);
+        /// <summary>Starts the authenticator setup during sign-in (accounts that must use two-factor).</summary>
+        Task<ServiceResult<TwoFactorSetupDto>> BeginTwoFactorSetupAsync(string twoFactorToken);
+
+        /// <summary>Second sign-in step; stores the tokens on success.</summary>
+        Task<ServiceResult<LoginResponse>> CompleteTwoFactorAsync(string twoFactorToken, string code);
         Task<ServiceResult<List<TenantMembership>>> GetMyTenantsAsync();
         Task<ServiceResult<TenantSelectionResponse>> SelectTenantAsync(int tenantId);
         Task<ActiveTenant?> GetActiveTenantAsync();

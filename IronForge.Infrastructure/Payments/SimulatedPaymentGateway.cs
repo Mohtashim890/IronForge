@@ -1,11 +1,13 @@
 using IronForge.Application.Configurations;
+using IronForge.Application.Entities;
 using IronForge.Application.Gym.Billing;
 using Microsoft.Extensions.Options;
 
 namespace IronForge.Infrastructure.Payments;
 
 /// <summary>
-/// Stands in for Stripe when no keys are configured. The checkout URL opens
+/// Stands in for Stripe when no keys are configured and Payments:AllowSimulated
+/// is on (local development and demos). The checkout URL opens
 /// a page served by the API (PaymentsController) with a "Pay" button that
 /// confirms the payment through the same path as a Stripe webhook. The
 /// session id is a random value stored on the invoice, so the link cannot
@@ -23,6 +25,10 @@ public sealed class SimulatedPaymentGateway : IPaymentGateway
     public string Provider => "simulated";
 
     public bool IsSimulated => true;
+
+    public bool SupportsStripeConnect => false;
+
+    public bool CanTakePayments(GymSettings settings) => true;
 
     public Task<CheckoutResult> CreateCheckoutAsync(
         CheckoutRequest request,

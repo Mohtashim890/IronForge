@@ -49,6 +49,7 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.Phone).HasMaxLength(50);
                 entity.Property(x => x.ContactEmail).HasMaxLength(256);
                 entity.Property(x => x.StripeConnectedAccountId).HasMaxLength(100);
+                entity.Property(x => x.PaymentInstructions).HasMaxLength(1000);
                 entity.Property(x => x.ReminderDaysAfterDue).IsRequired();
 
                 TenantOwned(entity);

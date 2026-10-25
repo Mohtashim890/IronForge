@@ -199,6 +199,19 @@ docker compose \
     -f "${COMPOSE_FILE}" \
     pull
 
+echo "Backing up the database before migrating..."
+
+# A migration can change or drop data; a failed backup stops the deployment.
+if grep -q '^BACKUP_DATABASE_URL=..*' "${ENV_FILE}"; then
+    docker compose \
+        --env-file "${ENV_FILE}" \
+        -f "${COMPOSE_FILE}" \
+        run --rm \
+        ironforge-backup once
+else
+    echo "WARNING: BACKUP_DATABASE_URL is not set; deploying without a backup."
+fi
+
 echo "Running database migrations..."
 
 docker compose \

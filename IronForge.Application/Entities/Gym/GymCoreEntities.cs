@@ -41,6 +41,12 @@ namespace IronForge.Application.Entities
 
         public bool StripeChargesEnabled { get; set; }
 
+        /// <summary>
+        /// How members pay without online payments, e.g. the gym's bank account
+        /// or "cash at the front desk". Shown in the member app with unpaid invoices.
+        /// </summary>
+        public string? PaymentInstructions { get; set; }
+
         /// <summary>Members may check in by showing their rotating pass (staff or kiosk scans it).</summary>
         public bool MemberPassCheckInEnabled { get; set; } = true;
 

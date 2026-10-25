@@ -67,8 +67,15 @@ else
                     <div style="font-size: 1.4rem; font-weight: 800">@GymFormat.Money(invoice.Amount, invoice.Currency)</div>
                     <div class="if-small if-muted">@invoice.Number</div>
                 </div>
-                <button class="if-btn primary" disabled="@_paying" @onclick="() => PayAsync(invoice)">@(_paying ? "Opening…" : "Pay now")</button>
+                @if (_me.OnlinePaymentAvailable)
+                {
+                    <button class="if-btn primary" disabled="@_paying" @onclick="() => PayAsync(invoice)">@(_paying ? "Opening…" : "Pay now")</button>
+                }
             </div>
+            @if (!_me.OnlinePaymentAvailable)
+            {
+                <div class="if-small if-muted" style="margin-top: 8px; white-space: pre-line">@(_me.PaymentInstructions ?? "Pay at the front desk.")</div>
+            }
         </div>
     }
 

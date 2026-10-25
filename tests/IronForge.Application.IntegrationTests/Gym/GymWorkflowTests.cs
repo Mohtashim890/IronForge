@@ -449,6 +449,51 @@ public sealed class GymWorkflowTests
     }
 
     [Fact]
+    public async Task WithoutOnlinePayments_CheckoutIsRefused_AndTheAppShowsTheGymsPaymentInstructions()
+    {
+        var gym = await SeedGymAsync();
+        var ali = await SeedMemberAsync(gym, "ali@example.com");
+        var invoice = await IssueInvoiceAsync(gym, ali.MemberId);
+
+        const string instructions = "Cash at the front desk, or transfer to Meezan Bank with your invoice number.";
+
+        var saved = await AsAdmin(gym, s => s.GymSettings.UpdateAsync(new UpdateGymSettingsRequest
+        {
+            Currency = "PKR",
+            TimeZoneId = "UTC",
+            PaymentInstructions = "  " + instructions + "  "
+        }));
+
+        Assert.True(saved.Success, saved.ErrorMessage);
+        Assert.Equal(instructions, saved.Data!.PaymentInstructions);
+
+        var checkout = await AsMember(gym, ali, s =>
+        {
+            s.PaymentGateway.TakesPayments = false;
+            return s.Billing.StartMyCheckoutAsync(invoice);
+        });
+
+        Assert.Equal(409, checkout.StatusCode);
+
+        var membership = await AsMember(gym, ali, s =>
+        {
+            s.PaymentGateway.TakesPayments = false;
+            return s.GymMembers.GetMyMembershipAsync();
+        });
+
+        Assert.False(membership.Data!.OnlinePaymentAvailable);
+        Assert.Equal(instructions, membership.Data.PaymentInstructions);
+
+        var settings = await AsAdmin(gym, s =>
+        {
+            s.PaymentGateway.TakesPayments = false;
+            return s.GymSettings.GetAsync();
+        });
+
+        Assert.False(settings.Data!.OnlinePaymentsAvailable);
+    }
+
+    [Fact]
     public async Task Member_CannotUseStaffOperations()
     {
         var gym = await SeedGymAsync();

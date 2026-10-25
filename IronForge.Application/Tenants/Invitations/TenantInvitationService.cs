@@ -74,6 +74,7 @@ public sealed class TenantInvitationService : ITenantInvitationService
     private readonly IRepository<MemberProfile> _memberProfiles;
     private readonly IGymDirectory _gymDirectory;
     private readonly INotificationService _notifications;
+    private readonly ISignInGuard _signInGuard;
 
     public TenantInvitationService(
         ITenantInvitationStore invitations,
@@ -88,8 +89,10 @@ public sealed class TenantInvitationService : ITenantInvitationService
         IOptions<InvitationOptions> options,
         IRepository<MemberProfile> memberProfiles,
         IGymDirectory gymDirectory,
-        INotificationService notifications)
+        INotificationService notifications,
+        ISignInGuard signInGuard)
     {
+        _signInGuard = signInGuard;
         _memberProfiles = memberProfiles;
         _gymDirectory = gymDirectory;
         _notifications = notifications;
@@ -406,13 +409,19 @@ public sealed class TenantInvitationService : ITenantInvitationService
         {
             // The invitation is bound to an email that already has an account:
             // the invitee must prove they own it.
-            var credentialsValid =
+            // Wrong passwords count towards the account's lockout.
+            var check =
                 user.IsActive &&
-                string.Equals(user.Username, username, StringComparison.OrdinalIgnoreCase) &&
-                _passwordHasher.VerifyHashedPassword(
-                    user,
-                    user.PasswordHash,
-                    request.Password) != PasswordVerificationResult.Failed;
+                string.Equals(user.Username, username, StringComparison.OrdinalIgnoreCase)
+                    ? await _signInGuard.CheckPasswordAsync(user.Id, request.Password, resetOnSuccess: false, cancellationToken)
+                    : PasswordCheck.Invalid;
+
+            if (check == PasswordCheck.LockedOut)
+            {
+                return ServiceResult<AcceptInvitationResultDto>.Fail(SignInGuard.GenericLockedOutMessage, 429);
+            }
+
+            var credentialsValid = check == PasswordCheck.Valid;
 
             if (!credentialsValid)
             {

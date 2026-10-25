@@ -56,7 +56,7 @@ Work branch: `feature/gym-platform`. Do not commit or push unless the user asks.
 | `IronForge.Infrastructure` | Class library | EF Core 10 + Npgsql:<br>- `Data/IronForgeDbContext.cs` plus the partial `IronForgeDbContext.Gym.cs`<br>- `Migrations/`, `Persistence/*` stores<br>- Stripe and simulated gateways (`Payments/*`), SMTP email (`Email/*`)<br>- background jobs (`Background/*`), demo seeder (`Data/Seeding/DemoDataSeeder.cs`)<br>- DI extension `GymPlatformServiceCollectionExtensions.cs` |
 | `IronForge.Mcp` | Web | MCP server exposing the same governed tool catalogue to external agents |
 | `IronForge.Mcp.Client` | Web | Demo external MCP client |
-| `IronForge.Migrator` | Console | Applies migrations; `--seed-demo [--reset] [--force]` |
+| `IronForge.Migrator` | Console | Applies migrations; `--seed-demo [--reset] [--force]`; `--reset-two-factor <email>` (operator: lost authenticator) |
 | `tests/IronForge.Application.Tests` | xUnit + Moq | Unit tests |
 | `tests/IronForge.Application.IntegrationTests` | xUnit + Testcontainers.PostgreSql | Integration tests against real PostgreSQL (needs Docker) |
 
@@ -92,7 +92,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - `IUnitOfWork.ExecuteInTransactionAsync` covers multi-save operations. All repositories in a scope share one DbContext.
 - Money is `numeric(12,2)`. Enums are stored as strings via `HasConversion<string>()`. Instants are UTC (`DateTime`). Calendar dates (billing, due dates, workouts) are `DateOnly` in the **gym's time zone**; use `GymCalendar.Today(clock, tz)`.
 - `TimeProvider` is injected for all "now" logic (`TimeProvider.System` in production, `TestClock` in tests).
-- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `AccessTerminalsAndPhoneBinding`. Add one with:
+- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `SignInHardeningAndPaymentInstructions`. Add one with:
   ```
   ConnectionStrings__DefaultConnection="Host=localhost;Database=design;Username=x;Password=x" dotnet ef migrations add <Name> --project IronForge.Infrastructure --startup-project IronForge.Infrastructure
   ```
@@ -115,10 +115,14 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
   - Agent tools are listed in `Application/Gym/AgentTools/GymAgentToolCatalog.Types`; DI and tests read this list.
 
 ### 3.4 Auth, roles and permissions
-- **Custom JWT**: no ASP.NET Identity store; `IPasswordHasher<User>` only. Access token plus rotating refresh-token families.
+- **Custom JWT**: no ASP.NET Identity store; `IPasswordHasher<User>` only. Access token (15 minutes) plus rotating refresh-token families.
 - **Sign-in flow**:
   1. Login (username **or email**) returns a tenantless token that carries platform permissions only.
+     With two-factor on (or required) it returns instead `TwoFactorRequired` + a 5-minute `TwoFactorToken` (a JWT with audience `{Audience}.two-factor`, so never an access token) and no tokens; `POST api/auth/two-factor/setup` (first sign-in of a required account) and `POST api/auth/two-factor` (code or recovery code) finish it. The first code of a setup returns the 10 recovery codes once.
   2. `POST api/tenants/select` issues a tenant-scoped token with `tenant_id`, `ClaimTypes.Role` and `permission` claims from `RolePermissions.GetPermissions(role)`.
+- **Account lockout** (`ISignInGuard`, per account, on top of the per-IP rate limits): every password check (sign-in, joining with an existing account, accepting an invitation) and every wrong two-factor code counts. From the 5th failure in a row the account is locked 1, 2, 4, 8, 16, then 30 minutes (429 with the reason). Only a complete sign-in clears the count (a right password before a code does not); a password reset lifts it.
+- **Two-factor** (`ITwoFactorService`, `Auth/TwoFactor/Totp.cs`, RFC 6238 TOTP): required for PlatformAdmins and anyone with an active Admin membership when `TwoFactor:RequiredForAdmins` (on in production, off in Development and local compose because demo admins share a login); optional for others on `/account/security` (Shared page, `api/account/two-factor/*`). Secrets are AES-GCM encrypted (`ITwoFactorSecretProtector`, key `TwoFactor:EncryptionKey`, fallback JWT key); each code works once (`TwoFactorLastStep`); recovery codes are stored as SHA-256. Operators reset a lost authenticator with the Migrator.
+- **Every request is re-checked** (`ISessionValidator`, JwtBearer `OnTokenValidated`): the account is active, the token's `sstamp` equals `User.SecurityStamp`, a platform permission still matches `User.Role`, and for a tenant token the membership is active with the same role and the tenant `HasAccess`. A 30-second per-instance cache (`SessionStateCache`) keeps it cheap; `TenantMemberService` invalidates it and revokes the member's refresh tokens for that tenant on deactivate/remove. A failure is a 401, so the client refreshes (new role) or is signed out. Changing `SecurityStamp` (password reset, two-factor reset) ends every session at once.
 - **Tenant roles** (`TenantRoles`):
   - **Admin**: all `gym.*` staff permissions, agents, MCP, approvals.decide, audit.read, tenant.members.*
   - **Trainer**: gym.members.read, gym.checkins.manage, gym.routines.manage, agents.read
@@ -230,7 +234,9 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - staff: list invoices, record payment (Cash or BankTransfer only; the amount must equal the total), void, remind, payments, revenue
   - member: my invoices, my payments, `StartMyCheckoutAsync`
 - **Payments**:
-  - `IPaymentGateway` is `StripePaymentGateway` when `Stripe:SecretKey` is set, otherwise `SimulatedPaymentGateway`.
+  - `IPaymentGateway` is `StripePaymentGateway` when `Stripe:SecretKey` is set; otherwise `SimulatedPaymentGateway` only when `Payments:AllowSimulated` (Development, local compose, demo deployments: members could "pay" without money moving), else `NoOnlinePaymentGateway`.
+  - `CanTakePayments(GymSettings)` decides per gym: Stripe live keys need the gym's own connected account with charges enabled (member money never lands on the platform account; test keys may use the platform account); none never. `StartMyCheckoutAsync` refuses (409) otherwise, and `MyMembershipDto.OnlinePaymentAvailable` hides "Pay now" in the app, which then shows `GymSettings.PaymentInstructions` (set on the Settings page: bank account, cash at the desk). Staff record cash and bank transfers on the Invoices page.
+  - Next (planned): local gateways behind `IPaymentGateway`, Easypaisa for PKR gyms and Touch 'n Go for MYR gyms.
   - **Stripe**: Checkout Session with metadata `tenant_id` and `invoice_id`, using a direct charge on the gym's Connect (Standard) account when `GymSettings.StripeChargesEnabled`. Connect onboarding: `POST api/gym/settings/stripe/connect` returns an AccountLink, and the account id is stored; `.../stripe/refresh` checks `ChargesEnabled`.
   - **Webhook** `POST api/payments/stripe/webhook`: `StripeWebhookHandler` verifies the signature. For `checkout.session.completed` with paid status, it sets the tenant context from metadata and calls `IPaymentConfirmationService.ConfirmCheckoutAsync`.
   - **Confirmation**:
@@ -238,7 +244,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
     - a transaction around the work
     - amount and currency must match the invoice
     - an invoice already paid or voided is audited and ignored
-  - **Simulated**: the checkout URL is `{ApiBaseUrl}/payments/simulated?tenant&invoice&session` (an HTML page with a Pay button). The POST confirms through the same confirmation service and redirects to `/payments/complete?status=…`. The session id is a random value stored on `Invoice.CheckoutSessionId`. In non-Development environments the API logs a warning that payments are simulated.
+  - **Simulated**: the checkout URL is `{ApiBaseUrl}/payments/simulated?tenant&invoice&session` (an HTML page with a Pay button). The POST confirms through the same confirmation service and redirects to `/payments/complete?status=…`. The session id is a random value stored on `Invoice.CheckoutSessionId`. In non-Development environments the API logs an error at startup that payments are simulated.
 
 ### 4.4 Fitness / coaching (module `gym.coaching`)
 - **Entities**: `Exercise` (TenantId null = shared library), `WorkoutRoutine` → `RoutineDay` → `RoutineExercise`, `WorkoutLog` → `WorkoutSet`, `BodyMetric` (one per day; a second entry that day replaces the first), `FitnessGoal` (at most 5 active). Every child row carries a TenantId for filtering.
@@ -333,13 +339,15 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 | Key | Notes |
 |---|---|
 | `ConnectionStrings:DefaultConnection` | From secrets or the environment. The local `.env` points at a **remote Supabase DB**: never wipe or seed it without explicit user approval. |
-| `JwtSettings:{Key,Issuer,Audience,ExpirationMinutes}` | Key from secrets/env (≥ 32 characters) |
+| `JwtSettings:{Key,Issuer,Audience,ExpirationMinutes}` | Key from secrets/env (≥ 32 characters); access tokens last 15 minutes |
+| `TwoFactor:{EncryptionKey,RequiredForAdmins,Issuer}` | Key ≥ 32 characters, empty uses the JWT key (changing it needs a two-factor reset per admin). `RequiredForAdmins` true by default, false in Development |
 | `AISettings:{ApiKey,Model,ModelProfiles}` | OpenAI |
 | `AgentQuotas:DefaultMonthlyTokenLimit` | |
 | `CheckIns:PassSigningKey` | Master key for member pass secrets (≥ 32 characters). Empty uses `JwtSettings:Key`; changing either invalidates every pass until the app is online again |
 | `AppUrls:{WebBaseUrl,ResetPasswordUrl,ApiBaseUrl}` | Used in emails, Stripe redirects and simulated pay pages. Dev: web `https://localhost:7056`, API `https://localhost:7226` |
 | `Invitations:{AcceptUrl,LifetimeDays}` | |
-| `Stripe:{SecretKey,WebhookSecret}` | Empty selects the simulated gateway |
+| `Stripe:{SecretKey,WebhookSecret}` | Empty: no online payments (or the simulated checkout with `Payments:AllowSimulated`) |
+| `Payments:AllowSimulated` | True only in Development, local compose and demo deployments, never with real gyms |
 | `Email:{Host,Port,Security(None/StartTls/SslOnConnect),Username,Password,FromAddress,FromName}` | Empty Host logs emails. Dev uses Mailpit `localhost:1025` (UI `:8025`) |
 | `BillingJob:{Enabled,IntervalMinutes}` | |
 | `Seed:Demo` | Development only: migrate and seed on startup |
@@ -368,7 +376,7 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 269 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 302 tests; Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.
@@ -407,11 +415,14 @@ dotnet test IronForge.Server.slnf                              # 269 tests; Dock
   - docker compose config and image builds (api, web, platform, mcp, mcp-client, migrator)
   - unsigned MAUI Android and Windows Release compile checks
 - **CD** (`cd.yml`): push images to GHCR `ghcr.io/<owner>/ironforge-*:<sha>`, then SSH to the VPS and run `deploy/scripts/deploy.sh <sha>`, which pulls, migrates, starts, health-checks and rolls back on failure.
-- **`deploy/compose.production.yml`**: api, web, platform, mcp, mcp-client, migrator, caddy. Volumes `web_keys` and `platform_keys` hold the Data Protection keys.
+- **`deploy/compose.production.yml`**: api, web, platform, mcp, mcp-client, migrator, ironforge-backup, caddy. Volumes `web_keys` and `platform_keys` hold the Data Protection keys.
+- **Backups** (`deploy/BACKUPS.md`): `ironforge-backup` (postgres:17-alpine running `deploy/scripts/backup.sh loop`) dumps the `public` schema daily to `/opt/ironforge/backups` (`BACKUP_DATABASE_URL`, direct connection port 5432; `BACKUP_KEEP_DAYS`; `BACKUP_PING_URL` for a missed-backup alert). `deploy.sh` takes a backup before every migration and stops if it fails. `deploy/scripts/restore-test.sh` restores the newest dump into a throwaway container and prints row counts. Files under `/opt/ironforge/scripts` and `compose` are copied to the VPS by hand.
 - **`deploy/Caddyfile`**: `mohtashim.dev` → web, `platform.` → platform, `api.` → api, `mcp.` and `mcp-client.`; all with security headers (HSTS, nosniff, DENY frames, referrer and permissions policies). Only the gym dashboard (`security_headers_camera`) allows `camera=(self)`, for pass scanning; the others block it.
 - **Local `compose.yaml`**: same services plus Mailpit; Caddy serves `localhost`, `platform.localhost`, `api.localhost`.
 - **Before onboarding real gyms**:
-  - set Stripe keys and webhook secret (Connect enabled)
+  - choose payments: Stripe (Connect enabled; not available to Pakistan-based gyms), or none (cash and bank transfer with payment instructions) until the local gateways exist; never `Payments__AllowSimulated`
+  - set up backups and run a restore test (`deploy/BACKUPS.md`); Supabase on a plan with backups
+  - keep `TwoFactor__RequiredForAdmins=true`
   - set SMTP credentials
   - ensure production CORS and AppUrls are correct
   - run the migrator (never seed production)

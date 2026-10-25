@@ -39,10 +39,17 @@
             </div>
 
             <div class="if-card">
-                <div class="if-card-head"><h2>Card payments</h2></div>
+                <div class="if-card-head"><h2>Online payments</h2></div>
                 @if (_settings.PaymentsSimulated)
                 {
-                    <div class="if-alert info">Card payments run in <strong>demo mode</strong>: members see a test checkout and no money moves.</div>
+                    <div class="if-alert info">Online payments run in <strong>demo mode</strong>: members see a test checkout and no money moves.</div>
+                }
+                else if (!_settings.StripeAvailable)
+                {
+                    <p class="if-muted if-small">
+                        Members can't pay in the app yet. They pay at the front desk or by bank transfer, and you record it on the
+                        <a href="/invoices">Invoices</a> page. Tell them how to pay under "Payment instructions" below.
+                    </p>
                 }
                 else if (_settings.StripeConnected)
                 {
@@ -51,7 +58,7 @@
                 }
                 else
                 {
-                    <p class="if-muted if-small">Connect a Stripe account so members can pay by card in the app. Until then, card payments go to the platform account.</p>
+                    <p class="if-muted if-small">Connect a Stripe account so members can pay by card in the app. Until then, members pay at the front desk or by bank transfer.</p>
                     <div class="if-row">
                         <button class="if-btn primary" disabled="@_busy" @onclick="ConnectStripeAsync">Connect Stripe</button>
                         @if (_settings.StripeConnectedAccountId is not null)
@@ -145,6 +152,13 @@
                 </div>
             </div>
 
+            <div class="if-field">
+                <label>Payment instructions for members</label>
+                <textarea rows="3" maxlength="1000" @bind="_form.PaymentInstructions"
+                          placeholder="e.g. Pay cash at the front desk, or transfer to Meezan Bank, IBAN PK00 MEZN 0000 0000 0000, title Iron Paradise Gym. Use your invoice number as the reference."></textarea>
+                <span class="if-small if-muted">Shown in the member app next to unpaid invoices.</span>
+            </div>
+
             <button class="if-btn primary" disabled="@_busy" @onclick="SaveAsync">Save settings</button>
         </div>
     }
@@ -204,7 +218,8 @@
             InvoiceLeadDays = settings.InvoiceLeadDays,
             ReminderDaysBeforeDue = settings.ReminderDaysBeforeDue,
             ReminderDaysAfterDue = settings.ReminderDaysAfterDue,
-            GracePeriodDays = settings.GracePeriodDays
+            GracePeriodDays = settings.GracePeriodDays,
+            PaymentInstructions = settings.PaymentInstructions
         };
         _afterDue = string.Join(", ", settings.ReminderDaysAfterDue);
         _memberPass = settings.MemberPassCheckInEnabled;

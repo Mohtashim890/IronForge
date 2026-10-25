@@ -18,7 +18,10 @@ services:
       AppUrls__ApiBaseUrl: https://api.localhost
       Cors__AllowedOrigins__0: https://localhost
       Cors__AllowedOrigins__1: https://platform.localhost
-      # Stripe test keys; empty uses the simulated checkout.
+      # Stripe test keys; empty uses the simulated checkout (allowed for this local demo only).
+      Payments__AllowSimulated: "true"
+      # The seeded demo admins share one login; production requires two-factor for admins.
+      TwoFactor__RequiredForAdmins: "false"
       Stripe__SecretKey: ${STRIPE__SECRETKEY:-}
       Stripe__WebhookSecret: ${STRIPE__WEBHOOKSECRET:-}
       # Mailpit catches every email (inbox at http://localhost:8025).

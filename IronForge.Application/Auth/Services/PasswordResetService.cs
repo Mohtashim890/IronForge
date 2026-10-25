@@ -153,6 +153,11 @@ public sealed class PasswordResetService : IPasswordResetService
         user.PasswordHash = _passwordHasher.HashPassword(user, newPassword);
         reset.UsedAtUtc = now;
 
+        // Access tokens die too (SessionValidator), and the lockout is lifted.
+        user.SecurityStamp = User.NewSecurityStamp();
+        user.FailedSignInCount = 0;
+        user.LockoutEndUtc = null;
+
         // A reset usually means the password leaked: end every session.
         foreach (var refresh in await _refreshTokens.ListTrackedAsync(
                      x => x.UserId == user.Id && x.RevokedAtUtc == null,

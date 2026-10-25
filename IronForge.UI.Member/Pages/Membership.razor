@@ -38,6 +38,14 @@
         </div>
     </div>
 
+    @if (!_me.OnlinePaymentAvailable && _invoices.Any(x => x.Status is InvoiceStatus.Open or InvoiceStatus.Overdue))
+    {
+        <div class="m-card">
+            <strong>How to pay</strong>
+            <div class="if-small" style="margin-top: 4px; white-space: pre-line">@(_me.PaymentInstructions ?? "Pay at the front desk. Staff mark the invoice as paid.")</div>
+        </div>
+    }
+
     <div class="m-section-title">Invoices</div>
     @if (_invoices.Count == 0)
     {
@@ -54,7 +62,7 @@
                         @(invoice.Status == InvoiceStatus.Paid ? $"Paid {GymFormat.Date(invoice.PaidAtUtc)}" : invoice.DaysOverdue > 0 ? $"Overdue by {invoice.DaysOverdue} day(s)" : $"Due {GymFormat.Date(invoice.DueDate)}")
                     </div>
                 </div>
-                @if (invoice.Status is InvoiceStatus.Open or InvoiceStatus.Overdue)
+                @if (_me.OnlinePaymentAvailable && invoice.Status is InvoiceStatus.Open or InvoiceStatus.Overdue)
                 {
                     <button class="if-btn primary sm" disabled="@_paying" @onclick="() => PayAsync(invoice)">Pay</button>
                 }

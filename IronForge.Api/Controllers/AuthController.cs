@@ -2,6 +2,8 @@
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Services;
 using IronForge.Shared.Models.Gym;
+using TwoFactorSetupStartRequest = IronForge.Shared.Models.TwoFactorSetupStartRequest;
+using TwoFactorSignInRequest = IronForge.Shared.Models.TwoFactorSignInRequest;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
@@ -29,23 +31,50 @@ namespace IronForge.Api.Controllers
             var signIn =
                 await _authService.SignInAsync(request);
 
-            // Correct credentials, but no gym access yet (pending or declined join request).
+            return SignInResult(signIn);
+        }
+
+        /// <summary>
+        /// Second sign-in step: the code from the authenticator app (or a
+        /// recovery code). While two-factor is being set up at sign-in, the
+        /// first code confirms it and the response carries the recovery codes.
+        /// </summary>
+        [HttpPost("two-factor")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> TwoFactor(
+            TwoFactorSignInRequest request,
+            CancellationToken cancellationToken) =>
+            SignInResult(await _authService.CompleteTwoFactorSignInAsync(request, cancellationToken));
+
+        /// <summary>Starts the authenticator setup for an account that must use two-factor (gym admins, operators).</summary>
+        [HttpPost("two-factor/setup")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> TwoFactorSetup(
+            TwoFactorSetupStartRequest request,
+            CancellationToken cancellationToken) =>
+            this.ToActionResult(await _authService.BeginTwoFactorSetupAtSignInAsync(request.TwoFactorToken, cancellationToken));
+
+        /// <summary>
+        /// Tokens or a two-factor challenge (200); a refusal with its reason as
+        /// plain text: 403 no gym access yet (pending or declined join request),
+        /// 429 account locked, 401 wrong code; 401 wrong username or password.
+        /// </summary>
+        private IActionResult SignInResult(IronForge.Application.Auth.Models.SignInOutcome signIn)
+        {
+            if (signIn.Succeeded)
+            {
+                return Ok(signIn.Response);
+            }
+
             if (signIn.DenialReason is not null)
             {
-                return StatusCode(StatusCodes.Status403Forbidden, signIn.DenialReason);
+                return StatusCode(signIn.StatusCode, signIn.DenialReason);
             }
 
-            var result = signIn.Response;
-
-            if (result == null)
-            {
-                return Unauthorized(
-                    ApiErrorFactory.Create(
-                        StatusCodes.Status401Unauthorized,
-                        "Invalid username or password."));
-            }
-
-            return Ok(result);
+            return Unauthorized(
+                ApiErrorFactory.Create(
+                    StatusCodes.Status401Unauthorized,
+                    "Invalid username or password."));
         }
         [HttpPost("refresh")]
         [EnableRateLimiting(RateLimitPolicies.Anonymous)]

@@ -2,10 +2,13 @@
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
+using IronForge.Application.Commons;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Gym.Members;
 using IronForge.Shared.Authorization;
+using TwoFactorSetupDto = IronForge.Shared.Models.TwoFactorSetupDto;
+using TwoFactorSignInRequest = IronForge.Shared.Models.TwoFactorSignInRequest;
 using IronForge.Application.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -27,6 +30,11 @@ namespace IronForge.Application.Auth.Services
         private readonly IRefreshTokenService _refreshTokenService;
         private readonly IAuditService _auditService;
         private readonly IGymDirectory _gymDirectory;
+        private readonly ISignInGuard _signInGuard;
+        private readonly ITwoFactorService _twoFactor;
+
+        /// <summary>How long the password step stays valid while the user finds their code.</summary>
+        public static readonly TimeSpan TwoFactorChallengeLifetime = TimeSpan.FromMinutes(5);
 
         public AuthService(
             IRepository<User> users,
@@ -37,9 +45,13 @@ namespace IronForge.Application.Auth.Services
             IOptions<JwtSettings> jwtOptions,
             IRefreshTokenService refreshTokenService,
             IAuditService auditService,
-            IGymDirectory gymDirectory)
+            IGymDirectory gymDirectory,
+            ISignInGuard signInGuard,
+            ITwoFactorService twoFactor)
         {
             _gymDirectory = gymDirectory;
+            _signInGuard = signInGuard;
+            _twoFactor = twoFactor;
             _users = users;
             _refreshTokens = refreshTokens;
             _tenantMemberships = tenantMemberships;
@@ -74,14 +86,33 @@ namespace IronForge.Application.Auth.Services
                 return SignInOutcome.InvalidCredentials;
             }
 
-            var passwordResult =
-                _passwordHasher.VerifyHashedPassword(
-                    user,
-                    user.PasswordHash,
-                    request.Password);
+            // With two-factor still to come, a right password must not clear
+            // the count of wrong codes.
+            var secondStep =
+                user.TwoFactorEnabled ||
+                await _twoFactor.IsRequiredAsync(user);
 
-            if (passwordResult ==
-                PasswordVerificationResult.Failed)
+            var passwordCheck =
+                await _signInGuard.CheckPasswordAsync(
+                    user.Id,
+                    request.Password,
+                    resetOnSuccess: !secondStep);
+
+            if (passwordCheck == PasswordCheck.LockedOut)
+            {
+                await _auditService.RecordAsync(
+                   AuditCategory.Authentication,
+                   "AuthenticationLockedOut",
+                   AuditOutcome.Denied,
+                   actorType: AuditActorType.User,
+                   resourceType: "User",
+                   resourceId: user.Id.ToString(),
+                   reason: "The account is locked after failed attempts.");
+
+                return SignInOutcome.LockedOut(_signInGuard.LockedOutMessage(user));
+            }
+
+            if (passwordCheck == PasswordCheck.Invalid)
             {
                 await _auditService.RecordAsync(
                    AuditCategory.Authentication,
@@ -109,6 +140,188 @@ namespace IronForge.Application.Auth.Services
                 return SignInOutcome.Denied(denial);
             }
 
+            if (secondStep)
+            {
+                return SignInOutcome.Success(new LoginResponse
+                {
+                    TwoFactorRequired = true,
+                    TwoFactorSetupRequired = !user.TwoFactorEnabled,
+                    TwoFactorToken = GenerateTwoFactorChallenge(user)
+                });
+            }
+
+            return SignInOutcome.Success(await StartSessionAsync(user));
+        }
+
+        /// <summary>
+        /// Second sign-in step. With two-factor on, the code is checked;
+        /// while it is being set up at sign-in, the first code confirms it and
+        /// the recovery codes come back with the tokens.
+        /// </summary>
+        public async Task<SignInOutcome> CompleteTwoFactorSignInAsync(
+            TwoFactorSignInRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            var user = await ReadTwoFactorChallengeAsync(request.TwoFactorToken, cancellationToken);
+
+            if (user is null)
+            {
+                return SignInOutcome.Denied("Your sign-in expired. Sign in again.");
+            }
+
+            if (_signInGuard.IsLockedOut(user))
+            {
+                return SignInOutcome.LockedOut(_signInGuard.LockedOutMessage(user));
+            }
+
+            List<string>? recoveryCodes = null;
+            bool valid;
+
+            if (user.TwoFactorEnabled)
+            {
+                valid = _twoFactor.VerifyCode(user, request.Code);
+            }
+            else if (user.TwoFactorPendingSecret is not null)
+            {
+                recoveryCodes = _twoFactor.ConfirmSetup(user, request.Code);
+                valid = recoveryCodes is not null;
+            }
+            else
+            {
+                return SignInOutcome.Denied("Set up your authenticator app first.");
+            }
+
+            if (!valid)
+            {
+                await _auditService.RecordAsync(
+                    AuditCategory.Authentication,
+                    "TwoFactorFailed",
+                    AuditOutcome.Failed,
+                    actorType: AuditActorType.User,
+                    resourceType: "User",
+                    resourceId: user.Id.ToString(),
+                    reason: "Wrong two-factor code.",
+                    cancellationToken: cancellationToken);
+
+                return await _signInGuard.RecordFailureAsync(user, cancellationToken)
+                    ? SignInOutcome.LockedOut(_signInGuard.LockedOutMessage(user))
+                    : SignInOutcome.InvalidCode();
+            }
+
+            user.FailedSignInCount = 0;
+            user.LockoutEndUtc = null;
+
+            if (recoveryCodes is not null)
+            {
+                await _auditService.RecordAsync(
+                    AuditCategory.Authentication,
+                    "TwoFactorEnabled",
+                    AuditOutcome.Succeeded,
+                    actorType: AuditActorType.User,
+                    resourceType: "User",
+                    resourceId: user.Id.ToString(),
+                    reason: "Set up at sign-in.",
+                    cancellationToken: cancellationToken);
+            }
+
+            var response = await StartSessionAsync(user);
+            response.RecoveryCodes = recoveryCodes;
+
+            return SignInOutcome.Success(response);
+        }
+
+        /// <summary>Starts setting up the authenticator app for an account that must have one to sign in.</summary>
+        public async Task<ServiceResult<TwoFactorSetupDto>> BeginTwoFactorSetupAtSignInAsync(
+            string twoFactorToken,
+            CancellationToken cancellationToken = default)
+        {
+            var user = await ReadTwoFactorChallengeAsync(twoFactorToken, cancellationToken);
+
+            if (user is null)
+            {
+                return ServiceResult<TwoFactorSetupDto>.Fail("Your sign-in expired. Sign in again.", 403);
+            }
+
+            if (user.TwoFactorEnabled)
+            {
+                return ServiceResult<TwoFactorSetupDto>.Fail("Two-factor sign-in is already set up.", 409);
+            }
+
+            var setup = _twoFactor.StartSetup(user);
+            await _users.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<TwoFactorSetupDto>.Ok(setup);
+        }
+
+        /// <summary>
+        /// A short-lived token proving the password step. Its audience differs
+        /// from access tokens, so it cannot be used to call the API.
+        /// </summary>
+        private string GenerateTwoFactorChallenge(User user)
+        {
+            var token = new JwtSecurityToken(
+                issuer: _jwtSettings.Issuer,
+                audience: TwoFactorAudience,
+                claims:
+                [
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(CustomClaimTypes.SecurityStamp, user.SecurityStamp)
+                ],
+                expires: DateTime.UtcNow.Add(TwoFactorChallengeLifetime),
+                signingCredentials: new SigningCredentials(
+                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key)),
+                    SecurityAlgorithms.HmacSha256));
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        private string TwoFactorAudience => $"{_jwtSettings.Audience}.two-factor";
+
+        private async Task<User?> ReadTwoFactorChallengeAsync(string? token, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+                return null;
+
+            ClaimsPrincipal principal;
+
+            try
+            {
+                var handler = new JwtSecurityTokenHandler { MapInboundClaims = false };
+
+                principal = handler.ValidateToken(
+                    token,
+                    new TokenValidationParameters
+                    {
+                        ValidateIssuer = true,
+                        ValidateAudience = true,
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidIssuer = _jwtSettings.Issuer,
+                        ValidAudience = TwoFactorAudience,
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key)),
+                        ClockSkew = TimeSpan.FromSeconds(30)
+                    },
+                    out _);
+            }
+            catch (Exception exception) when (exception is SecurityTokenException or ArgumentException)
+            {
+                return null;
+            }
+
+            if (!int.TryParse(principal.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                return null;
+
+            var user = await _users.FirstOrDefaultTrackedAsync(x => x.Id == userId, cancellationToken);
+
+            // A password reset in the meantime changes the stamp and voids the challenge.
+            return user is { IsActive: true } &&
+                   user.SecurityStamp == principal.FindFirstValue(CustomClaimTypes.SecurityStamp)
+                ? user
+                : null;
+        }
+
+        private async Task<LoginResponse> StartSessionAsync(User user)
+        {
             user.LastLoginAtUtc = DateTime.UtcNow;
 
             var accessToken =
@@ -142,11 +355,11 @@ namespace IronForge.Application.Auth.Services
                 resourceType: "User",
                 resourceId: user.Id.ToString());
 
-            return SignInOutcome.Success(new LoginResponse
+            return new LoginResponse
             {
                 AccessToken = accessToken,
                 RefreshToken = refreshToken
-            });
+            };
         }
 
         /// <summary>
@@ -511,7 +724,12 @@ namespace IronForge.Application.Auth.Services
 
                 new Claim(
                     ClaimTypes.Name,
-                    user.Username)
+                    user.Username),
+
+                // Checked on every request (SessionValidator).
+                new Claim(
+                    CustomClaimTypes.SecurityStamp,
+                    user.SecurityStamp)
             };
 
             if (tenantId.HasValue)

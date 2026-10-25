@@ -1,5 +1,6 @@
 ﻿using IronForge.Application.Agents.Tools;
 using IronForge.Application.Auth.Services;
+using IronForge.Application.Auth.TwoFactor;
 using IronForge.Application.Configurations;
 using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.AgentTools;
@@ -52,16 +53,41 @@ public static class GymPlatformServiceCollectionExtensions
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        // Sign-in hardening: account lockout, two-factor and the per-request session check.
+        // Authenticator secrets are encrypted with their own key, or the JWT key when none is set.
+        services
+            .AddOptions<TwoFactorOptions>()
+            .Bind(configuration.GetSection(TwoFactorOptions.SectionName))
+            .PostConfigure(options =>
+            {
+                if (string.IsNullOrWhiteSpace(options.EncryptionKey))
+                {
+                    options.EncryptionKey = configuration["JwtSettings:Key"] ?? "";
+                }
+            })
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddScoped<ISignInGuard, SignInGuard>();
+        services.AddSingleton<ITwoFactorSecretProtector, TwoFactorSecretProtector>();
+        services.AddScoped<ITwoFactorService, TwoFactorService>();
+        services.AddSingleton<SessionStateCache>();
+        services.AddScoped<ISessionValidator, SessionValidator>();
+
         services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
 
         var stripe = configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new();
+        var payments = configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>() ?? new();
         var email = configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new();
 
+        // The simulated checkout lets members "pay" without money moving: only where explicitly allowed.
         if (stripe.IsConfigured)
             services.AddSingleton<IPaymentGateway, StripePaymentGateway>();
-        else
+        else if (payments.AllowSimulated)
             services.AddSingleton<IPaymentGateway, SimulatedPaymentGateway>();
+        else
+            services.AddSingleton<IPaymentGateway, NoOnlinePaymentGateway>();
 
         if (email.IsConfigured)
             services.AddSingleton<IEmailSender, SmtpEmailSender>();

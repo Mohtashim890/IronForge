@@ -186,6 +186,7 @@ public sealed class GymSettingsService : IGymSettingsService
         settings.ReminderDaysBeforeDue = request.ReminderDaysBeforeDue;
         settings.ReminderDaysAfterDue = afterDue;
         settings.GracePeriodDays = request.GracePeriodDays;
+        settings.PaymentInstructions = Clean(request.PaymentInstructions);
         settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
 
         await _settings.SaveChangesAsync(cancellationToken);
@@ -270,10 +271,10 @@ public sealed class GymSettingsService : IGymSettingsService
             return GymResults.From<StripeConnectLinkDto, GymSettingsDto>(failure!);
         }
 
-        if (_gateway.IsSimulated)
+        if (!_gateway.SupportsStripeConnect)
         {
             return GymResults.Invalid<StripeConnectLinkDto>(
-                "Card payments run in simulated mode on this platform; Stripe is not configured.");
+                "Stripe is not configured on this platform.");
         }
 
         var link = await _gateway.CreateConnectOnboardingLinkAsync(
@@ -302,7 +303,7 @@ public sealed class GymSettingsService : IGymSettingsService
             return failure!;
         }
 
-        if (!_gateway.IsSimulated && settings.StripeConnectedAccountId is { } accountId)
+        if (_gateway.SupportsStripeConnect && settings.StripeConnectedAccountId is { } accountId)
         {
             var enabled = await _gateway.IsChargesEnabledAsync(accountId, cancellationToken);
 
@@ -366,6 +367,9 @@ public sealed class GymSettingsService : IGymSettingsService
             StripeConnected = settings.StripeChargesEnabled,
             StripeConnectedAccountId = settings.StripeConnectedAccountId,
             PaymentsSimulated = _gateway.IsSimulated,
+            StripeAvailable = _gateway.SupportsStripeConnect,
+            OnlinePaymentsAvailable = _gateway.CanTakePayments(settings),
+            PaymentInstructions = settings.PaymentInstructions,
             MemberPassCheckInEnabled = settings.MemberPassCheckInEnabled,
             GymQrCheckInEnabled = settings.GymQrCheckInEnabled,
             RequirePhoneUnlock = settings.RequirePhoneUnlock,

@@ -69,6 +69,77 @@
                 </div>
             }
 
+            @if (_recoveryCodes is not null)
+            {
+                <div class="login-two-factor">
+                    <p><strong>Two-factor sign-in is on.</strong> Save these recovery codes somewhere safe (a password manager or on paper).
+                        Each one signs you in once if you lose your phone.</p>
+                    <ul class="login-recovery-codes">
+                        @foreach (var recoveryCode in _recoveryCodes)
+                        {
+                            <li>@recoveryCode</li>
+                        }
+                    </ul>
+                    <button type="button" class="login-submit" @onclick="ContinueAsync">I saved them, continue</button>
+                </div>
+            }
+            else if (_challenge is not null)
+            {
+                <form class="login-two-factor" @onsubmit="VerifyCodeAsync">
+                    @if (_challenge.TwoFactorSetupRequired)
+                    {
+                        <p><strong>Set up two-factor sign-in.</strong> Admin accounts need a code from an authenticator app
+                            (Google Authenticator, Microsoft Authenticator or similar) as well as the password.</p>
+
+                        @if (_setup is not null)
+                        {
+                            <ol class="if-small">
+                                <li>In the app, add an account and scan this code.</li>
+                                <li>Enter the 6-digit code the app shows.</li>
+                            </ol>
+                            <div class="login-qr">@((MarkupString)QrSvg.Render(_setup.OtpAuthUri))</div>
+                            <p class="if-small">Can't scan it? Enter this key: <span class="if-mono">@_setup.ManualKey</span></p>
+                        }
+                    }
+                    else
+                    {
+                        <p>Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+                    }
+
+                    <div class="login-field">
+                        <label for="code">Code</label>
+                        <div class="login-input-wrapper">
+                            <input id="code"
+                                   class="login-input"
+                                   @bind="_code"
+                                   autocomplete="one-time-code"
+                                   inputmode="@(_challenge.TwoFactorSetupRequired ? "numeric" : "text")"
+                                   autocapitalize="off"
+                                   spellcheck="false"
+                                   maxlength="20"
+                                   placeholder="123456" />
+                        </div>
+                    </div>
+
+                    <button type="submit" class="login-submit" disabled="@(_isSubmitting || (_challenge.TwoFactorSetupRequired && _setup is null))">
+                        @if (_isSubmitting)
+                        {
+                            <span class="login-spinner"></span>
+                            <span>Checking...</span>
+                        }
+                        else
+                        {
+                            <span>@(_challenge.TwoFactorSetupRequired ? "Turn on and sign in" : "Sign in")</span>
+                        }
+                    </button>
+
+                    <div class="login-links">
+                        <a href="" @onclick="BackToPassword" @onclick:preventDefault="true">Back to sign in</a>
+                    </div>
+                </form>
+            }
+            else
+            {
             <EditForm Model="_model"
                       OnValidSubmit="HandleLoginAsync">
 
@@ -162,6 +233,7 @@
                 </button>
 
             </EditForm>
+            }
 
             <div class="login-links">
                 <a href="/forgot-password">Forgot your password?</a>
@@ -266,6 +338,12 @@
                 return;
             }
 
+            if (result.Data!.TwoFactorRequired)
+            {
+                await StartTwoFactorAsync(result.Data);
+                return;
+            }
+
             await ContinueAsync();
 
             return;
@@ -279,6 +357,78 @@
         {
             _isSubmitting = false;
         }
+    }
+
+    // Second step: the password was right, a code from the authenticator app is needed.
+    private LoginResponse? _challenge;
+    private TwoFactorSetupDto? _setup;
+    private List<string>? _recoveryCodes;
+    private string _code = "";
+
+    private async Task StartTwoFactorAsync(LoginResponse challenge)
+    {
+        _challenge = challenge;
+        _code = "";
+        _model.Password = "";
+
+        if (!challenge.TwoFactorSetupRequired)
+            return;
+
+        var setup = await AuthService.BeginTwoFactorSetupAsync(challenge.TwoFactorToken!);
+
+        if (setup.Success)
+        {
+            _setup = setup.Data;
+        }
+        else
+        {
+            _errorMessage = setup.ErrorMessage;
+        }
+    }
+
+    private async Task VerifyCodeAsync()
+    {
+        if (_isSubmitting || _challenge is null || string.IsNullOrWhiteSpace(_code))
+            return;
+
+        _errorMessage = null;
+        _isSubmitting = true;
+
+        try
+        {
+            var result = await AuthService.CompleteTwoFactorAsync(_challenge.TwoFactorToken!, _code);
+
+            if (!result.Success)
+            {
+                _errorMessage = result.ErrorMessage;
+                _code = "";
+
+                // The challenge expired or the password was reset meanwhile: start over.
+                if (result.StatusCode == 403)
+                    BackToPassword();
+
+                return;
+            }
+
+            if (result.Data!.RecoveryCodes is { Count: > 0 } codes)
+            {
+                _recoveryCodes = codes;
+                return;
+            }
+
+            await ContinueAsync();
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private void BackToPassword()
+    {
+        _challenge = null;
+        _setup = null;
+        _code = "";
     }
 
     private sealed class LoginModel

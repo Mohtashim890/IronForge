@@ -334,3 +334,36 @@
 .login-links a:hover {
     text-decoration: underline;
 }
+
+/* Two-factor step */
+.login-two-factor p {
+    margin: 0 0 12px;
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.login-qr {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0 10px;
+}
+
+.login-qr ::deep svg {
+    width: 200px;
+    height: 200px;
+    background: #fff;
+    border-radius: 8px;
+}
+
+.login-recovery-codes {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 16px;
+    padding: 12px 16px;
+    margin: 0 0 16px;
+    list-style: none;
+    border: 1px dashed #ced4da;
+    border-radius: 8px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 0.95rem;
+}

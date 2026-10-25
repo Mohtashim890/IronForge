@@ -40,6 +40,15 @@ namespace IronForge.Shared.Models.Gym
         /// <summary>True when card payments go through a simulated gateway (no Stripe keys).</summary>
         public bool PaymentsSimulated { get; set; }
 
+        /// <summary>Stripe is configured on the platform, so the gym can connect its account.</summary>
+        public bool StripeAvailable { get; set; }
+
+        /// <summary>Members of this gym can pay invoices online in the app now.</summary>
+        public bool OnlinePaymentsAvailable { get; set; }
+
+        /// <summary>How members pay at the desk or by bank transfer; shown in the app.</summary>
+        public string? PaymentInstructions { get; set; }
+
         /// <summary>Members show their rotating pass; staff or a kiosk scan it.</summary>
         public bool MemberPassCheckInEnabled { get; set; }
 
@@ -96,6 +105,9 @@ namespace IronForge.Shared.Models.Gym
 
         [Range(0, 90)]
         public int GracePeriodDays { get; set; } = 14;
+
+        [MaxLength(1000)]
+        public string? PaymentInstructions { get; set; }
     }
 
     public sealed class StripeConnectLinkDto

@@ -249,8 +249,9 @@ namespace IronForge.Shared.Services
 
                 if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                 {
+                    // A locked account explains itself; the rate limiter sends no text.
                     return ServiceResult<LoginResponse>.Fail(
-                        "Too many sign-in attempts. Wait a minute and try again.",
+                        await ReadReasonAsync(response, "Too many sign-in attempts. Wait a minute and try again."),
                         (int)response.StatusCode);
                 }
 
@@ -265,21 +266,14 @@ namespace IronForge.Shared.Services
                     await response.Content
                         .ReadFromJsonAsync<LoginResponse>();
 
-                if (result is null ||
-                    string.IsNullOrWhiteSpace(result.AccessToken))
+                // The password was right; the code from the authenticator app comes next.
+                if (result is { TwoFactorRequired: true } &&
+                    !string.IsNullOrWhiteSpace(result.TwoFactorToken))
                 {
-                    return ServiceResult<LoginResponse>.Fail(
-                        "The server returned an invalid login response.",
-                        (int)response.StatusCode);
+                    return ServiceResult<LoginResponse>.Ok(result);
                 }
 
-                await _tokenStore.SetAccessTokenAsync(
-                    result.AccessToken);
-
-                await _tokenStore.SetRefreshTokenAsync(
-                    result.RefreshToken);
-                AuthenticationStateChanged?.Invoke();
-                return ServiceResult<LoginResponse>.Ok(result);
+                return await StoreSessionAsync(result, (int)response.StatusCode);
             }
             catch (HttpRequestException)
             {
@@ -297,6 +291,93 @@ namespace IronForge.Shared.Services
                     "An unexpected error occurred.");
             }
         }
+        public async Task<ServiceResult<TwoFactorSetupDto>> BeginTwoFactorSetupAsync(string twoFactorToken)
+        {
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync(
+                    "api/auth/two-factor/setup",
+                    new TwoFactorSetupStartRequest { TwoFactorToken = twoFactorToken });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return ServiceResult<TwoFactorSetupDto>.Fail(
+                        await ReadReasonAsync(response, "Unable to start the authenticator setup. Sign in again."),
+                        (int)response.StatusCode);
+                }
+
+                var setup = await response.Content.ReadFromJsonAsync<TwoFactorSetupDto>();
+
+                return setup is null
+                    ? ServiceResult<TwoFactorSetupDto>.Fail("The server returned an invalid response.", 500)
+                    : ServiceResult<TwoFactorSetupDto>.Ok(setup);
+            }
+            catch (HttpRequestException)
+            {
+                return ServiceResult<TwoFactorSetupDto>.Fail("Unable to connect to the API.");
+            }
+            catch (TaskCanceledException)
+            {
+                return ServiceResult<TwoFactorSetupDto>.Fail("The request timed out.");
+            }
+        }
+
+        public async Task<ServiceResult<LoginResponse>> CompleteTwoFactorAsync(string twoFactorToken, string code)
+        {
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync(
+                    "api/auth/two-factor",
+                    new TwoFactorSignInRequest { TwoFactorToken = twoFactorToken, Code = code });
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return ServiceResult<LoginResponse>.Fail(
+                        await ReadReasonAsync(response, "That code is not valid."),
+                        (int)response.StatusCode);
+                }
+
+                return await StoreSessionAsync(
+                    await response.Content.ReadFromJsonAsync<LoginResponse>(),
+                    (int)response.StatusCode);
+            }
+            catch (HttpRequestException)
+            {
+                return ServiceResult<LoginResponse>.Fail("Unable to connect to the API.");
+            }
+            catch (TaskCanceledException)
+            {
+                return ServiceResult<LoginResponse>.Fail("The request timed out.");
+            }
+        }
+
+        private async Task<ServiceResult<LoginResponse>> StoreSessionAsync(LoginResponse? result, int statusCode)
+        {
+            if (result is null ||
+                string.IsNullOrWhiteSpace(result.AccessToken))
+            {
+                return ServiceResult<LoginResponse>.Fail(
+                    "The server returned an invalid login response.",
+                    statusCode);
+            }
+
+            await _tokenStore.SetAccessTokenAsync(
+                result.AccessToken);
+
+            await _tokenStore.SetRefreshTokenAsync(
+                result.RefreshToken);
+            AuthenticationStateChanged?.Invoke();
+            return ServiceResult<LoginResponse>.Ok(result);
+        }
+
+        /// <summary>The API's plain-text reason, or <paramref name="fallback"/> (e.g. for JSON error bodies).</summary>
+        private static async Task<string> ReadReasonAsync(HttpResponseMessage response, string fallback)
+        {
+            var text = (await response.Content.ReadAsStringAsync()).Trim();
+
+            return string.IsNullOrWhiteSpace(text) || text.StartsWith('{') ? fallback : text.Trim('"');
+        }
+
         public async Task<ServiceResult<LoginResponse>>RefreshTokenAsync(string? failedAccessToken = null)
         {
             await _refreshLock.WaitAsync();

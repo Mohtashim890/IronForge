@@ -1,5 +1,6 @@
 using System.Globalization;
 using IronForge.Application.Configurations;
+using IronForge.Application.Entities;
 using IronForge.Application.Gym.Billing;
 using Microsoft.Extensions.Options;
 using Stripe;
@@ -10,7 +11,7 @@ namespace IronForge.Infrastructure.Payments;
 /// <summary>
 /// Stripe Checkout for member invoices. With a connected account (Stripe
 /// Connect, Standard) the charge is created directly on the gym's account;
-/// otherwise on the platform account (test mode and demos).
+/// without one only with a test key, on the platform account (demos).
 /// </summary>
 public sealed class StripePaymentGateway : IPaymentGateway
 {
@@ -22,16 +23,24 @@ public sealed class StripePaymentGateway : IPaymentGateway
 
     private readonly StripeClient _client;
     private readonly AppUrlOptions _urls;
+    private readonly bool _testMode;
 
     public StripePaymentGateway(IOptions<StripeOptions> options, IOptions<AppUrlOptions> urls)
     {
         _client = new StripeClient(options.Value.SecretKey);
         _urls = urls.Value;
+        _testMode = options.Value.IsTestMode;
     }
 
     public string Provider => "stripe";
 
     public bool IsSimulated => false;
+
+    public bool SupportsStripeConnect => true;
+
+    public bool CanTakePayments(GymSettings settings) =>
+        _testMode ||
+        (settings.StripeChargesEnabled && !string.IsNullOrWhiteSpace(settings.StripeConnectedAccountId));
 
     public async Task<CheckoutResult> CreateCheckoutAsync(
         CheckoutRequest request,

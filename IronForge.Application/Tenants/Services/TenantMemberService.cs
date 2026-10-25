@@ -11,8 +11,11 @@ using IronForge.Shared.Models.Tenants;
 namespace IronForge.Application.Tenants.Services;
 
 /// <summary>
-/// Member management inside the current tenant. Changes take effect at the
-/// member's next token refresh: AuthService re-reads the membership then.
+/// Member management inside the current tenant. Changes take effect on the
+/// member's next request: SessionValidator compares every access token with
+/// the membership, and the refresh then issues the new role or ends the
+/// session. Deactivating or removing a member also revokes their refresh
+/// tokens for the tenant.
 /// </summary>
 public interface ITenantMemberService
 {
@@ -46,6 +49,8 @@ public sealed class TenantMemberService : ITenantMemberService
     private readonly IUserAuthorizationService _authorization;
     private readonly IExecutionContextAccessor _executionContext;
     private readonly IAuditService _auditService;
+    private readonly IRepository<RefreshToken> _refreshTokens;
+    private readonly SessionStateCache _sessions;
 
     public TenantMemberService(
         IRepository<TenantMembership> memberships,
@@ -53,8 +58,12 @@ public sealed class TenantMemberService : ITenantMemberService
         IRepository<AgentDelegationEntity> delegations,
         IUserAuthorizationService authorization,
         IExecutionContextAccessor executionContext,
-        IAuditService auditService)
+        IAuditService auditService,
+        IRepository<RefreshToken> refreshTokens,
+        SessionStateCache sessions)
     {
+        _refreshTokens = refreshTokens;
+        _sessions = sessions;
         _memberships = memberships;
         _users = users;
         _delegations = delegations;
@@ -132,6 +141,7 @@ public sealed class TenantMemberService : ITenantMemberService
         // Delegations were granted under the old role's permissions; the
         // member creates new ones under the new role.
         await RevokeDelegationsAsync(userId, cancellationToken);
+        _sessions.Invalidate(userId);
 
         await _memberships.SaveChangesAsync(cancellationToken);
 
@@ -171,9 +181,11 @@ public sealed class TenantMemberService : ITenantMemberService
         if (!isActive)
         {
             await RevokeDelegationsAsync(userId, cancellationToken);
+            await RevokeSessionsAsync(membership, cancellationToken);
         }
 
         await _memberships.SaveChangesAsync(cancellationToken);
+        _sessions.Invalidate(userId);
 
         await RecordAsync(
             isActive ? "MemberActivated" : "MemberDeactivated",
@@ -202,10 +214,12 @@ public sealed class TenantMemberService : ITenantMemberService
         }
 
         await RevokeDelegationsAsync(userId, cancellationToken);
+        await RevokeSessionsAsync(membership!, cancellationToken);
 
         _memberships.Remove(membership!);
 
         await _memberships.SaveChangesAsync(cancellationToken);
+        _sessions.Invalidate(userId);
 
         await RecordAsync(
             "MemberRemoved",
@@ -214,6 +228,19 @@ public sealed class TenantMemberService : ITenantMemberService
             cancellationToken);
 
         return ServiceResult<bool>.Ok(true);
+    }
+
+    /// <summary>Ends the member's sessions in this tenant (saved with the caller's change).</summary>
+    private async Task RevokeSessionsAsync(TenantMembership membership, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+
+        foreach (var token in await _refreshTokens.ListTrackedAsync(
+                     x => x.UserId == membership.UserId && x.TenantId == membership.TenantId && x.RevokedAtUtc == null,
+                     cancellationToken))
+        {
+            token.RevokedAtUtc = now;
+        }
     }
 
     private (int TenantId, int UserId, string? Error) Authorize(string permission)

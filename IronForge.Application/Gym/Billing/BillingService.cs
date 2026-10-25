@@ -513,6 +513,12 @@ public sealed class BillingService : IBillingService
 
         var gym = await _engine.GetGymAsync(invoice.TenantId, cancellationToken);
 
+        if (gym?.Settings is null || !_gateway.CanTakePayments(gym.Settings))
+        {
+            return GymResults.Conflict<CheckoutSessionDto>(
+                $"{gym?.Name ?? "This gym"} does not take online payments yet. Pay at the front desk or as the gym describes.");
+        }
+
         var checkout = await _gateway.CreateCheckoutAsync(
             new CheckoutRequest
             {

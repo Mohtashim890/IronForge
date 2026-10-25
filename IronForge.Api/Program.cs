@@ -199,6 +199,24 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(jwtSettings.Key))
         };
+
+        // A valid signature is not enough: the account, the gym membership,
+        // the role and the security stamp must still match the database, so
+        // removing staff or suspending a gym takes effect at once.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var failure = await context.HttpContext.RequestServices
+                    .GetRequiredService<ISessionValidator>()
+                    .ValidateAsync(context.Principal!, context.HttpContext.RequestAborted);
+
+                if (failure is not null)
+                {
+                    context.Fail(failure);
+                }
+            }
+        };
     });
 
 builder.Services.AddAuthorization();
@@ -390,11 +408,18 @@ app.UseMiddleware<ExecutionContextMiddleware>();
 
 app.MapControllers();
 
-if (!app.Environment.IsDevelopment() &&
-    app.Services.GetRequiredService<IronForge.Application.Gym.Billing.IPaymentGateway>().IsSimulated)
+var paymentGateway = app.Services.GetRequiredService<IronForge.Application.Gym.Billing.IPaymentGateway>();
+
+if (!app.Environment.IsDevelopment() && paymentGateway.IsSimulated)
 {
-    // Fine for a demo deployment; real gyms need Stripe keys (Stripe__SecretKey).
-    app.Logger.LogWarning("Card payments are SIMULATED: no Stripe keys are configured, so no money is collected.");
+    // Payments__AllowSimulated is for demo deployments only: members can "pay" without money moving.
+    app.Logger.LogError(
+        "Online payments are SIMULATED (Payments:AllowSimulated). Never run real gyms on this deployment.");
+}
+else if (paymentGateway.Provider == "none")
+{
+    app.Logger.LogInformation(
+        "No online payment provider is configured: members pay at the front desk or by bank transfer.");
 }
 
 // Local demo: migrate and seed on startup (appsettings.Development.json Seed:Demo).

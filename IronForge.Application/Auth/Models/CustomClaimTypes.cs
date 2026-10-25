@@ -8,5 +8,8 @@
         public const string ClientId = "client_id";
         public const string DelegationId = "delegation_id";
         public const string Scope = "scope";
+
+        /// <summary>The account's security stamp when the token was issued.</summary>
+        public const string SecurityStamp = "sstamp";
     }
 }

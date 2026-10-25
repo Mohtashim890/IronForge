@@ -1,0 +1,198 @@
+@page "/account/security"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@using IronForge.Shared.Models
+@inject AccountApiClient Account
+
+<PageTitle>Account security | IronForge</PageTitle>
+
+<div class="if-page" style="max-width: 720px">
+    <div class="if-page-head">
+        <div>
+            <h1>Account security</h1>
+            <p>Two-factor sign-in asks for a code from an authenticator app on your phone as well as your password.</p>
+        </div>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_status is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+    else if (_recoveryCodes is not null)
+    {
+        <div class="if-card">
+            <div class="if-card-head"><h2>Your recovery codes</h2></div>
+            <p class="if-small">
+                Save them somewhere safe (a password manager or on paper). Each code signs you in once if you lose your phone.
+                Any older codes no longer work.
+            </p>
+            <ul class="if-mono" style="columns: 2; list-style: none; padding: 0">
+                @foreach (var recoveryCode in _recoveryCodes)
+                {
+                    <li>@recoveryCode</li>
+                }
+            </ul>
+            <button class="if-btn primary" @onclick="DoneWithCodesAsync">I saved them</button>
+        </div>
+    }
+    else if (_status.Enabled)
+    {
+        <div class="if-card">
+            <div class="if-card-head"><h2>Two-factor sign-in is on</h2></div>
+            <p class="if-small if-muted">
+                On since @GymFormat.Date(_status.EnabledAtUtc). @_status.RecoveryCodesLeft recovery code(s) left.
+                @if (_status.Required)
+                {
+                    <span>Your account must keep it on.</span>
+                }
+            </p>
+
+            <div class="if-field" style="max-width: 260px">
+                <label>Current code from your app (or a recovery code)</label>
+                <input @bind="_code" autocomplete="one-time-code" maxlength="20" />
+            </div>
+
+            <div class="if-row">
+                <button class="if-btn" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="RegenerateAsync">Create new recovery codes</button>
+                @if (!_status.Required)
+                {
+                    <button class="if-btn danger" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="DisableAsync">Turn off</button>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="if-card">
+            <div class="if-card-head"><h2>Two-factor sign-in is off</h2></div>
+
+            @if (_status.Required)
+            {
+                <div class="if-alert info">Your account must use it: you'll be asked to set it up at your next sign-in, or set it up now.</div>
+            }
+
+            @if (_setup is null)
+            {
+                <p class="if-small if-muted">You need an authenticator app such as Google Authenticator or Microsoft Authenticator.</p>
+                <button class="if-btn primary" disabled="@_busy" @onclick="BeginSetupAsync">Set up two-factor sign-in</button>
+            }
+            else
+            {
+                <ol class="if-small">
+                    <li>In the authenticator app, add an account and scan this code.</li>
+                    <li>Enter the 6-digit code the app shows.</li>
+                </ol>
+                <div style="width: 200px; height: 200px">@((MarkupString)QrSvg.Render(_setup.OtpAuthUri))</div>
+                <p class="if-small">Can't scan it? Enter this key: <span class="if-mono">@_setup.ManualKey</span></p>
+
+                <div class="if-field" style="max-width: 200px">
+                    <label>Code from the app</label>
+                    <input @bind="_code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" />
+                </div>
+                <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="EnableAsync">Turn on</button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private TwoFactorStatusDto? _status;
+    private TwoFactorSetupDto? _setup;
+    private List<string>? _recoveryCodes;
+    private string _code = "";
+    private bool _busy;
+    private string? _message;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await Account.GetTwoFactorAsync();
+
+        if (result.Success)
+            _status = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private Task BeginSetupAsync() => RunAsync(async () =>
+    {
+        var result = await Account.BeginTwoFactorSetupAsync();
+
+        if (!result.Success)
+            return result.ErrorMessage;
+
+        _setup = result.Data;
+        return null;
+    });
+
+    private Task EnableAsync() => RunAsync(async () =>
+    {
+        var result = await Account.EnableTwoFactorAsync(_code);
+
+        if (!result.Success)
+            return result.ErrorMessage;
+
+        _setup = null;
+        _recoveryCodes = result.Data!.RecoveryCodes;
+        _message = "Two-factor sign-in is on.";
+        return null;
+    });
+
+    private Task RegenerateAsync() => RunAsync(async () =>
+    {
+        var result = await Account.RegenerateRecoveryCodesAsync(_code);
+
+        if (!result.Success)
+            return result.ErrorMessage;
+
+        _recoveryCodes = result.Data!.RecoveryCodes;
+        return null;
+    });
+
+    private Task DisableAsync() => RunAsync(async () =>
+    {
+        var result = await Account.DisableTwoFactorAsync(_code);
+
+        if (!result.Success)
+            return result.ErrorMessage;
+
+        _message = "Two-factor sign-in is off.";
+        await LoadAsync();
+        return null;
+    });
+
+    private async Task DoneWithCodesAsync()
+    {
+        _recoveryCodes = null;
+        await LoadAsync();
+    }
+
+    private async Task RunAsync(Func<Task<string?>> action)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        try
+        {
+            _error = await action();
+        }
+        finally
+        {
+            _code = "";
+            _busy = false;
+        }
+    }
+}

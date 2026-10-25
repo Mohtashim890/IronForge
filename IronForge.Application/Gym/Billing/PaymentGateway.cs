@@ -33,15 +33,27 @@ public sealed record CheckoutResult(string SessionId, string Url);
 public sealed record ConnectOnboardingLink(string AccountId, string Url);
 
 /// <summary>
-/// Card payments for member invoices. Stripe Checkout in production; a
-/// simulated gateway when no Stripe keys are configured (local and demo).
+/// Online payments for member invoices: Stripe Checkout when Stripe keys are
+/// configured; the simulated checkout only where Payments:AllowSimulated
+/// is on (local and demo); otherwise none, and members pay at the desk or by
+/// bank transfer.
 /// </summary>
 public interface IPaymentGateway
 {
-    /// <summary>"stripe" or "simulated"; stored on payments.</summary>
+    /// <summary>"stripe", "simulated" or "none"; stored on payments.</summary>
     string Provider { get; }
 
     bool IsSimulated { get; }
+
+    /// <summary>Whether gyms are onboarded with Stripe Connect.</summary>
+    bool SupportsStripeConnect { get; }
+
+    /// <summary>
+    /// Whether members of this gym can pay online now. A live Stripe key
+    /// needs the gym's own connected account, so member money never lands
+    /// on the platform's account.
+    /// </summary>
+    bool CanTakePayments(GymSettings settings);
 
     Task<CheckoutResult> CreateCheckoutAsync(
         CheckoutRequest request,

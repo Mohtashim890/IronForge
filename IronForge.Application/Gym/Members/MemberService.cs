@@ -118,6 +118,7 @@ public sealed class MemberService : IMemberService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
+    private readonly IPaymentGateway _payments;
 
     public MemberService(
         IGymAccessService access,
@@ -138,8 +139,10 @@ public sealed class MemberService : IMemberService
         INotificationService notifications,
         IUnitOfWork unitOfWork,
         IAuditService audit,
-        TimeProvider clock)
+        TimeProvider clock,
+        IPaymentGateway payments)
     {
+        _payments = payments;
         _access = access;
         _members = members;
         _plans = plans;
@@ -959,6 +962,8 @@ public sealed class MemberService : IMemberService
             MemberPassCheckInEnabled = gym?.Settings.MemberPassCheckInEnabled ?? false,
             GymQrCheckInEnabled = gym?.Settings.GymQrCheckInEnabled ?? false,
             RequirePhoneUnlock = gym?.Settings.RequirePhoneUnlock ?? true,
+            OnlinePaymentAvailable = gym?.Settings is { } settings && _payments.CanTakePayments(settings),
+            PaymentInstructions = gym?.Settings.PaymentInstructions,
             NextDueInvoice = next is null
                 ? null
                 : new InvoiceDto

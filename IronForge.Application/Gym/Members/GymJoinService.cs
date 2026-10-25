@@ -1,5 +1,6 @@
 ﻿using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
+using IronForge.Application.Auth.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
 using IronForge.Application.Gym.Common;
@@ -85,6 +86,7 @@ public sealed class GymJoinService : IGymJoinService
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
     private readonly ITenantInvitationService _invitations;
+    private readonly ISignInGuard _signInGuard;
 
     public GymJoinService(
         IRepository<GymSettings> settings,
@@ -98,8 +100,10 @@ public sealed class GymJoinService : IGymJoinService
         IUnitOfWork unitOfWork,
         IAuditService audit,
         TimeProvider clock,
-        ITenantInvitationService invitations)
+        ITenantInvitationService invitations,
+        ISignInGuard signInGuard)
     {
+        _signInGuard = signInGuard;
         _invitations = invitations;
         _settings = settings;
         _tenants = tenants;
@@ -112,6 +116,33 @@ public sealed class GymJoinService : IGymJoinService
         _unitOfWork = unitOfWork;
         _audit = audit;
         _clock = clock;
+    }
+
+    /// <summary>
+    /// Joining with an email that has an account needs its username and
+    /// password. Wrong passwords count towards the account's lockout; a right
+    /// one does not clear it (that needs a full sign-in, with two-factor).
+    /// </summary>
+    private async Task<ServiceResult<GymJoinResultDto>?> CheckExistingAccountAsync(
+        User existingUser,
+        string username,
+        string password,
+        CancellationToken cancellationToken)
+    {
+        var check =
+            existingUser.IsActive &&
+            string.Equals(existingUser.Username, username, StringComparison.OrdinalIgnoreCase)
+                ? await _signInGuard.CheckPasswordAsync(existingUser.Id, password, resetOnSuccess: false, cancellationToken)
+                : PasswordCheck.Invalid;
+
+        return check switch
+        {
+            PasswordCheck.Valid => null,
+            PasswordCheck.LockedOut => ServiceResult<GymJoinResultDto>.Fail(SignInGuard.GenericLockedOutMessage, 429),
+            _ => ServiceResult<GymJoinResultDto>.Fail(
+                "An account with this email already exists. Enter its username and password.",
+                401)
+        };
     }
 
     public async Task<ServiceResult<GymJoinPreviewDto>> PreviewAsync(
@@ -189,17 +220,11 @@ public sealed class GymJoinService : IGymJoinService
         if (existingUser is not null)
         {
             // The email has an account: the person must prove they own it.
-            var valid =
-                existingUser.IsActive &&
-                string.Equals(existingUser.Username, username, StringComparison.OrdinalIgnoreCase) &&
-                _passwordHasher.VerifyHashedPassword(existingUser, existingUser.PasswordHash, request.Password)
-                    != PasswordVerificationResult.Failed;
+            var failure = await CheckExistingAccountAsync(existingUser, username, request.Password, cancellationToken);
 
-            if (!valid)
+            if (failure is not null)
             {
-                return ServiceResult<GymJoinResultDto>.Fail(
-                    "An account with this email already exists. Enter its username and password.",
-                    401);
+                return failure;
             }
         }
         else if (await _users.AnyAsync(x => x.Username.ToLower() == username.ToLower(), cancellationToken))
@@ -380,17 +405,11 @@ public sealed class GymJoinService : IGymJoinService
             });
         }
 
-        var valid =
-            existingUser.IsActive &&
-            string.Equals(existingUser.Username, username, StringComparison.OrdinalIgnoreCase) &&
-            _passwordHasher.VerifyHashedPassword(existingUser, existingUser.PasswordHash, request.Password)
-                != PasswordVerificationResult.Failed;
+        var failure = await CheckExistingAccountAsync(existingUser, username, request.Password, cancellationToken);
 
-        if (!valid)
+        if (failure is not null)
         {
-            return ServiceResult<GymJoinResultDto>.Fail(
-                "An account with this email already exists. Enter its username and password.",
-                401);
+            return failure;
         }
 
         profile.UserId = existingUser.Id;

@@ -45,6 +45,7 @@ public static class IronForgeClientServiceCollectionExtensions
         services.AddScoped(provider => new MemberApiClient(Authorized(provider)));
         services.AddScoped(provider => new NotificationsApiClient(Authorized(provider)));
         services.AddScoped(provider => new PlatformApiClient(Authorized(provider)));
+        services.AddScoped(provider => new AccountApiClient(Authorized(provider)));
 
         // Not signed in yet: plain clients without the JWT handler.
         services.AddScoped<IInvitationService>(provider => new InvitationService(Anonymous(provider)));

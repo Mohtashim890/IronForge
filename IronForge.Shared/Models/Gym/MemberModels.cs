@@ -283,6 +283,12 @@ namespace IronForge.Shared.Models.Gym
 
         public InvoiceDto? NextDueInvoice { get; set; }
 
+        /// <summary>The gym takes online payments: the app offers "Pay now".</summary>
+        public bool OnlinePaymentAvailable { get; set; }
+
+        /// <summary>How to pay at the gym or by bank transfer, set by the gym.</summary>
+        public string? PaymentInstructions { get; set; }
+
         public decimal OutstandingAmount { get; set; }
 
         public string Currency { get; set; } = "USD";

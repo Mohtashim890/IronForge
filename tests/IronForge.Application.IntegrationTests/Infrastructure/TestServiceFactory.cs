@@ -10,6 +10,7 @@ using IronForge.Application.Auditing.AgentTools;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Tenants.Subscriptions;
 using IronForge.Application.Auth.Services;
+using IronForge.Application.Auth.TwoFactor;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
@@ -72,14 +73,55 @@ public sealed class TestServiceFactory
             new PasswordHasher<User>(),
             Options.Create(new JwtSettings
             {
-                Key = "integration-test-signing-key-that-is-long-enough",
+                Key = JwtKey,
                 Issuer = "IronForge.Tests",
                 Audience = "IronForge.Tests",
                 ExpirationMinutes = 15
             }),
             new RefreshTokenService(),
             Audit,
-            Directory);
+            Directory,
+            SignInGuard,
+            TwoFactor);
+
+    public const string JwtKey = "integration-test-signing-key-that-is-long-enough";
+
+    public SignInGuard SignInGuard =>
+        new(new EfRepository<User>(Db), new PasswordHasher<User>(), Audit, Clock);
+
+    /// <summary>
+    /// Two-factor is not required, so tests of other features sign admins in
+    /// with a password; the two-factor tests turn it on as in production.
+    /// </summary>
+    public TwoFactorOptions TwoFactorOptions { get; init; } = new()
+    {
+        EncryptionKey = "integration-test-two-factor-key-long-enough",
+        RequiredForAdmins = false
+    };
+
+    public TwoFactorSecretProtector TwoFactorProtector => new(Options.Create(TwoFactorOptions));
+
+    public TwoFactorService TwoFactor =>
+        new(
+            new EfRepository<User>(Db),
+            new EfRepository<TenantMembership>(Db),
+            TwoFactorProtector,
+            SignInGuard,
+            ContextAccessor,
+            Audit,
+            Options.Create(TwoFactorOptions),
+            Clock);
+
+    /// <summary>One cache per factory, like the API's singleton.</summary>
+    public SessionStateCache SessionCache { get; init; } = new();
+
+    public SessionValidator Sessions =>
+        new(
+            new EfRepository<User>(Db),
+            new EfRepository<TenantMembership>(Db),
+            new EfRepository<Tenant>(Db),
+            SessionCache,
+            Clock);
 
     public TenantInvitationService Invitations =>
         new(
@@ -99,7 +141,8 @@ public sealed class TestServiceFactory
             }),
             new EfRepository<MemberProfile>(Db),
             Directory,
-            Notifications);
+            Notifications,
+            SignInGuard);
 
     public TenantProvisioningService Provisioning =>
         new(
@@ -121,7 +164,9 @@ public sealed class TestServiceFactory
             new EfRepository<AgentDelegationEntity>(Db),
             new UserAuthorizationService(ContextAccessor),
             ContextAccessor,
-            Audit);
+            Audit,
+            new EfRepository<RefreshToken>(Db),
+            SessionCache);
 
     public TenantEntitlementService Entitlements =>
         new(new EfRepository<Tenant>(Db), ContextAccessor);
@@ -312,7 +357,8 @@ public sealed class TestServiceFactory
             Notifications,
             new EfUnitOfWork(Db),
             Audit,
-            Clock);
+            Clock,
+            PaymentGateway);
 
     public const string PassSigningKey = "integration-test-member-pass-key-long-enough";
 
@@ -425,7 +471,8 @@ public sealed class TestServiceFactory
             new EfUnitOfWork(Db),
             Audit,
             Clock,
-            Invitations);
+            Invitations,
+            SignInGuard);
 
     public RoutineService Routines =>
         new(
@@ -532,6 +579,13 @@ public sealed class TestPaymentGateway : IPaymentGateway
     public string Provider => "test";
 
     public bool IsSimulated => true;
+
+    /// <summary>Tests turn it off to act like a platform without an online payment provider.</summary>
+    public bool TakesPayments { get; set; } = true;
+
+    public bool SupportsStripeConnect => false;
+
+    public bool CanTakePayments(GymSettings settings) => TakesPayments;
 
     public Task<CheckoutResult> CreateCheckoutAsync(CheckoutRequest request, CancellationToken cancellationToken = default)
     {

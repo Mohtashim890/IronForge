@@ -124,6 +124,23 @@ services:
     networks:
       - ironforge
 
+  # Daily pg_dump of the database to /opt/ironforge/backups (deploy/BACKUPS.md).
+  ironforge-backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    entrypoint: ["sh", "/usr/local/bin/ironforge-backup"]
+    command: ["loop"]
+
+    env_file:
+      - ../env/production.env
+
+    volumes:
+      - ../scripts/backup.sh:/usr/local/bin/ironforge-backup:ro
+      - ../backups:/backups
+
+    networks:
+      - ironforge
+
   caddy:
     image: caddy:2
     restart: unless-stopped

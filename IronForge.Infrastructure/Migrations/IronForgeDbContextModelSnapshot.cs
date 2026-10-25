@@ -1022,6 +1022,10 @@ namespace IronForge.Api.Migrations
                     b.Property<bool>("MemberPassCheckInEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("PaymentInstructions")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -2016,10 +2020,16 @@ namespace IronForge.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LastLoginAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LockoutEndUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PasswordHash")
@@ -2028,6 +2038,29 @@ namespace IronForge.Api.Migrations
 
                     b.Property<string>("Role")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecurityStamp")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("TwoFactorEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("TwoFactorEnabledAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("TwoFactorLastStep")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("TwoFactorPendingSecret")
+                        .HasColumnType("text");
+
+                    b.PrimitiveCollection<List<string>>("TwoFactorRecoveryCodeHashes")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<string>("TwoFactorSecret")
                         .HasColumnType("text");
 
                     b.Property<string>("Username")
