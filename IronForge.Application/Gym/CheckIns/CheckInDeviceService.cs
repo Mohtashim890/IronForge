@@ -467,8 +467,7 @@ public sealed class KioskService : IKioskService
         {
             DeviceName = device.Name,
             GymName = tenant.Name,
-            MemberPassEnabled = settings?.MemberPassCheckInEnabled ?? false,
-            GymQrEnabled = settings?.GymQrCheckInEnabled ?? false
+            MemberPassEnabled = settings?.MemberPassCheckInEnabled ?? false
         });
     }
 

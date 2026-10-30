@@ -3,6 +3,7 @@ using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Authorization;
@@ -21,16 +22,10 @@ public interface IGymSettingsService
 
     Task<ServiceResult<GymSettingsDto>> RegenerateJoinCodeAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Turns the member pass and the entrance code (gym QR) on or off.</summary>
+    /// <summary>Turns the member pass on or off, and whether the app asks for the phone unlock.</summary>
     Task<ServiceResult<GymSettingsDto>> UpdateCheckInMethodsAsync(
         UpdateCheckInMethodsRequest request,
         CancellationToken cancellationToken = default);
-
-    /// <summary>Starts or resumes Stripe Connect onboarding for the gym.</summary>
-    Task<ServiceResult<StripeConnectLinkDto>> StartStripeConnectAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>Re-reads whether the gym's Stripe account can take payments.</summary>
-    Task<ServiceResult<GymSettingsDto>> RefreshStripeStatusAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>Creates a gym's settings row; used when a tenant is provisioned.</summary>
@@ -107,7 +102,8 @@ public sealed class GymSettingsService : IGymSettingsService
     private readonly IGymAccessService _access;
     private readonly IRepository<GymSettings> _settings;
     private readonly IRepository<Tenant> _tenants;
-    private readonly IPaymentGateway _gateway;
+    private readonly IOnlinePaymentService _payments;
+    private readonly PaymentOptions _paymentOptions;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
 
@@ -115,14 +111,16 @@ public sealed class GymSettingsService : IGymSettingsService
         IGymAccessService access,
         IRepository<GymSettings> settings,
         IRepository<Tenant> tenants,
-        IPaymentGateway gateway,
+        IOnlinePaymentService payments,
+        Microsoft.Extensions.Options.IOptions<PaymentOptions> paymentOptions,
         IAuditService audit,
         TimeProvider clock)
     {
         _access = access;
         _settings = settings;
         _tenants = tenants;
-        _gateway = gateway;
+        _payments = payments;
+        _paymentOptions = paymentOptions.Value;
         _audit = audit;
         _clock = clock;
     }
@@ -239,11 +237,9 @@ public sealed class GymSettingsService : IGymSettingsService
         }
 
         if (settings.MemberPassCheckInEnabled != request.MemberPassEnabled ||
-            settings.GymQrCheckInEnabled != request.GymQrEnabled ||
             settings.RequirePhoneUnlock != request.RequirePhoneUnlock)
         {
             settings.MemberPassCheckInEnabled = request.MemberPassEnabled;
-            settings.GymQrCheckInEnabled = request.GymQrEnabled;
             settings.RequirePhoneUnlock = request.RequirePhoneUnlock;
             settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
 
@@ -255,73 +251,8 @@ public sealed class GymSettingsService : IGymSettingsService
                 AuditOutcome.Succeeded,
                 resourceType: "GymSettings",
                 resourceId: settings.Id.ToString(),
-                reason: $"member pass {(request.MemberPassEnabled ? "on" : "off")}, entrance code {(request.GymQrEnabled ? "on" : "off")}, phone unlock {(request.RequirePhoneUnlock ? "required" : "not required")}",
+                reason: $"member pass {(request.MemberPassEnabled ? "on" : "off")}, phone unlock {(request.RequirePhoneUnlock ? "required" : "not required")}",
                 cancellationToken: cancellationToken);
-        }
-
-        return ServiceResult<GymSettingsDto>.Ok(await MapAsync(settings, cancellationToken));
-    }
-
-    public async Task<ServiceResult<StripeConnectLinkDto>> StartStripeConnectAsync(CancellationToken cancellationToken = default)
-    {
-        var (settings, failure) = await LoadForChangeAsync(cancellationToken);
-
-        if (settings is null)
-        {
-            return GymResults.From<StripeConnectLinkDto, GymSettingsDto>(failure!);
-        }
-
-        if (!_gateway.SupportsStripeConnect)
-        {
-            return GymResults.Invalid<StripeConnectLinkDto>(
-                "Stripe is not configured on this platform.");
-        }
-
-        var link = await _gateway.CreateConnectOnboardingLinkAsync(
-            settings.StripeConnectedAccountId,
-            settings.ContactEmail,
-            cancellationToken);
-
-        if (settings.StripeConnectedAccountId != link.AccountId)
-        {
-            settings.StripeConnectedAccountId = link.AccountId;
-            settings.StripeChargesEnabled = false;
-            settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
-
-            await _settings.SaveChangesAsync(cancellationToken);
-        }
-
-        return ServiceResult<StripeConnectLinkDto>.Ok(new StripeConnectLinkDto { Url = link.Url });
-    }
-
-    public async Task<ServiceResult<GymSettingsDto>> RefreshStripeStatusAsync(CancellationToken cancellationToken = default)
-    {
-        var (settings, failure) = await LoadForChangeAsync(cancellationToken);
-
-        if (settings is null)
-        {
-            return failure!;
-        }
-
-        if (_gateway.SupportsStripeConnect && settings.StripeConnectedAccountId is { } accountId)
-        {
-            var enabled = await _gateway.IsChargesEnabledAsync(accountId, cancellationToken);
-
-            if (enabled != settings.StripeChargesEnabled)
-            {
-                settings.StripeChargesEnabled = enabled;
-                settings.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
-
-                await _settings.SaveChangesAsync(cancellationToken);
-
-                await _audit.RecordAsync(
-                    AuditCategory.Billing,
-                    enabled ? "StripeConnected" : "StripeDisconnected",
-                    AuditOutcome.Succeeded,
-                    resourceType: "GymSettings",
-                    resourceId: settings.Id.ToString(),
-                    cancellationToken: cancellationToken);
-            }
         }
 
         return ServiceResult<GymSettingsDto>.Ok(await MapAsync(settings, cancellationToken));
@@ -364,16 +295,13 @@ public sealed class GymSettingsService : IGymSettingsService
             ReminderDaysBeforeDue = settings.ReminderDaysBeforeDue,
             ReminderDaysAfterDue = settings.ReminderDaysAfterDue.ToList(),
             GracePeriodDays = settings.GracePeriodDays,
-            StripeConnected = settings.StripeChargesEnabled,
-            StripeConnectedAccountId = settings.StripeConnectedAccountId,
-            PaymentsSimulated = _gateway.IsSimulated,
-            StripeAvailable = _gateway.SupportsStripeConnect,
-            OnlinePaymentsAvailable = _gateway.CanTakePayments(settings),
+            PaymentsSimulated = _paymentOptions.AllowSimulated,
+            OnlinePaymentsAvailable = await _payments.IsAvailableAsync(settings, cancellationToken),
             PaymentInstructions = settings.PaymentInstructions,
             MemberPassCheckInEnabled = settings.MemberPassCheckInEnabled,
-            GymQrCheckInEnabled = settings.GymQrCheckInEnabled,
             RequirePhoneUnlock = settings.RequirePhoneUnlock,
-            AccessControlEnabled = tenant?.GetEnabledModules().Contains(PlatformModules.GymAccess) ?? false
+            AccessControlEnabled = tenant?.GetEnabledModules().Contains(PlatformModules.GymAccess) ?? false,
+            CoachingEnabled = tenant?.GetEnabledModules().Contains(PlatformModules.GymCoaching) ?? false
         };
     }
 

@@ -40,9 +40,9 @@ else
         </div>
     </div>
 
-    @if (_me.Status == MemberStatus.Active && (_me.MemberPassCheckInEnabled || _me.GymQrCheckInEnabled))
+    @if (_me.Status == MemberStatus.Active && _me.MemberPassCheckInEnabled)
     {
-        <a class="if-btn primary block" href="/checkin" style="margin-bottom: 14px">⌗ Check in</a>
+        <a class="if-btn primary block" href="/pass" style="margin-bottom: 14px">⌗ Show my pass</a>
     }
 
     @if (_me.Status == MemberStatus.Pending)

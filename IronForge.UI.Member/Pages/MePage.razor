@@ -1,4 +1,4 @@
-@page "/me"
+﻿@page "/me"
 @attribute [Authorize]
 @inject MemberApiClient Me
 @inject IAuthService AuthService
@@ -19,9 +19,13 @@
 <div class="m-card">
     <a class="m-link-row" href="/membership"><span>💳 Membership &amp; payments</span><span>›</span></a>
     <a class="m-link-row" href="/visits"><span>✓ My visits</span><span>›</span></a>
-    <a class="m-link-row" href="/workouts"><span>📒 Workout history</span><span>›</span></a>
+    @if (_me?.CoachingEnabled != false)
+    {
+        <a class="m-link-row" href="/workouts"><span>📒 Workout history</span><span>›</span></a>
+    }
     <a class="m-link-row" href="/notifications"><span>🔔 Notifications</span><span>›</span></a>
     <a class="m-link-row" href="/profile"><span>✎ Edit profile</span><span>›</span></a>
+    <a class="m-link-row" href="/account/security"><span>🔒 Account security</span><span>›</span></a>
 </div>
 
 <div class="m-card">

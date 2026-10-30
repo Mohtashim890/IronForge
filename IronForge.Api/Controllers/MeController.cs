@@ -52,11 +52,6 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> GetPass(CancellationToken cancellationToken) =>
             this.ToActionResult(await _pass.GetMyPassAsync(PhoneId, cancellationToken));
 
-        /// <summary>The member scanned the gym's entrance code (gym QR).</summary>
-        [HttpPost("check-ins")]
-        public async Task<IActionResult> CheckIn(GymQrCheckInRequest request, CancellationToken cancellationToken) =>
-            this.ToActionResult(await _checkIns.CheckInWithGymQrAsync(request.Code, PhoneId, cancellationToken));
-
         /// <summary>Moves the pass to the calling phone; the other phone's pass stops working.</summary>
         [HttpPost("pass/move-here")]
         public async Task<IActionResult> MovePass(CancellationToken cancellationToken) =>
@@ -101,6 +96,11 @@ namespace IronForge.Api.Controllers
         [HttpPost("invoices/{invoiceId:int}/checkout")]
         public async Task<IActionResult> Checkout(int invoiceId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _billing.StartMyCheckoutAsync(invoiceId, cancellationToken));
+
+        /// <summary>"I've paid": asks the gym's payment provider whether the payment came through.</summary>
+        [HttpPost("invoices/{invoiceId:int}/checkout/check")]
+        public async Task<IActionResult> CheckCheckout(int invoiceId, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _billing.CheckMyCheckoutAsync(invoiceId, cancellationToken));
 
         [HttpGet("payments")]
         public async Task<IActionResult> ListPayments(CancellationToken cancellationToken) =>

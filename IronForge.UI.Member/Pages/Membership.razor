@@ -74,9 +74,9 @@
         </div>
     }
 
-    @if (_waitingForPayment)
+    @if (_payingInvoiceId is not null)
     {
-        <button class="if-btn block" @onclick="LoadAsync">I've paid — refresh</button>
+        <button class="if-btn block" disabled="@_checking" @onclick="CheckPaymentAsync">@(_checking ? "Checking…" : "I've paid — check now")</button>
     }
 }
 
@@ -84,7 +84,10 @@
     private MyMembershipDto? _me;
     private List<InvoiceDto> _invoices = [];
     private bool _paying;
-    private bool _waitingForPayment;
+    private bool _checking;
+
+    // The invoice whose checkout was opened in the browser.
+    private int? _payingInvoiceId;
     private string? _error;
     private string? _info;
 
@@ -102,11 +105,30 @@
 
         _me = membership.Data;
         _invoices = (await Me.GetInvoicesAsync()).Data ?? [];
+    }
 
-        if (_waitingForPayment && _invoices.All(x => x.Status is not (InvoiceStatus.Open or InvoiceStatus.Overdue)))
+    /// <summary>Asks the gym's payment provider (through the API) whether the payment went through.</summary>
+    private async Task CheckPaymentAsync()
+    {
+        _checking = true;
+        _error = null;
+
+        var result = await Me.CheckPaymentAsync(_payingInvoiceId!.Value);
+
+        _checking = false;
+
+        if (!result.Success)
         {
-            _info = "Payment received. Thank you!";
-            _waitingForPayment = false;
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _info = result.Data!.Message;
+
+        if (result.Data.Paid)
+        {
+            _payingInvoiceId = null;
+            await LoadAsync();
         }
     }
 
@@ -125,7 +147,7 @@
             return;
         }
 
-        _waitingForPayment = true;
+        _payingInvoiceId = invoice.Id;
         _info = result.Data!.Simulated
             ? "A test checkout opened in your browser. No real money is charged."
             : "Complete the payment in your browser, then come back here.";

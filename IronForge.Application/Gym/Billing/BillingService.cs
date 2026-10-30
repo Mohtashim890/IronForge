@@ -2,6 +2,7 @@ using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Authorization;
@@ -48,8 +49,16 @@ public interface IBillingService
     Task<ServiceResult<List<PaymentDto>>> ListMyPaymentsAsync(
         CancellationToken cancellationToken = default);
 
-    /// <summary>Starts a card checkout for one of the member's own unpaid invoices.</summary>
+    /// <summary>Starts an online checkout (the gym's payment provider) for one of the member's own unpaid invoices.</summary>
     Task<ServiceResult<CheckoutSessionDto>> StartMyCheckoutAsync(
+        int invoiceId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// "I've paid": asks the payment provider about the member's checkout for
+    /// the invoice and applies the payment when it went through.
+    /// </summary>
+    Task<ServiceResult<CheckoutCheckDto>> CheckMyCheckoutAsync(
         int invoiceId,
         CancellationToken cancellationToken = default);
 }
@@ -61,7 +70,7 @@ public sealed class BillingService : IBillingService
     private readonly IRepository<Payment> _payments;
     private readonly IRepository<MemberProfile> _members;
     private readonly IBillingEngine _engine;
-    private readonly IPaymentGateway _gateway;
+    private readonly IOnlinePaymentService _online;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
 
@@ -71,7 +80,7 @@ public sealed class BillingService : IBillingService
         IRepository<Payment> payments,
         IRepository<MemberProfile> members,
         IBillingEngine engine,
-        IPaymentGateway gateway,
+        IOnlinePaymentService online,
         IAuditService audit,
         TimeProvider clock)
     {
@@ -80,7 +89,7 @@ public sealed class BillingService : IBillingService
         _payments = payments;
         _members = members;
         _engine = engine;
-        _gateway = gateway;
+        _online = online;
         _audit = audit;
         _clock = clock;
     }
@@ -186,10 +195,10 @@ public sealed class BillingService : IBillingService
             return GymResults.Forbidden<PaymentDto>(authorization);
         }
 
-        if (request.Method == PaymentMethod.Card)
+        if (request.Method is PaymentMethod.Card or PaymentMethod.Online)
         {
             return GymResults.Invalid<PaymentDto>(
-                "Card payments are taken through checkout. Record cash or bank transfers here.");
+                "Online payments are taken in the app. Record cash or bank transfers here.");
         }
 
         var invoice = await _invoices.FirstOrDefaultTrackedAsync(x => x.Id == invoiceId, cancellationToken);
@@ -513,36 +522,57 @@ public sealed class BillingService : IBillingService
 
         var gym = await _engine.GetGymAsync(invoice.TenantId, cancellationToken);
 
-        if (gym?.Settings is null || !_gateway.CanTakePayments(gym.Settings))
+        if (gym is null)
         {
-            return GymResults.Conflict<CheckoutSessionDto>(
-                $"{gym?.Name ?? "This gym"} does not take online payments yet. Pay at the front desk or as the gym describes.");
+            return GymResults.NotFound<CheckoutSessionDto>("Gym");
         }
 
-        var checkout = await _gateway.CreateCheckoutAsync(
-            new CheckoutRequest
-            {
-                TenantId = invoice.TenantId,
-                InvoiceId = invoice.Id,
-                InvoiceNumber = invoice.Number,
-                Description = $"{gym?.Name}: {invoice.Description}",
-                Amount = invoice.Amount,
-                Currency = invoice.Currency,
-                CustomerEmail = member.Data!.Email,
-                ConnectedAccountId = gym?.Settings is { StripeChargesEnabled: true } settings
-                    ? settings.StripeConnectedAccountId
-                    : null
-            },
+        var checkout = await _online.StartCheckoutAsync(gym, invoice, member.Data!, cancellationToken);
+
+        if (checkout.Success)
+        {
+            await _invoices.SaveChangesAsync(cancellationToken);
+        }
+
+        return checkout;
+    }
+
+    public async Task<ServiceResult<CheckoutCheckDto>> CheckMyCheckoutAsync(
+        int invoiceId,
+        CancellationToken cancellationToken = default)
+    {
+        var member = await _access.GetCurrentMemberAsync(Permissions.GymSelfPayments, cancellationToken: cancellationToken);
+
+        if (!member.Success)
+        {
+            return GymResults.From<CheckoutCheckDto, MemberProfile>(member);
+        }
+
+        var invoice = await _invoices.FirstOrDefaultAsync(
+            x => x.Id == invoiceId && x.MemberProfileId == member.Data!.Id,
             cancellationToken);
 
-        invoice.CheckoutSessionId = checkout.SessionId;
-
-        await _invoices.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<CheckoutSessionDto>.Ok(new CheckoutSessionDto
+        if (invoice is null)
         {
-            Url = checkout.Url,
-            Simulated = _gateway.IsSimulated
+            return GymResults.NotFound<CheckoutCheckDto>("Invoice");
+        }
+
+        var confirmed = await _online.ConfirmInvoiceAsync(invoice.TenantId, invoice.Id, cancellationToken);
+
+        if (!confirmed.Success)
+        {
+            return ServiceResult<CheckoutCheckDto>.Fail(confirmed.ErrorMessage, confirmed.StatusCode);
+        }
+
+        var paid = confirmed.Data;
+
+        return ServiceResult<CheckoutCheckDto>.Ok(new CheckoutCheckDto
+        {
+            Paid = paid,
+            Status = paid ? InvoiceStatus.Paid : invoice.Status,
+            Message = paid
+                ? $"Payment received for {invoice.Number}. Thank you!"
+                : "The payment has not come through yet. If you just paid, try again in a minute."
         });
     }
 

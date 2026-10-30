@@ -5,6 +5,7 @@ WORKDIR /mcp-src
 COPY ["IronForge.Mcp/IronForge.Mcp.csproj", "IronForge.Mcp/"]
 COPY ["IronForge.Application/IronForge.Application.csproj", "IronForge.Application/"]
 COPY ["IronForge.Infrastructure/IronForge.Infrastructure.csproj", "IronForge.Infrastructure/"]
+COPY ["IronForge.Payments/IronForge.Payments.csproj", "IronForge.Payments/"]
 COPY ["IronForge.Shared/IronForge.Shared.csproj", "IronForge.Shared/"]
 
 RUN dotnet restore "IronForge.Mcp/IronForge.Mcp.csproj"

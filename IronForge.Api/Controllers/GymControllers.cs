@@ -1,6 +1,7 @@
 ﻿using IronForge.Api.Helpers;
 using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Fitness;
 using IronForge.Application.Gym.Members;
@@ -9,6 +10,7 @@ using IronForge.Application.Gym.Settings;
 using IronForge.Shared.Models.Gym;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace IronForge.Api.Controllers
 {
@@ -53,13 +55,36 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> RegenerateJoinCode(CancellationToken cancellationToken) =>
             this.ToActionResult(await _settings.RegenerateJoinCodeAsync(cancellationToken));
 
-        [HttpPost("settings/stripe/connect")]
-        public async Task<IActionResult> ConnectStripe(CancellationToken cancellationToken) =>
-            this.ToActionResult(await _settings.StartStripeConnectAsync(cancellationToken));
+    }
 
-        [HttpPost("settings/stripe/refresh")]
-        public async Task<IActionResult> RefreshStripe(CancellationToken cancellationToken) =>
-            this.ToActionResult(await _settings.RefreshStripeStatusAsync(cancellationToken));
+    /// <summary>The gym's own online payment provider account (HitPay, Safepay).</summary>
+    [ApiController]
+    [Route("api/gym/settings/payments")]
+    [Authorize]
+    public sealed class GymPaymentAccountController : ControllerBase
+    {
+        private readonly IGymPaymentAccountService _accounts;
+
+        public GymPaymentAccountController(IGymPaymentAccountService accounts) => _accounts = accounts;
+
+        [HttpGet]
+        public async Task<IActionResult> Get(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _accounts.GetAsync(cancellationToken));
+
+        /// <summary>Connects or updates the provider; the keys are checked with the provider first.</summary>
+        [HttpPut]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> Save(SavePaymentAccountRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _accounts.SaveAsync(request, cancellationToken));
+
+        [HttpPost("test")]
+        [EnableRateLimiting(RateLimitPolicies.Auth)]
+        public async Task<IActionResult> Test(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _accounts.TestAsync(cancellationToken));
+
+        [HttpDelete]
+        public async Task<IActionResult> Remove(CancellationToken cancellationToken) =>
+            this.ToActionResult(await _accounts.RemoveAsync(cancellationToken));
     }
 
     [ApiController]
@@ -94,14 +119,17 @@ namespace IronForge.Api.Controllers
         private readonly IProgressService _progress;
         private readonly IMemberPhotoService _photos;
         private readonly IMemberPassService _passes;
+        private readonly IMemberImportService _import;
 
         public MembersController(
             IMemberService members,
             IRoutineService routines,
             IProgressService progress,
             IMemberPhotoService photos,
-            IMemberPassService passes)
+            IMemberPassService passes,
+            IMemberImportService import)
         {
+            _import = import;
             _members = members;
             _routines = routines;
             _progress = progress;
@@ -112,6 +140,18 @@ namespace IronForge.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> List([FromQuery] MemberQuery query, CancellationToken cancellationToken) =>
             this.ToActionResult(await _members.ListAsync(query, cancellationToken));
+
+        /// <summary>Bulk onboarding, step 1: checks every row of the CSV and saves nothing.</summary>
+        [HttpPost("import/preview")]
+        [RequestSizeLimit(4_000_000)]
+        public async Task<IActionResult> PreviewImport(MemberImportRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _import.PreviewAsync(request, cancellationToken));
+
+        /// <summary>Bulk onboarding, step 2: checks again and creates the valid rows.</summary>
+        [HttpPost("import")]
+        [RequestSizeLimit(4_000_000)]
+        public async Task<IActionResult> Import(MemberImportRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _import.ImportAsync(request, cancellationToken));
 
         [HttpGet("{memberId:int}")]
         public async Task<IActionResult> Get(int memberId, CancellationToken cancellationToken) =>
@@ -336,10 +376,6 @@ namespace IronForge.Api.Controllers
         [HttpPost("users")]
         public async Task<IActionResult> CreateForMember(CreateTerminalUserRequest request, CancellationToken cancellationToken) =>
             this.ToActionResult(await _terminals.CreateForMemberAsync(request, cancellationToken));
-
-        [HttpPost("users/import")]
-        public async Task<IActionResult> Import(ImportTerminalUsersRequest request, CancellationToken cancellationToken) =>
-            this.ToActionResult(await _terminals.ImportAsync(request, cancellationToken));
     }
 
     [ApiController]

@@ -7,7 +7,7 @@ IronForge is a multi-tenant SaaS for gyms. Each gym (tenant) manages members, me
 | Gym dashboard (web) | Gym admins and trainers | `IronForge.Web` + `IronForge.UI.Admin` | https://localhost:7056 |
 | Member app (mobile) | Gym members | `IronForge` (MAUI) + `IronForge.UI.Member` | Android / Windows |
 | Platform console (web) | IronForge operators | `IronForge.Platform` + `IronForge.UI.Platform` | https://localhost:7090 |
-| API | All apps, Stripe webhooks | `IronForge.Api` | https://localhost:7226 |
+| API | All apps, payment provider webhooks | `IronForge.Api` | https://localhost:7226 |
 | MCP server | External agents | `IronForge.Mcp` | |
 
 ## Architecture
@@ -18,14 +18,15 @@ IronForge.UI.Admin       gym dashboard pages          ─┐
 IronForge.UI.Member      member app pages              ├─ Razor class libraries hosted by the apps
 IronForge.UI.Platform    platform console pages       ─┘
 IronForge.Application    domain entities and services (Gym/*, Agents/*, Tenants/*, Auth/*)
-IronForge.Infrastructure EF Core + PostgreSQL, Stripe, SMTP email, background jobs, demo seeder
+IronForge.Infrastructure EF Core + PostgreSQL, SMTP email, background jobs, demo seeder
+IronForge.Payments       online payment providers: HitPay (Malaysia), Safepay (Pakistan), test checkout
 IronForge.Api            REST API, rate limiting, payment pages
 IronForge.Migrator       migrations and demo seeding
 ```
 
 - **Multi-tenancy:** every gym's data is isolated by EF Core query filters on the tenant in the signed-in user's token. Cross-tenant operator views read through explicit, permission-checked services.
 - **Billing:** `BillingBackgroundService` runs hourly, one instance at a time (a PostgreSQL advisory lock). Each run issues invoices ahead of each billing date, marks late invoices overdue, expires memberships after the grace period, and sends reminders before and after the due date. Every step is idempotent.
-- **Payments:** members pay through Stripe Checkout; each gym can connect its own Stripe account (Connect Standard). Without Stripe keys a **simulated checkout** is used and no money moves. Webhooks are verified and idempotent.
+- **Payments:** each gym connects its own **HitPay** (Malaysia: FPX, DuitNow, Touch 'n Go, cards) or **Safepay** (Pakistan) account under *Settings → Online payments*, and members pay invoices in the app straight into it. An invoice is marked paid only on what the provider's API reports (webhook, return page or "I've paid"), idempotently. Without a provider, members pay at the desk or by bank transfer; demo deployments can offer a **simulated checkout** (`Payments:AllowSimulated`) where no money moves.
 - **Email:** emails are written to an outbox in the same transaction as the change that caused them. `EmailOutboxProcessor` delivers them with retries and backoff.
 - **AI agents:** each agent is a database definition with governed tools (Microsoft.Extensions.AI on OpenAI). An agent never has more authority than the user it acts for. Risky actions require human approval, and High-risk ones require a second admin (four-eyes).
   - **Gym Admin Agent** (Admin, Trainer): searches members, attendance, revenue and overdue invoices. With approval, it can send payment reminders, freeze memberships, record cash payments (capped at 2,000) and send announcements.
@@ -77,7 +78,7 @@ dotnet run --project IronForge.Web --launch-profile https
 dotnet run --project IronForge.Platform --launch-profile https
 ```
 
-To try real Stripe test payments, set `Stripe:SecretKey` and `Stripe:WebhookSecret` for the API and forward webhooks with `stripe listen --forward-to https://localhost:7226/api/payments/stripe/webhook`. Pay with test card `4242 4242 4242 4242`.
+To try real sandbox payments, sign in as a gym admin, open *Settings → Online payments* and enter the gym's HitPay sandbox keys (MYR gyms) or Safepay sandbox keys (PKR gyms, e.g. Iron Paradise). Members then pay on the provider's sandbox checkout (HitPay test card `4242 4242 4242 4242`); returning to IronForge confirms the payment, so no webhook tunnel is needed locally. The provider adapters can be checked against the real sandboxes with `IRONFORGE_HITPAY_SANDBOX_KEY`, `IRONFORGE_SAFEPAY_SANDBOX_PUBLIC_KEY` and `IRONFORGE_SAFEPAY_SANDBOX_SECRET` set: `dotnet test tests/IronForge.Application.Tests --filter ProviderSandboxTests`.
 
 The whole stack can also run with `docker compose up` (Caddy serves `https://localhost`, `https://platform.localhost` and `https://api.localhost`).
 
@@ -121,7 +122,7 @@ The integration tests cover:
 
 ## Production notes
 
-- Set `Stripe__SecretKey` and `Stripe__WebhookSecret` before onboarding real gyms. Without them the API logs a warning and payments stay simulated.
+- Gyms connect their own payment provider in the dashboard (live keys) and register the webhook URL it shows. Keep `Payments__AllowSimulated=false`; optionally set `Payments__EncryptionKey`.
 - Set `Email__Host`, `Email__Username`, `Email__Password` and `Email__FromAddress`; otherwise emails are only logged.
 - The web apps persist their Data Protection keys in the `/keys` volume so sign-ins survive deployments.
 - CORS allows only the web origins in `appsettings.Production.json`.

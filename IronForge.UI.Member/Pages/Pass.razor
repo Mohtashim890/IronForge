@@ -1,5 +1,4 @@
-@page "/pass"
-@page "/checkin"
+﻿@page "/pass"
 @attribute [Authorize]
 @implements IDisposable
 @inject MemberApiClient Me
@@ -7,9 +6,9 @@
 @inject IMemberPassStore PassStore
 @inject IPhoneUnlock PhoneUnlock
 
-<PageTitle>Check in | IronForge</PageTitle>
+<PageTitle>My pass | IronForge</PageTitle>
 
-<h1 style="font-size: 1.4rem">Check in</h1>
+<h1 style="font-size: 1.4rem">My pass</h1>
 
 @if (_loading)
 {
@@ -27,13 +26,6 @@ else
         <div class="if-alert success">@_status</div>
     }
 
-    @if (_result is not null)
-    {
-        <div style="margin-bottom: 14px">
-            <CheckInResultPanel Result="_result" />
-        </div>
-    }
-
     @if (_onAnotherPhone)
     {
         <div class="m-card">
@@ -43,29 +35,6 @@ else
                 and we'll email you about it.
             </p>
             <button class="if-btn primary block" disabled="@_busy" @onclick="MoveHereAsync">Move my pass to this phone</button>
-        </div>
-    }
-
-    @if (_gymQr)
-    {
-        <div class="m-card">
-            <strong>Scan the entrance code</strong>
-            <p class="if-small if-muted" style="margin: 4px 0 10px">
-                Point your camera at the QR code on the check-in screen at the gym.
-            </p>
-            @if (_scanning)
-            {
-                <QrScanner AutoStart="true" OnCode="CheckInWithGymQrAsync" StartLabel="Start camera" />
-                <button class="if-btn block" style="margin-top: 10px" @onclick="() => _scanning = false">Cancel</button>
-            }
-            else
-            {
-                <button class="if-btn primary block" disabled="@(_busy || _offline)" @onclick="StartScanAsync">⌗ Scan entrance code</button>
-                @if (_offline)
-                {
-                    <p class="if-small if-muted" style="margin: 6px 0 0">Scanning needs internet. @(_pass is null ? "" : "Show your pass instead.")</p>
-                }
-            }
         </div>
     }
 
@@ -94,7 +63,7 @@ else
 
                 <div class="m-pass-timer" aria-hidden="true"><span style="width: @(_remainingPercent)%"></span></div>
                 <p class="if-small if-muted" style="margin: 8px 0 0">
-                    @(_gymQr ? "Or show" : "Show") this pass at the front desk or the check-in screen.
+                    Show this pass at the front desk or hold it up to the kiosk camera.
                     It changes every @_pass.StepSeconds seconds, so screenshots don't work.
                     @if (_pass.RequirePhoneUnlock)
                     {
@@ -149,9 +118,9 @@ else
         </div>
     }
 
-    @if (_pass is null && !_gymQr && !_onAnotherPhone && _error is null)
+    @if (_passOff)
     {
-        <div class="m-card if-empty">Your gym checks you in at the front desk. Tell the staff your name when you arrive.</div>
+        <div class="m-card if-empty">Your gym does not use the member pass. Check in at the front desk, or with your fingerprint if the gym has a fingerprint terminal.</div>
     }
 }
 
@@ -169,14 +138,12 @@ else
     private Timer? _timer;
     private DateTime? _showingUntil;
     private bool _loading = true;
-    private bool _gymQr;
+    private bool _passOff;
     private bool _requireUnlock = true;
     private bool _onAnotherPhone;
-    private bool _scanning;
     private bool _offline;
     private bool _busy;
     private bool _confirmReset;
-    private CheckInResultDto? _result;
     private string? _error;
     private string? _status;
     private string? _unlockNote;
@@ -194,7 +161,6 @@ else
         if (membership.Success)
         {
             var me = membership.Data!;
-            _gymQr = me.GymQrCheckInEnabled;
             _requireUnlock = me.RequirePhoneUnlock;
 
             if (me.MemberPassCheckInEnabled)
@@ -204,6 +170,7 @@ else
             else
             {
                 // The gym turned the pass off: forget the secret on this phone.
+                _passOff = true;
                 await PassStore.ClearAsync();
             }
         }
@@ -341,46 +308,6 @@ else
         _remainingPercent = 100.0 * (_pass.StepSeconds - elapsed) / _pass.StepSeconds;
 
         StateHasChanged();
-    }
-
-    private async Task StartScanAsync()
-    {
-        _result = null;
-        _error = null;
-        _status = null;
-
-        if (await ConfirmOwnerAsync("Check in at your gym"))
-        {
-            _scanning = true;
-        }
-    }
-
-    private async Task CheckInWithGymQrAsync(string code)
-    {
-        if (_busy)
-            return;
-
-        _busy = true;
-        _scanning = false;
-
-        var result = await Me.CheckInWithGymQrAsync(code, _phoneId);
-
-        _busy = false;
-
-        if (result.Success)
-        {
-            _result = result.Data;
-            _error = null;
-        }
-        else if (result.StatusCode == MemberApiClient.PassOnAnotherPhone)
-        {
-            _onAnotherPhone = true;
-            _error = null;
-        }
-        else
-        {
-            _error = result.ErrorMessage;
-        }
     }
 
     private async Task MoveHereAsync()

@@ -1,8 +1,8 @@
 <div class="nav-item">
-    <NavLink class="nav-link" href="@Href" Match="NavLinkMatch.Prefix">
+    <PrefixNavLink class="nav-link" href="@Href" Except="Except">
         <span class="nav-icon" aria-hidden="true">@Icon</span>
         <span>@Text</span>
-    </NavLink>
+    </PrefixNavLink>
 </div>
 
 @code {
@@ -11,4 +11,7 @@
     [Parameter] public string Icon { get; set; } = "•";
 
     [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    /// <summary>Sub-paths that have their own sidebar entry, so this one stays inactive there.</summary>
+    [Parameter] public string[]? Except { get; set; }
 }

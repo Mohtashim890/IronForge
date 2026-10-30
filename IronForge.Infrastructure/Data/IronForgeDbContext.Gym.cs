@@ -21,6 +21,8 @@ namespace IronForge.Infrastructure.Data
         public DbSet<Payment> Payments => Set<Payment>();
         public DbSet<InvoiceReminder> InvoiceReminders => Set<InvoiceReminder>();
         public DbSet<ProcessedWebhookEvent> ProcessedWebhookEvents => Set<ProcessedWebhookEvent>();
+
+        public DbSet<GymPaymentAccount> GymPaymentAccounts => Set<GymPaymentAccount>();
         public DbSet<Exercise> Exercises => Set<Exercise>();
         public DbSet<WorkoutRoutine> WorkoutRoutines => Set<WorkoutRoutine>();
         public DbSet<RoutineDay> RoutineDays => Set<RoutineDay>();
@@ -48,7 +50,6 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.Address).HasMaxLength(300);
                 entity.Property(x => x.Phone).HasMaxLength(50);
                 entity.Property(x => x.ContactEmail).HasMaxLength(256);
-                entity.Property(x => x.StripeConnectedAccountId).HasMaxLength(100);
                 entity.Property(x => x.PaymentInstructions).HasMaxLength(1000);
                 entity.Property(x => x.ReminderDaysAfterDue).IsRequired();
 
@@ -253,6 +254,7 @@ namespace IronForge.Infrastructure.Data
                 entity.Property(x => x.Currency).IsRequired().HasMaxLength(3);
                 entity.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
                 entity.Property(x => x.CheckoutSessionId).HasMaxLength(200);
+                entity.Property(x => x.CheckoutProvider).HasMaxLength(30);
                 Money(entity.Property(x => x.Amount));
                 entity.Property(x => x.Version).IsRowVersion();
                 entity.Ignore(x => x.IsUnpaid);
@@ -309,6 +311,21 @@ namespace IronForge.Infrastructure.Data
                     .WithMany()
                     .HasForeignKey(x => x.InvoiceId)
                     .OnDelete(DeleteBehavior.Cascade);
+
+                TenantOwned(entity);
+                entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);
+            });
+
+            // One provider account per gym; keys are stored encrypted.
+            modelBuilder.Entity<GymPaymentAccount>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+                entity.Property(x => x.Provider).IsRequired().HasMaxLength(30);
+                entity.Property(x => x.ApiKeyEncrypted).IsRequired().HasMaxLength(2000);
+                entity.Property(x => x.SecretEncrypted).IsRequired().HasMaxLength(2000);
+                entity.Property(x => x.WebhookSecretEncrypted).HasMaxLength(2000);
+                entity.Property(x => x.ApiKeyHint).IsRequired().HasMaxLength(20);
+                entity.HasIndex(x => x.TenantId).IsUnique();
 
                 TenantOwned(entity);
                 entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);

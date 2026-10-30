@@ -40,21 +40,6 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> Me(CancellationToken cancellationToken) =>
             this.ToActionResult(await _kiosk.AuthenticateAsync(Request.Headers[KioskHeaders.DeviceKey], cancellationToken));
 
-        /// <summary>The entrance code to show now; the screen fetches the next one when it expires.</summary>
-        [HttpGet("gym-qr")]
-        [EnableRateLimiting(RateLimitPolicies.Device)]
-        public async Task<IActionResult> GymQr(CancellationToken cancellationToken)
-        {
-            var device = await _kiosk.AuthenticateAsync(Request.Headers[KioskHeaders.DeviceKey], cancellationToken);
-
-            if (!device.Success)
-            {
-                return this.ToErrorResult(device);
-            }
-
-            return this.ToActionResult(await _checkIns.GetGymQrAsync(cancellationToken));
-        }
-
         [HttpPost("check-ins")]
         [EnableRateLimiting(RateLimitPolicies.Device)]
         public async Task<IActionResult> CheckIn(ScanPassRequest request, CancellationToken cancellationToken)

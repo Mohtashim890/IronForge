@@ -147,7 +147,7 @@ public sealed class MemberPassService : IMemberPassService
                         $"Your {gym?.Name ?? "gym"} check-in pass was moved to another phone just now; " +
                         "the pass on your previous phone no longer works.\n\n" +
                         "If this wasn't you, change your password and tell the front desk.",
-                    Link = "/checkin",
+                    Link = "/pass",
                     SendEmail = true
                 });
         }
@@ -242,7 +242,7 @@ public sealed class MemberPassService : IMemberPassService
         if (gym is null || !gym.Settings.MemberPassCheckInEnabled)
         {
             return GymResults.Conflict<MemberPassDto>(
-                "Your gym does not use the member pass. Check in at the front desk or with the entrance code.");
+                "Your gym does not use the member pass. Check in at the front desk, or with your fingerprint if the gym has a fingerprint terminal.");
         }
 
         return ServiceResult<MemberPassDto>.Ok(new MemberPassDto

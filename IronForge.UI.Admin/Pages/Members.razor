@@ -12,7 +12,10 @@
             <p>Everyone with a membership at your gym.</p>
         </div>
         <AuthorizeView Policy="@Permissions.GymMembersManage">
-            <button class="if-btn primary" type="button" @onclick="OpenAdd">+ Add member</button>
+            <div class="if-row">
+                <a class="if-btn" href="/members/import">Import members</a>
+                <button class="if-btn primary" type="button" @onclick="OpenAdd">+ Add member</button>
+            </div>
         </AuthorizeView>
     </div>
 

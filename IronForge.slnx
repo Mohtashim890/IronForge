@@ -6,6 +6,7 @@
     <Project Path="IronForge.Mcp.Client/IronForge.Mcp.Client.csproj" />
     <Project Path="IronForge.Mcp/IronForge.Mcp.csproj" />
     <Project Path="IronForge.Migrator/IronForge.Migrator.csproj" />
+    <Project Path="IronForge.Payments/IronForge.Payments.csproj" />
     <Project Path="IronForge.Shared/IronForge.Shared.csproj" />
     <Project Path="IronForge.Platform/IronForge.Platform.csproj" />
     <Project Path="IronForge.UI.Admin/IronForge.UI.Admin.csproj" />

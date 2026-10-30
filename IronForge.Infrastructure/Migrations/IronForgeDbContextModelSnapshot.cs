@@ -978,6 +978,64 @@ namespace IronForge.Api.Migrations
                     b.ToTable("FitnessGoals");
                 });
 
+            modelBuilder.Entity("IronForge.Application.Entities.GymPaymentAccount", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ApiKeyEncrypted")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("ApiKeyHint")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsLive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("SecretEncrypted")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("VerifiedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WebhookSecretEncrypted")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("GymPaymentAccounts");
+                });
+
             modelBuilder.Entity("IronForge.Application.Entities.GymSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -1004,9 +1062,6 @@ namespace IronForge.Api.Migrations
 
                     b.Property<int>("GracePeriodDays")
                         .HasColumnType("integer");
-
-                    b.Property<bool>("GymQrCheckInEnabled")
-                        .HasColumnType("boolean");
 
                     b.Property<int>("InvoiceLeadDays")
                         .HasColumnType("integer");
@@ -1039,13 +1094,6 @@ namespace IronForge.Api.Migrations
 
                     b.Property<bool>("RequirePhoneUnlock")
                         .HasColumnType("boolean");
-
-                    b.Property<bool>("StripeChargesEnabled")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("StripeConnectedAccountId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
 
                     b.Property<int>("TenantId")
                         .HasColumnType("integer");
@@ -1080,6 +1128,10 @@ namespace IronForge.Api.Migrations
                     b.Property<decimal>("Amount")
                         .HasPrecision(12, 2)
                         .HasColumnType("numeric(12,2)");
+
+                    b.Property<string>("CheckoutProvider")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
 
                     b.Property<string>("CheckoutSessionId")
                         .HasMaxLength(200)
@@ -2424,6 +2476,15 @@ namespace IronForge.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("IronForge.Application.Entities.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IronForge.Application.Entities.GymPaymentAccount", b =>
+                {
                     b.HasOne("IronForge.Application.Entities.Tenant", null)
                         .WithMany()
                         .HasForeignKey("TenantId")

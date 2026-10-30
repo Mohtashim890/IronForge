@@ -209,6 +209,25 @@
                                 Lost phone or a shared pass? Resetting makes the member's current pass stop working; their app downloads a new one.
                             </p>
                             <button class="if-btn" disabled="@(_busy || !s.HasAppAccount)" @onclick="() => _confirmResetPass = true">Reset check-in pass</button>
+
+                            @if (_accessControl)
+                            {
+                                <p class="if-small if-muted" style="margin: 14px 0 6px"><strong>Fingerprint terminals</strong></p>
+                                @if (_terminalUser is { } user)
+                                {
+                                    <p class="if-small" style="margin: 0">
+                                        Terminal user <span class="if-mono">@user.Pin</span> ·
+                                        @(user.HasFingerprint ? "finger enrolled" : "no finger enrolled yet: enrol it on the terminal under this number") ·
+                                        @(user.AccessEnabled switch { true => $"may enter until {GymFormat.Date(user.ValidUntil)}", false => "refused at the terminals", null => "sent at the terminals' next poll" })
+                                        · <a href="/access/terminal-users">Fingerprint check-in</a>
+                                    </p>
+                                }
+                                else
+                                {
+                                    <p class="if-small if-muted" style="margin: 0 0 6px">Not on the fingerprint terminals. Link an existing terminal user on <a href="/access/terminal-users">Fingerprint check-in</a>, or give the member a new number:</p>
+                                    <button class="if-btn" disabled="@_busy" @onclick="AddToTerminalsAsync">Add to fingerprint terminals</button>
+                                }
+                            }
                         </div>
                     </div>
                 </div>
@@ -320,7 +339,7 @@
                     <ul class="if-list">
                         @foreach (var visit in _member.RecentCheckIns)
                         {
-                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", CheckInMethod.Terminal => "Fingerprint", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
+                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.Terminal => "Fingerprint", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
                         }
                     </ul>
                 }
@@ -417,6 +436,8 @@
     private UpdateMemberRequest _edit = new();
     private bool _confirmDelete;
     private bool _confirmResetPass;
+    private bool _accessControl;
+    private TerminalUserDto? _terminalUser;
     private bool _assigning;
     private RoutineBuilder? _builder;
 
@@ -466,6 +487,27 @@
         await RunAsync(() => Gym.ResetMemberPassAsync(MemberId), "Check-in pass reset. The old pass no longer works.");
     }
 
+    private async Task AddToTerminalsAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await Gym.CreateTerminalUserAsync(MemberId);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _message = $"{_member!.Summary.FullName} is terminal user {result.Data!.Pin}. On the terminal: Menu → User Mgt. → find {result.Data.Pin} → enrol a fingerprint.";
+            await LoadAsync();
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
     private async Task LoadAsync()
     {
         var result = await Gym.GetMemberAsync(MemberId);
@@ -478,6 +520,12 @@
 
         _member = result.Data!;
         _planId = _member.Summary.MembershipPlanId ?? _plans.FirstOrDefault(x => x.IsActive)?.Id ?? 0;
+
+        // Fingerprint status, when the gym has terminals (module Access control).
+        _accessControl = (await Gym.GetSettingsAsync()).Data?.AccessControlEnabled == true;
+        _terminalUser = _accessControl
+            ? (await Gym.GetTerminalUsersAsync()).Data?.FirstOrDefault(x => x.MemberId == MemberId)
+            : null;
 
         var progress = await Gym.GetMemberProgressAsync(MemberId);
 

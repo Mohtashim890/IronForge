@@ -10,12 +10,12 @@ IronForge is a **multi-tenant, agentic gym management SaaS**. Each tenant is a g
 
 Objectives (the locked v1 scope):
 1. **Gym staff** (Admin, Trainer) run their gym from the **web dashboard**:
-   - members (with photos), join requests, membership plans, invoices and payments
+   - members (with photos), bulk member import (CSV), join requests, membership plans, invoices and payments
    - check-ins: front desk (pass scan or name search), unattended kiosks (`/kiosk`), check-in devices
    - ZKTeco fingerprint terminals (module `gym.access`): terminal users, linking, terminal simulator
    - exercise library and routines, announcements, settings, staff, AI agents, approvals, activity log
 2. **Gym members** use the **MAUI mobile app**:
-   - Check in tab: rotating QR pass (works offline) and/or scanning the gym's entrance code, as the gym chose; photo
+   - Pass tab: rotating QR pass (works offline) shown at the front desk or a kiosk, if the gym uses it; photo
    - membership and invoices with "Pay now"
    - routines, workout logging, progress (weight and volume charts), goals
    - visits, notifications, profile, and an **AI Fitness Coach**
@@ -33,6 +33,8 @@ Objectives (the locked v1 scope):
 - class booking, POS/shop, payroll, nutrition tracking, push notifications, streaming chat
 - staff shift clock-in (check-in means staff checking members in)
 - other access hardware than ZKTeco push-protocol terminals (RFID-only readers, other brands' turnstile controllers); IronForge never stores biometric templates
+- a check-in where the member scans a code shown by the gym ("gym QR"): removed on purpose; members check in with their own pass, a fingerprint, or by name at the desk
+- importing staff: bulk import is for members only; staff are invited one by one (Staff page)
 - automated billing of tenants by the platform (operators set tenant subscription status manually)
 - a tenant-less platform AI agent, multiple currencies per gym
 
@@ -51,16 +53,17 @@ Work branch: `feature/gym-platform`. Do not commit or push unless the user asks.
 | `IronForge.Web` | Blazor Web App (Interactive Server, prerender off) | Gym dashboard host; `ClientAudience.Staff` |
 | `IronForge.Platform` | Blazor Web App | Operator console host; `ClientAudience.Platform` |
 | `IronForge` | .NET MAUI Blazor Hybrid (Android, iOS, MacCatalyst, Windows) | Member app host; `ClientAudience.Member` |
-| `IronForge.Api` | ASP.NET Core Web API | REST API, rate limiting, Stripe webhook, simulated payment pages, background jobs |
+| `IronForge.Api` | ASP.NET Core Web API | REST API, rate limiting, payment webhooks and return pages, simulated payment pages, background jobs |
 | `IronForge.Application` | Class library | **Domain entities** (`Entities/*`, `Entities/Gym/*`; there is no separate Domain project) and application services:<br>- `Gym/*`: Common, Members, Billing, Fitness, Notifications, Settings, AgentTools<br>- `Agents/*`, `Tenants/*`, `Auth/*`, `Auditing/*` |
-| `IronForge.Infrastructure` | Class library | EF Core 10 + Npgsql:<br>- `Data/IronForgeDbContext.cs` plus the partial `IronForgeDbContext.Gym.cs`<br>- `Migrations/`, `Persistence/*` stores<br>- Stripe and simulated gateways (`Payments/*`), SMTP email (`Email/*`)<br>- background jobs (`Background/*`), demo seeder (`Data/Seeding/DemoDataSeeder.cs`)<br>- DI extension `GymPlatformServiceCollectionExtensions.cs` |
+| `IronForge.Infrastructure` | Class library | EF Core 10 + Npgsql:<br>- `Data/IronForgeDbContext.cs` plus the partial `IronForgeDbContext.Gym.cs`<br>- `Migrations/`, `Persistence/*` stores<br>- SMTP email (`Email/*`)<br>- background jobs (`Background/*`), demo seeder (`Data/Seeding/DemoDataSeeder.cs`)<br>- DI extension `GymPlatformServiceCollectionExtensions.cs` |
+| `IronForge.Payments` | Class library | The payments module: online payment providers implementing `IPaymentProvider` (`HitPay/HitPayProvider`, `Safepay/SafepayProvider`, `Simulated/SimulatedPaymentProvider`), typed HttpClients, `AddIronForgePayments()` (called by `AddGymPlatform`). Only this project knows a provider's API |
 | `IronForge.Mcp` | Web | MCP server exposing the same governed tool catalogue to external agents |
 | `IronForge.Mcp.Client` | Web | Demo external MCP client |
 | `IronForge.Migrator` | Console | Applies migrations; `--seed-demo [--reset] [--force]`; `--reset-two-factor <email>` (operator: lost authenticator) |
 | `tests/IronForge.Application.Tests` | xUnit + Moq | Unit tests |
 | `tests/IronForge.Application.IntegrationTests` | xUnit + Testcontainers.PostgreSql | Integration tests against real PostgreSQL (needs Docker) |
 
-Dependency direction: Api, Mcp and Migrator → Infrastructure → Application → Shared. Web, Platform and MAUI → their UI RCL → Shared. The front ends never reference Application.
+Dependency direction: Api, Mcp and Migrator → Infrastructure → Payments → Application → Shared. Web, Platform and MAUI → their UI RCL → Shared. The front ends never reference Application.
 
 ---
 
@@ -92,7 +95,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - `IUnitOfWork.ExecuteInTransactionAsync` covers multi-save operations. All repositories in a scope share one DbContext.
 - Money is `numeric(12,2)`. Enums are stored as strings via `HasConversion<string>()`. Instants are UTC (`DateTime`). Calendar dates (billing, due dates, workouts) are `DateOnly` in the **gym's time zone**; use `GymCalendar.Today(clock, tz)`.
 - `TimeProvider` is injected for all "now" logic (`TimeProvider.System` in production, `TestClock` in tests).
-- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `SignInHardeningAndPaymentInstructions`. Add one with:
+- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `RemoveGymQrCheckIn`. Add one with:
   ```
   ConnectionStrings__DefaultConnection="Host=localhost;Database=design;Username=x;Password=x" dotnet ef migrations add <Name> --project IronForge.Infrastructure --startup-project IronForge.Infrastructure
   ```
@@ -126,7 +129,7 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Application �
 - **Tenant roles** (`TenantRoles`):
   - **Admin**: all `gym.*` staff permissions, agents, MCP, approvals.decide, audit.read, tenant.members.*
   - **Trainer**: gym.members.read, gym.checkins.manage, gym.routines.manage, agents.read
-  - **Member**: gym.self.read, gym.self.workouts.write, gym.self.payments, gym.self.checkin
+  - **Member**: gym.self.read, gym.self.workouts.write, gym.self.payments
 - **Platform role** `PlatformAdmin` grants `platform.tenants.manage` regardless of tenant.
 - **Permission constants** are in `IronForge.Shared/Authorization/Permissions.cs`. Front ends gate UI with `[Authorize(Policy = Permissions.X)]` and `<AuthorizeView Policy=...>` through `PermissionPolicyProvider`.
 - **Subscription access**: `Tenant.HasAccess(now)` requires IsActive and status Active, PastDue, or Trial-not-ended. It is checked at tenant selection and token refresh.
@@ -172,6 +175,12 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   2. Issue the first invoice immediately.
   3. Optionally send an app invitation. On accept, `TenantInvitationService.LinkMemberProfileAsync` links the profile by email; with no profile, it creates a Pending one.
   4. A staff-added member without an account gets credentials only through an invitation: staff use "Send app invitation" on the member page (`POST api/gym/members/{id}/app-invitation`, `MemberService.SendAppInvitationAsync`; emails the link and returns it to share; a new link revokes the old one).
+- **Bulk import** (`MemberImportService`, `MemberImportCsv`, format in `Shared/Models/Gym/MemberImportModels.cs` `MemberImportFormat`, page `/members/import`, `POST api/gym/members/import/preview` then `POST api/gym/members/import`, permission `gym.members.manage`):
+  - CSV, UTF-8 (BOM ok), header row, comma or semicolon, RFC 4180 quoting; header names case/space/underscore-insensitive; unknown columns refuse the file; at most 2000 rows / 2 MB.
+  - Columns: `FullName`*, `Email`*, `Plan`* (active plan name), `Phone`, `PaidThrough`, `MemberSince`, `DateOfBirth` (dates `yyyy-MM-dd`), `Gender` (Female/Male/Other), `EmergencyContact`, `Notes`.
+  - Preview saves nothing; import re-validates and creates the valid rows in one transaction (errors are reported per row and skipped). Every row becomes an Active, approved member; existing members (same email) are skipped; an email of a gym Admin/Trainer is refused (members only); an existing IronForge account is linked (Member role activated).
+  - **No back-billing and no invoices at import**: `NextBillingDate` = day after `PaidThrough` if it is today or later, else today; the billing job issues invoices as usual. Optional app invitations (`SendInvitations`). Audited `MembersImported`.
+  - Separate from fingerprints: imported members are linked to terminal users afterwards on `/access/terminal-users`.
 - **Join with code by a staff-added member** (approved profile, no `UserId`): no request is created and the email alone never hands over the profile. With no account for the email, an invitation is emailed (`GymJoinResultDto.InvitationEmailed`). With an existing account, its username and password link it and grant access (`AccessGranted`).
 - **Approve**: Pending → Active, NextBillingDate ??= today, first invoice issued, welcome notification. **Reject**: → Cancelled.
 - **Freeze**: Active → Frozen until a date; NextBillingDate and PaidThrough shift forward by the freeze length. The billing job unfreezes the member after FrozenUntil.
@@ -185,12 +194,11 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - `AuthService.SignInAsync` refuses sign-in (403 plus the reason) when an account has no active gym membership and only pending or declined requests. Wrong passwords stay 401 "Invalid username or password". PlatformAdmins are exempt.
 - **A new gym has no membership plans.** Members cannot be added or approved until an Admin creates one; the dashboard, Members and Join requests pages say so and link to `/plans`.
 - **Check-in** (`Gym/Members/CheckInService`, `Gym/CheckIns/*`): every method goes through `CheckInPolicy` and returns `CheckInResultDto` (Allowed / AlreadyCheckedIn / Denied; a refusal is a 200, not an error).
-  - **Admins choose the self check-in methods** (`GymSettings.MemberPassCheckInEnabled`, default on; `GymQrCheckInEnabled`, default off; `PUT api/gym/settings/check-in-methods`, Settings page, audited `CheckInMethodsChanged`). A switched-off method answers 409 everywhere (pass download, staff and kiosk scans, entrance code, member gym-QR check-in). Front desk by name always works. The kiosk re-reads the switches every minute; the member app on each visit to the Check in tab (and forgets a cached pass when the pass is off).
+  - **Admins switch the member pass on or off** (`GymSettings.MemberPassCheckInEnabled`, default on) and choose `RequirePhoneUnlock` (`PUT api/gym/settings/check-in-methods`, Settings page, audited `CheckInMethodsChanged`). With the pass off, pass download, staff and kiosk scans answer 409, the kiosk tells members to go to the desk, and the app hides the Pass tab and forgets a cached pass. Front desk by name always works; fingerprint terminals are separate (module `gym.access`).
   - **Rule**: only Active members. An overdue invoice still allows entry **during `GracePeriodDays` with a warning**; past it, entry is refused (`GracePeriodEnded`) even before the billing job marks the member Expired.
   - A second check-in within 30 minutes returns `AlreadyCheckedIn` and records nothing.
   - Every refusal is a `CheckInDenial` row (kept apart from `CheckIn`, so attendance counts only visits); copied or forged passes are also audited (`PassReuseRejected`, `PassForgeryRejected`).
-  - **Methods** (`CheckIn.Method`): `FrontDesk` (staff picked by name, `POST api/gym/checkins`), `PassScan` (staff scanned the pass, `POST api/gym/checkins/scan`), `Kiosk` (a paired device scanned the pass, `POST api/kiosk/check-ins`), `GymQr` (the member scanned the entrance code, `POST api/me/check-ins`, permission `gym.self.checkin`).
-- **Entrance code / gym QR** (`GymQrCode`): `IFG1.{tenant}.{device}.{step}.{hmac}`, step 15 s, accepted for the current and previous step (≤ 30 s). The API creates it (`GET api/kiosk/gym-qr`, device key) and checks it; its secret (`ICheckInKeys.GymQrSecret(tenant, device)`) never leaves the API. The kiosk fetches a code every 5 s. The device must be paired and not revoked; codes of another gym, forged or expired codes are refusals (`InvalidGymQr`, `ExpiredGymQr`). The check-in records the device that showed the code and no `RecordedByUserId`. It proves presence at the screen; identity is the member's own sign-in.
+  - **Methods** (`CheckIn.Method`): `FrontDesk` (staff picked by name, `POST api/gym/checkins`), `PassScan` (staff scanned the pass, `POST api/gym/checkins/scan`), `Kiosk` (a paired device scanned the pass, `POST api/kiosk/check-ins`), `Terminal` (a fingerprint terminal let the member in). Value 3 (`GymQr`) was removed; migration `RemoveGymQrCheckIn` turned its rows into `Kiosk` and its refusals into `InvalidPass`/`ExpiredPass`.
 - **Member pass** (`MemberPassService`, `MemberPassCode`): `IF1.{tenant}.{member}.{keyVersion}.{step}.{hmac}` with a new step every 30 s.
   - The secret is derived per gym, member and `MemberProfile.PassKeyVersion` from `CheckIns:PassSigningKey` (fallback: the JWT key) by `ICheckInKeys` (`CheckInKeys`); nothing per member is stored.
   - The app downloads it (`GET api/me/pass`, approved members only), caches it in `SecureStorage` (cleared on sign-out) and computes codes offline.
@@ -198,17 +206,16 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **Check-in devices** (`CheckInDeviceService`, `KioskService`): admins (`gym.settings.manage`) add a device and get a 15-minute one-time pairing code; the kiosk swaps it for a long device key (`ifk_…`, only the SHA-256 is stored).
   - The key is sent in `X-Device-Key`; `KioskService.AuthenticateAsync` sets the execution context as the device (`Actor.DeviceId`, `Source = Device`, permission `gym.checkins.device` only, never held by a role). `GymAccessService` lets a device do nothing else.
   - A request carrying both a JWT and a device key is refused (400). Revoking a device stops it at once; a suspended gym's devices get 403.
-  - Kiosk UI: `/kiosk` in the gym dashboard host (`KioskLayout`, anonymous; key in `ProtectedLocalStorage` via `IKioskKeyStore`). Depending on the switches it shows the entrance code (`QrSvg`, QRCoder), scans passes with the camera or a USB/Bluetooth scanner that types like a keyboard, both side by side, or "check in at the front desk". It never shows the photo or the name behind a copied or forged pass.
-- **Against handing the phone over** (member pass and entrance code):
-  - **Phone unlock**: `GymSettings.RequirePhoneUnlock` (default on, Settings → Check-in methods). The app asks `IPhoneUnlock` (MAUI `MauiPhoneUnlock`: Android BiometricPrompt with screen-lock fallback, API 29+; iOS/Mac LocalAuthentication; Windows Hello) before showing the pass (it hides again after 60 s), scanning, moving or resetting. No screen lock set up → refused; platform cannot check → allowed with a note. Client-side control: the server cannot verify it.
-  - **One phone per pass**: the app sends a random installation id (`X-Phone-Id`, `IMemberPassStore.GetPhoneIdAsync`); `MemberProfile.PassPhoneIdHash` binds the first phone. Another phone gets 423 for `GET api/me/pass` and `POST api/me/check-ins` until `POST api/me/pass/move-here`, which resets the pass (old phone's codes die), emails the member and audits `PassMovedToAnotherPhone`. Staff reset clears the binding.
+  - Kiosk UI: `/kiosk` in the gym dashboard host (`KioskLayout`, anonymous; key in `ProtectedLocalStorage` via `IKioskKeyStore`). It scans passes with the camera or a USB/Bluetooth scanner that types like a keyboard, or, with the pass off, says "check in at the front desk". It never shows the photo or the name behind a copied or forged pass.
+- **Against handing the phone over** (member pass):
+  - **Phone unlock**: `GymSettings.RequirePhoneUnlock` (default on, Settings → Check-in methods). The app asks `IPhoneUnlock` (MAUI `MauiPhoneUnlock`: Android BiometricPrompt with screen-lock fallback, API 29+; iOS/Mac LocalAuthentication; Windows Hello) before showing the pass (it hides again after 60 s), moving or resetting it. No screen lock set up → refused; platform cannot check → allowed with a note. Client-side control: the server cannot verify it.
+  - **One phone per pass**: the app sends a random installation id (`X-Phone-Id`, `IMemberPassStore.GetPhoneIdAsync`); `MemberProfile.PassPhoneIdHash` binds the first phone. Another phone gets 423 for `GET api/me/pass` until `POST api/me/pass/move-here`, which resets the pass (old phone's codes die), emails the member and audits `PassMovedToAnotherPhone`. Staff reset clears the binding.
 - **Fingerprint terminals** (`Gym/Access/*`, module `gym.access`): ZKTeco push protocol (ADMS/iclock) at `/iclock/cdata|getrequest|devicecmd` (`ZkTecoController`, plain text, anonymous, rate limit `device`; HTTPS redirection is skipped for `/iclock`, and Caddy serves `http://api.…/iclock/*`).
   - A terminal is a `CheckInDevice` with `Kind = ZkTecoTerminal`, registered by an admin by serial number (unique platform-wide, `POST api/gym/access/terminals`), optional `AllowedIp`. `TerminalProtocolService.AuthenticateAsync` finds it by SN (`ICheckInDeviceDirectory`), checks access and module, and sets the device context with permission `gym.access.terminal` only.
-  - **Migration** of an existing installation: on first contact the terminal is sent `DATA QUERY USERINFO`; its OPERLOG upload (USER lines) creates `TerminalUser` rows (PIN, terminal name, `HasFingerprint`). FP/BIODATA templates are parsed only to set `HasFingerprint` and dropped (`ZkTecoProtocol.ParseUsers`); tests assert no template reaches the database. Also CSV import (`PIN,Name`). Staff link PINs to members on `/access/terminal-users` (exact normalized-name suggestions, bulk "link all", "Not a member" for staff, "add a member" = next PIN, then enrol a finger on the terminal).
+  - **Migration** of an existing installation: on first contact the terminal is sent `DATA QUERY USERINFO`; its OPERLOG upload (USER lines) creates `TerminalUser` rows (PIN, terminal name, `HasFingerprint`). FP/BIODATA templates are parsed only to set `HasFingerprint` and dropped (`ZkTecoProtocol.ParseUsers`); tests assert no template reaches the database. The terminal is the only source of terminal users (there is no CSV import of them: member onboarding is the separate bulk import). Staff link PINs to members on `/access/terminal-users` ("Fingerprint check-in": numbered step guide with live status; exact normalized-name suggestions, bulk "link all", "Not a member" for staff, "add a member" = next PIN, then enrol a finger on the terminal); the member page shows the member's PIN and terminal access, with "Add to fingerprint terminals".
   - **Sync / offline decisions**: on a poll at most once a minute (immediately after a link change), `SyncAsync` compares `TerminalAccessRules.For` (CheckInPolicy + end of the grace period of the next or oldest overdue invoice) with `TerminalUserSync` and queues `DATA UPDATE USERINFO PIN=…\tName=…\tStartDatetime=…\tEndDatetime=…` (`TerminalCommand`). A refused member gets yesterday as end date, so the terminal refuses them by itself offline. Unlinked/ignored users are never touched; IronForge never sends `DATA DELETE` (it would delete fingerprints). Field support (StartDatetime/EndDatetime) varies by firmware: verify on the gym's model.
   - **Entries**: ATTLOG lines become `CheckIn` (`Method = Terminal`, device, gym-local time converted to UTC, 30-minute duplicate window, unknown PINs listed for linking). If the rules would have refused, the visit is kept with `CheckIn.Warning`, audited `TerminalEntryNotAllowed`, and the terminal is synced at once.
   - **Simulator** (`/access/terminal-simulator`, `UI.Admin/Simulator`, `TerminalSimulatorHub` singleton in the Web host, `TerminalSimulator:Enabled`): a virtual terminal speaking the same protocol to the API, with its own user list, offline switch and clock offset. Demo: Iron Paradise has the add-on and a registered terminal `SIMPARADISE01`.
-- **Member app camera** (entrance code): the shared `QrScanner` runs in the BlazorWebView. Android: `CAMERA` permission plus `CameraWebChromeClient` (grants only video capture, only to the app's own pages, asks for the runtime permission; forwards file choosing etc. to the original client), hooked in `MainPage.xaml.cs`. iOS/Mac: `NSCameraUsageDescription` and inline media playback. Windows: `webcam` capability.
 - **Member photos** (`MemberPhotoService`, `MemberPhoto` table, bytea, ≤ 1 MB): JPEG/PNG/WebP detected from the bytes; clients shrink to 640 px first (`PhotoPicker`).
   - Staff can set or remove a photo (`api/gym/members/{id}/photo`); a staff photo is locked for the member. A member may set their own (`api/me/photo`) until staff set one.
   - Shown on the check-in result. Anonymizing deletes it.
@@ -233,18 +240,17 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **`BillingService`** wraps the engine with authorization:
   - staff: list invoices, record payment (Cash or BankTransfer only; the amount must equal the total), void, remind, payments, revenue
   - member: my invoices, my payments, `StartMyCheckoutAsync`
-- **Payments**:
-  - `IPaymentGateway` is `StripePaymentGateway` when `Stripe:SecretKey` is set; otherwise `SimulatedPaymentGateway` only when `Payments:AllowSimulated` (Development, local compose, demo deployments: members could "pay" without money moving), else `NoOnlinePaymentGateway`.
-  - `CanTakePayments(GymSettings)` decides per gym: Stripe live keys need the gym's own connected account with charges enabled (member money never lands on the platform account; test keys may use the platform account); none never. `StartMyCheckoutAsync` refuses (409) otherwise, and `MyMembershipDto.OnlinePaymentAvailable` hides "Pay now" in the app, which then shows `GymSettings.PaymentInstructions` (set on the Settings page: bank account, cash at the desk). Staff record cash and bank transfers on the Invoices page.
-  - Next (planned): local gateways behind `IPaymentGateway`, Easypaisa for PKR gyms and Touch 'n Go for MYR gyms.
-  - **Stripe**: Checkout Session with metadata `tenant_id` and `invoice_id`, using a direct charge on the gym's Connect (Standard) account when `GymSettings.StripeChargesEnabled`. Connect onboarding: `POST api/gym/settings/stripe/connect` returns an AccountLink, and the account id is stored; `.../stripe/refresh` checks `ChargesEnabled`.
-  - **Webhook** `POST api/payments/stripe/webhook`: `StripeWebhookHandler` verifies the signature. For `checkout.session.completed` with paid status, it sets the tenant context from metadata and calls `IPaymentConfirmationService.ConfirmCheckoutAsync`.
-  - **Confirmation**:
-    - idempotent via `ProcessedWebhookEvent`
-    - a transaction around the work
-    - amount and currency must match the invoice
-    - an invoice already paid or voided is audited and ignored
-  - **Simulated**: the checkout URL is `{ApiBaseUrl}/payments/simulated?tenant&invoice&session` (an HTML page with a Pay button). The POST confirms through the same confirmation service and redirects to `/payments/complete?status=…`. The session id is a random value stored on `Invoice.CheckoutSessionId`. In non-Development environments the API logs an error at startup that payments are simulated.
+- **Online payments** (`Application/Gym/Billing/Payments/*`, providers in `IronForge.Payments`). Stripe was removed. **The gym is the merchant**: each gym connects its own provider account, members pay into it, IronForge never holds money.
+  - **Providers** (`IPaymentProvider`, listed by `IPaymentProviderCatalog`):
+    - **HitPay** (MYR, SGD; Malaysia: FPX, DuitNow, Touch 'n Go, cards): `POST /v1/payment-requests` (form, `X-BUSINESS-API-KEY`), status `GET /v1/payment-requests/{id}` (`completed` = paid), webhooks registered in the HitPay dashboard, `Hitpay-Signature` = HMAC-SHA256(raw body, salt). Sandbox `api.sandbox.hit-pay.com`.
+    - **Safepay** (PKR, USD; Pakistan, SBP-licensed): session `POST /order/payments/v3/` (`X-SFPY-MERCHANT-SECRET` secret key, `merchant_api_key` public key, amount in paisa) → tracker; passport `POST /client/passport/v1/token`; checkout `{host}/embedded/?environment&tracker&tbt&source=hosted&redirect_url&cancel_url`; status `GET /reporter/api/v1/payments/{tracker}` (`TRACKER_ENDED` = paid); webhooks `X-SFPY-SIGNATURE` = HMAC-SHA512 with the endpoint's shared secret (raw body or its `data` object accepted). A session accepts any secret, so credentials are checked with the passport call. Sandbox `sandbox.api.getsafepay.com`.
+    - **Simulated** (not selectable): `Payments:AllowSimulated` (Development, local compose, demo deployments only) gives gyms without a provider a test page (`/payments/simulated`) where no money moves.
+  - **`GymPaymentAccount`** (tenant-owned, one per gym): provider, sandbox/live, API key, secret, optional webhook secret, all AES-GCM encrypted (`IPaymentCredentialProtector`, key `Payments:EncryptionKey`, fallback JWT key), `ApiKeyHint`. **`IGymPaymentAccountService`** (`gym.settings.manage` + module `gym.billing`; `api/gym/settings/payments` GET/PUT/DELETE, `POST .../test`; page `/settings/payments`): keys are verified with the provider before saving, blank keys keep the stored ones (same provider), the provider must charge in the gym's currency, keys are never returned; audited `PaymentAccountConnected/Rejected/Disconnected`.
+  - **`IOnlinePaymentService`**: `IsAvailableAsync(settings)` (drives `MyMembershipDto.OnlinePaymentAvailable` and "Pay now"), `StartCheckoutAsync` (reference `"{tenant}:{invoice}"`, return URL `/payments/return/{tenant}/{invoice}`, cancel `/payments/cancelled`; stores `Invoice.CheckoutSessionId` + `CheckoutProvider`; 409 without a provider), `ConfirmInvoiceAsync`, `HandleWebhookAsync`.
+  - **Confirmation is authoritative**: an invoice is paid only on the provider API's status for the checkout, whose reference must name that invoice; webhooks (`POST api/payments/webhooks/{provider}/{tenantId}`, signature checked with the gym's keys, then a status fetch), the payer's return page and the member's "I've paid — check now" (`POST api/me/invoices/{id}/checkout/check`) all only trigger that check. So payments also work locally where webhooks cannot reach the API.
+  - **`IPaymentConfirmationService.ConfirmCheckoutAsync(provider, eventId, …)`**: idempotent via `ProcessedWebhookEvent` (`"{provider}:{session}"`), a transaction, amount and currency must match, an invoice already paid or voided is audited and ignored. Payments are `PaymentMethod.Online` with the provider's payment reference (`Card` remains for old rows).
+  - Without a provider: `GymSettings.PaymentInstructions` (bank account, cash at the desk) show in the app; staff record cash and bank transfers.
+  - Provider sandbox checks (opt-in, real network): `IRONFORGE_HITPAY_SANDBOX_KEY`, `IRONFORGE_SAFEPAY_SANDBOX_PUBLIC_KEY`, `IRONFORGE_SAFEPAY_SANDBOX_SECRET`, then `dotnet test tests/IronForge.Application.Tests --filter ProviderSandboxTests`. Never commit keys.
 
 ### 4.4 Fitness / coaching (module `gym.coaching`)
 - **Entities**: `Exercise` (TenantId null = shared library), `WorkoutRoutine` → `RoutineDay` → `RoutineExercise`, `WorkoutLog` → `WorkoutSet`, `BodyMetric` (one per day; a second entry that day replaces the first), `FitnessGoal` (at most 5 active). Every child row carries a TenantId for filtering.
@@ -309,6 +315,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **Audience routing** (`ClientAppProfile`):
   - Login → `Platform`: requires the platform permission and goes to `/`. Gym apps go to `/select-tenant`, which shows only gyms whose role `AcceptsRole` (Staff = Admin or Trainer, Member = Member), auto-selects a single gym, then goes to `HomeRoute`.
   - A wrong-app user sees `WrongAppMessage`.
+- **Sidebars follow the gym**: `MainLayout` loads `GymSettingsDto` once per gym and passes `CoachingEnabled` / `AccessControlEnabled` to `NavMenu` (no Exercise library without Coaching, no Fingerprint check-in without Access control); role-only items use `<AuthorizeView Policy>`. `MemberLayout` reads `MyMembershipDto` once per gym and hides Train/Coach/Progress without Coaching and Pass when the gym turned the pass off. The activity log API requires `audit.read` (`AuditQueryService`).
 - **Layouts** (`MainLayout`, `MemberLayout`) re-evaluate in `OnParametersSetAsync`, because a layout survives navigation. They must **render `@Body` when signed out**, so the router's `<NotAuthorized><RedirectToLogin/>` content runs. They show a "Loading" state only while a navigation is in flight. Ignoring this caused an infinite "Loading…" bug.
 - **Routes**: each host's `Routes.razor` lists Shared plus its own RCL in `AdditionalAssemblies` and sets the RCL layout as `DefaultLayout`. Routes must not collide across the assemblies a host loads. Login is `/login` only; `/` belongs to the app RCL.
 - **Styling**: Bootstrap plus `ironforge-app.css` tokens and classes:
@@ -344,9 +351,9 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 | `AISettings:{ApiKey,Model,ModelProfiles}` | OpenAI |
 | `AgentQuotas:DefaultMonthlyTokenLimit` | |
 | `CheckIns:PassSigningKey` | Master key for member pass secrets (≥ 32 characters). Empty uses `JwtSettings:Key`; changing either invalidates every pass until the app is online again |
-| `AppUrls:{WebBaseUrl,ResetPasswordUrl,ApiBaseUrl}` | Used in emails, Stripe redirects and simulated pay pages. Dev: web `https://localhost:7056`, API `https://localhost:7226` |
+| `AppUrls:{WebBaseUrl,ResetPasswordUrl,ApiBaseUrl}` | Used in emails, payment return/webhook URLs and simulated pay pages. Dev: web `https://localhost:7056`, API `https://localhost:7226` |
 | `Invitations:{AcceptUrl,LifetimeDays}` | |
-| `Stripe:{SecretKey,WebhookSecret}` | Empty: no online payments (or the simulated checkout with `Payments:AllowSimulated`) |
+| `Payments:EncryptionKey` | Encrypts gyms' provider keys (≥ 32 characters); empty uses `JwtSettings:Key`. Changing it means every gym enters its keys again |
 | `Payments:AllowSimulated` | True only in Development, local compose and demo deployments, never with real gyms |
 | `Email:{Host,Port,Security(None/StartTls/SslOnConnect),Username,Password,FromAddress,FromName}` | Empty Host logs emails. Dev uses Mailpit `localhost:1025` (UI `:8025`) |
 | `BillingJob:{Enabled,IntervalMinutes}` | |
@@ -364,7 +371,7 @@ Rate-limit policies (`RateLimitPolicies`): `auth` 10/min (also kiosk pairing), `
 - Local ports: Web 7056/5033, Platform 7090/5090, API 7226/5022
 
 ### 6.3 Environment templates
-`.env.example` and `deploy/production.env.example` contain connection string, JWT key, AI key, OTLP headers, invitation URL, Stripe keys and email settings.
+`.env.example` and `deploy/production.env.example` contain connection string, JWT key, AI key, OTLP headers, invitation URL, payment settings and email settings.
 
 ---
 
@@ -376,14 +383,14 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 302 tests; Docker required
+dotnet test IronForge.Server.slnf                              # 334 tests (2 provider-sandbox tests skip without keys); Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.
   - operator `operator@ironforge.dev`
   - gym accounts `admin@<slug>.demo`, `trainer1@<slug>.demo`
   - showcase member `member@ironparadise.demo`
-  - each gym has a paired "Front entrance kiosk" whose key was never kept: issue a new pairing code under Check-in devices to use `/kiosk`. Check-ins use all four methods (gym QR only at Iron Paradise, the only demo gym with the entrance code switched on); frozen/expired members have refused kiosk attempts.
+  - each gym has a paired "Front entrance kiosk" whose key was never kept: issue a new pairing code under Check-in devices to use `/kiosk`. Check-ins use front desk, pass scan and kiosk; frozen/expired members have refused kiosk attempts. Iron Paradise has the Access control add-on and a registered simulated terminal `SIMPARADISE01`.
 
 | Gym (slug, join code) | Plan | Status | Members |
 |---|---|---|---|
@@ -420,7 +427,7 @@ dotnet test IronForge.Server.slnf                              # 302 tests; Dock
 - **`deploy/Caddyfile`**: `mohtashim.dev` → web, `platform.` → platform, `api.` → api, `mcp.` and `mcp-client.`; all with security headers (HSTS, nosniff, DENY frames, referrer and permissions policies). Only the gym dashboard (`security_headers_camera`) allows `camera=(self)`, for pass scanning; the others block it.
 - **Local `compose.yaml`**: same services plus Mailpit; Caddy serves `localhost`, `platform.localhost`, `api.localhost`.
 - **Before onboarding real gyms**:
-  - choose payments: Stripe (Connect enabled; not available to Pakistan-based gyms), or none (cash and bank transfer with payment instructions) until the local gateways exist; never `Payments__AllowSimulated`
+  - each gym connects its own HitPay (Malaysia) or Safepay (Pakistan) **live** keys under Settings → Online payments and registers the webhook URL shown there; or uses payment instructions (cash, bank transfer). Never `Payments__AllowSimulated`
   - set up backups and run a restore test (`deploy/BACKUPS.md`); Supabase on a plan with backups
   - keep `TwoFactor__RequiredForAdmins=true`
   - set SMTP credentials

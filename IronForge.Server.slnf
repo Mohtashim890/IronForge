@@ -8,6 +8,7 @@
       "IronForge.Mcp.Client\\IronForge.Mcp.Client.csproj",
       "IronForge.Mcp\\IronForge.Mcp.csproj",
       "IronForge.Migrator\\IronForge.Migrator.csproj",
+      "IronForge.Payments\\IronForge.Payments.csproj",
       "IronForge.Shared\\IronForge.Shared.csproj",
       "IronForge.Platform\\IronForge.Platform.csproj",
       "IronForge.UI.Admin\\IronForge.UI.Admin.csproj",

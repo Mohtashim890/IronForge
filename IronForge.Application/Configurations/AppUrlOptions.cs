@@ -12,7 +12,7 @@ public sealed class AppUrlOptions
     [Url]
     public string ResetPasswordUrl { get; set; } = "https://localhost:7180/reset-password";
 
-    /// <summary>Gym admin web app, e.g. for the Stripe Connect return page.</summary>
+    /// <summary>Gym admin web app (links in emails).</summary>
     [Required]
     [Url]
     public string WebBaseUrl { get; set; } = "https://localhost:7180";

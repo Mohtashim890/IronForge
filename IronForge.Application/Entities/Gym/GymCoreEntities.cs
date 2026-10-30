@@ -36,11 +36,6 @@ namespace IronForge.Application.Entities
 
         public int GracePeriodDays { get; set; } = 14;
 
-        /// <summary>Stripe Connect (Standard) account that receives member payments.</summary>
-        public string? StripeConnectedAccountId { get; set; }
-
-        public bool StripeChargesEnabled { get; set; }
-
         /// <summary>
         /// How members pay without online payments, e.g. the gym's bank account
         /// or "cash at the front desk". Shown in the member app with unpaid invoices.
@@ -50,13 +45,10 @@ namespace IronForge.Application.Entities
         /// <summary>Members may check in by showing their rotating pass (staff or kiosk scans it).</summary>
         public bool MemberPassCheckInEnabled { get; set; } = true;
 
-        /// <summary>Members may check in by scanning the code a check-in device shows.</summary>
-        public bool GymQrCheckInEnabled { get; set; }
 
         /// <summary>
         /// The app asks for the phone's fingerprint, face or screen lock before
-        /// it shows the pass or scans the entrance code (against handing the
-        /// phone to someone else).
+        /// it shows the pass (against handing the phone to someone else).
         /// </summary>
         public bool RequirePhoneUnlock { get; set; } = true;
 

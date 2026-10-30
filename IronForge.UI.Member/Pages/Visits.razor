@@ -13,7 +13,7 @@
 }
 else if (_visits.Count == 0)
 {
-    <div class="m-card if-empty">No visits yet. Open the Check in tab when you arrive at the gym.</div>
+    <div class="m-card if-empty">No visits yet. Show your pass (the Pass tab) at the front desk or the kiosk when you arrive.</div>
 }
 else
 {
@@ -24,7 +24,7 @@ else
                 <li>
                     <span style="flex: 1">
                         @GymFormat.DateTime(visit.CheckedInAtUtc)
-                        <span class="if-muted if-small">· @(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.GymQr => "Entrance code", CheckInMethod.Terminal => "Fingerprint", _ => "Front desk" })</span>
+                        <span class="if-muted if-small">· @(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.Terminal => "Fingerprint", _ => "Front desk" })</span>
                     </span>
                     <span class="if-muted if-small">@GymFormat.Ago(visit.CheckedInAtUtc)</span>
                 </li>

@@ -1,0 +1,236 @@
+@page "/members/import"
+@attribute [Authorize(Policy = Permissions.GymMembersManage)]
+@inject GymApiClient Gym
+
+<PageTitle>Import members | IronForge</PageTitle>
+
+<div class="if-page">
+    <p><a href="/members" class="if-small">← Members</a></p>
+
+    <div class="if-page-head">
+        <div>
+            <h1>Import members</h1>
+            <p>Bring your existing members into IronForge from a spreadsheet, e.g. when moving from another system.</p>
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    <div class="if-card" style="margin-bottom: 16px">
+        <div class="if-card-head"><h2>Steps</h2></div>
+        <ol class="if-steps">
+            <li class="@StepClass(1)">
+                <strong>Prepare the file.</strong> Export your members to a spreadsheet and save it as CSV with the columns below,
+                or start from the <a href="@TemplateUrl" download="ironforge-members.csv">template</a>.
+                Every plan named in the file must exist under <a href="/plans">Membership plans</a>.
+            </li>
+            <li class="@StepClass(2)"><strong>Check the file.</strong> IronForge reads every row and shows what it would do. Nothing is saved yet.</li>
+            <li class="@StepClass(3)"><strong>Fix or accept.</strong> Rows with errors are left out; fix them in the file and check again, or import the rest now.</li>
+            <li class="@StepClass(4)"><strong>Import.</strong> The valid rows become active members in one go. Choose whether to email them an invitation to the app.</li>
+            <li class="@StepClass(5)">
+                <strong>Next.</strong> Members check in with their pass from the app.
+                If the gym has fingerprint terminals, link their fingerprints under <a href="/access/terminal-users">Fingerprint check-in</a>.
+            </li>
+        </ol>
+        <p class="if-small if-muted" style="margin: 12px 0 0">
+            Only members are imported. Staff (admins and trainers) are invited one by one on the <a href="/staff">Staff</a> page; an email that belongs to staff is refused.
+        </p>
+    </div>
+
+    <div class="if-card" style="margin-bottom: 16px">
+        <div class="if-card-head">
+            <h2>File format</h2>
+            <a class="if-btn sm" href="@TemplateUrl" download="ironforge-members.csv">Download template</a>
+        </div>
+        <ul class="if-small" style="margin: 0 0 12px; padding-left: 18px; line-height: 1.7">
+            <li>CSV, UTF-8, the first line is the header. Comma or semicolon between columns; put a value in double quotes if it contains one.</li>
+            <li>Column names as below, any order, any capitalisation. Optional columns may be left out or empty. Other columns are refused (to catch typos).</li>
+            <li>Dates as <code>yyyy-MM-dd</code>, e.g. <code>2026-11-30</code>. At most @MemberImportFormat.MaxRows members and 2 MB per file.</li>
+            <li>Everyone is imported as an <strong>active, approved member</strong>. Members already in IronForge (same email) are skipped, not changed.</li>
+            <li>
+                <strong>Billing:</strong> the import creates no invoices. IronForge bills from the day after <code>PaidThrough</code>,
+                or from today when it is empty or already past, so nobody is billed for the time before the import. The billing job issues the invoices as usual.
+            </li>
+        </ul>
+        <table class="if-table">
+            <thead><tr><th>Column</th><th></th><th>What to put in it</th><th>Example</th></tr></thead>
+            <tbody>
+                @foreach (var column in MemberImportFormat.Columns)
+                {
+                    <tr>
+                        <td class="if-mono">@column.Name</td>
+                        <td>@(column.Required ? "required" : "optional")</td>
+                        <td class="if-small">@column.Format</td>
+                        <td class="if-small if-muted">@column.Example</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="if-card" style="margin-bottom: 16px">
+        <div class="if-card-head"><h2>Your file</h2></div>
+        <div class="if-row" style="flex-wrap: wrap">
+            <label class="if-btn @(_busy ? "disabled" : "")">
+                Choose CSV file
+                <InputFile accept=".csv,text/csv" class="if-visually-hidden" OnChange="LoadFileAsync" />
+            </label>
+            @if (_fileName is not null)
+            {
+                <span class="if-small if-muted">@_fileName</span>
+            }
+        </div>
+        <div class="if-field" style="margin-top: 12px">
+            <label for="csv">Or paste the CSV here</label>
+            <textarea id="csv" rows="6" class="if-mono" @bind="_csv" @bind:event="oninput" placeholder="@MemberImportFormat.Template()"></textarea>
+        </div>
+        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_csv))" @onclick="PreviewAsync">@(_busy ? "Checking…" : "Check file")</button>
+    </div>
+
+    @if (_result?.FileError is { } fileError)
+    {
+        <div class="if-alert error">@fileError</div>
+    }
+    else if (_result is not null)
+    {
+        <div class="if-card">
+            <div class="if-card-head">
+                <h2>@(_result.Imported ? "Imported" : "Check result")</h2>
+                <span class="if-small if-muted">
+                    @_result.ReadyCount @(_result.Imported ? "imported" : "ready") · @_result.SkippedCount already members · @_result.ErrorCount with errors
+                </span>
+            </div>
+
+            @if (_result.Imported)
+            {
+                <div class="if-alert success">
+                    @_result.ReadyCount members imported.
+                    @if (_result.LinkedToAccounts > 0)
+                    {
+                        <span>@_result.LinkedToAccounts already had an IronForge account and can sign in now.</span>
+                    }
+                    @if (_result.InvitationsSent > 0)
+                    {
+                        <span>@_result.InvitationsSent app invitations emailed.</span>
+                    }
+                    <a href="/members">Go to members</a>
+                </div>
+            }
+            else if (_result.ReadyCount > 0)
+            {
+                <div class="if-row" style="flex-wrap: wrap; margin-bottom: 12px">
+                    <label class="if-row if-small"><input type="checkbox" @bind="_sendInvitations" /> Email new members an invitation to the IronForge app</label>
+                    <button class="if-btn primary" disabled="@_busy" @onclick="ImportAsync">Import @_result.ReadyCount members</button>
+                </div>
+            }
+            else
+            {
+                <div class="if-alert warning">No row can be imported. Fix the errors below and check the file again.</div>
+            }
+
+            <div class="if-table-wrap">
+                <table class="if-table">
+                    <thead><tr><th>Line</th><th>Name</th><th>Email</th><th>Plan</th><th>Billed from</th><th>Result</th></tr></thead>
+                    <tbody>
+                        @foreach (var row in _result.Rows)
+                        {
+                            <tr>
+                                <td>@row.Line</td>
+                                <td>
+                                    @if (row.MemberId is { } id)
+                                    {
+                                        <a href="@($"/members/{id}")">@row.FullName</a>
+                                    }
+                                    else
+                                    {
+                                        @row.FullName
+                                    }
+                                </td>
+                                <td>@row.Email</td>
+                                <td>@row.Plan</td>
+                                <td>@(row.FirstBillingDate is { } date ? GymFormat.Date(date) : "—")</td>
+                                <td>
+                                    <Badge Tone="@(row.Status switch { MemberImportRowStatus.Ready => "success", MemberImportRowStatus.Skipped => "info", _ => "danger" })">
+                                        @(row.Status switch { MemberImportRowStatus.Ready => _result.Imported ? "Imported" : "Ready", MemberImportRowStatus.Skipped => "Skipped", _ => "Error" })
+                                    </Badge>
+                                    @if (row.Message is not null)
+                                    {
+                                        <div class="if-small if-muted">@row.Message</div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const long MaxFileBytes = 2_000_000;
+
+    private string _csv = "";
+    private string? _fileName;
+    private bool _sendInvitations;
+    private bool _busy;
+    private string? _error;
+    private MemberImportResultDto? _result;
+
+    private static readonly string TemplateUrl =
+        "data:text/csv;charset=utf-8," + Uri.EscapeDataString(MemberImportFormat.Template());
+
+    /// <summary>Which step the admin is on, for the guide.</summary>
+    private int Step => _result switch
+    {
+        { Imported: true } => 5,
+        { FileError: null } r when r.ReadyCount > 0 || r.ErrorCount > 0 => r.ErrorCount > 0 ? 3 : 4,
+        _ => string.IsNullOrWhiteSpace(_csv) ? 1 : 2
+    };
+
+    private string StepClass(int step) => step < Step ? "done" : step == Step ? "active" : "";
+
+    private async Task LoadFileAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+
+        if (e.File.Size > MaxFileBytes)
+        {
+            _error = "The file is larger than 2 MB. Split it into smaller files.";
+            return;
+        }
+
+        await using var stream = e.File.OpenReadStream(MaxFileBytes);
+        using var reader = new StreamReader(stream);
+
+        _csv = await reader.ReadToEndAsync();
+        _fileName = e.File.Name;
+        _result = null;
+    }
+
+    private Task PreviewAsync() => RunAsync(Gym.PreviewMemberImportAsync);
+
+    private Task ImportAsync() => RunAsync(Gym.ImportMembersAsync);
+
+    private async Task RunAsync(Func<MemberImportRequest, CancellationToken, Task<ServiceResult<MemberImportResultDto>>> call)
+    {
+        _busy = true;
+        _error = null;
+
+        var result = await call(new MemberImportRequest { Csv = _csv, SendInvitations = _sendInvitations }, default);
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            _result = result.Data;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+}

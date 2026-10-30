@@ -23,10 +23,20 @@
 
     <AuthorizeView Policy="@Permissions.GymMembersRead">
         <div class="nav-section">Members</div>
-        <NavItem Href="/members" Icon="☺" Text="Members" />
+        <NavItem Href="/members" Icon="☺" Text="Members" Except="@(["/members/import"])" />
+        <AuthorizeView Policy="@Permissions.GymMembersManage" Context="manage">
+            <NavItem Href="/members/import" Icon="⇪" Text="Import members" />
+        </AuthorizeView>
         <NavItem Href="/join-requests" Icon="✉" Text="Join requests" />
         <NavItem Href="/checkins" Icon="✓" Text="Check-ins" />
-        <NavItem Href="/exercises" Icon="🏋" Text="Exercise library" />
+        @if (AccessControl)
+        {
+            <NavItem Href="/access/terminal-users" Icon="☝" Text="Fingerprint check-in" />
+        }
+        @if (Coaching)
+        {
+            <NavItem Href="/exercises" Icon="🏋" Text="Exercise library" />
+        }
     </AuthorizeView>
 
     <AuthorizeView Policy="@Permissions.GymBillingRead">
@@ -44,9 +54,9 @@
 
     <AuthorizeView Policy="@Permissions.GymSettingsManage">
         <div class="nav-section">Administration</div>
-        <NavItem Href="/settings" Icon="⚙" Text="Gym settings" />
+        <NavItem Href="/settings" Icon="⚙" Text="Gym settings" Except="@(["/settings/payments"])" />
+        <NavItem Href="/settings/payments" Icon="💳" Text="Online payments" />
         <NavItem Href="/checkin-devices" Icon="⌗" Text="Check-in devices" />
-        <NavItem Href="/access/terminal-users" Icon="☝" Text="Fingerprint users" />
         <NavItem Href="/staff" Icon="👥" Text="Staff" />
         <NavItem Href="/agents" Icon="◎" Text="AI agents" />
         <NavItem Href="/approvals" Icon="✔" Text="Approvals" />
@@ -61,4 +71,10 @@
 
 @code {
     [Parameter] public string? GymName { get; set; }
+
+    /// <summary>The gym's subscription includes Coaching (exercise library).</summary>
+    [Parameter] public bool Coaching { get; set; }
+
+    /// <summary>The gym's subscription includes Access control (fingerprint terminals).</summary>
+    [Parameter] public bool AccessControl { get; set; }
 }

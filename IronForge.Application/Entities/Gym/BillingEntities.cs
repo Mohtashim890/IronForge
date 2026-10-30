@@ -40,6 +40,9 @@ namespace IronForge.Application.Entities
         /// <summary>Latest payment-provider checkout started for this invoice.</summary>
         public string? CheckoutSessionId { get; set; }
 
+        /// <summary>The provider of <see cref="CheckoutSessionId"/> (PaymentProviderIds).</summary>
+        public string? CheckoutProvider { get; set; }
+
         /// <summary>Concurrency token (Postgres xmin): a webhook and a cash payment cannot both pay it.</summary>
         public uint Version { get; set; }
 
@@ -64,7 +67,7 @@ namespace IronForge.Application.Entities
 
         public PaymentMethod Method { get; set; }
 
-        /// <summary>"manual", "stripe" or "simulated".</summary>
+        /// <summary>"manual", or the online provider: "hitpay", "safepay", "simulated" ("stripe" on old rows).</summary>
         public string Provider { get; set; } = "";
 
         public string? ProviderReference { get; set; }
@@ -92,6 +95,45 @@ namespace IronForge.Application.Entities
         public string Kind { get; set; } = "";
 
         public DateTime SentAtUtc { get; set; }
+    }
+
+    /// <summary>
+    /// A gym's own account with an online payment provider (one per gym).
+    /// The gym is the merchant: members pay into this account. Keys are
+    /// encrypted (IPaymentCredentialProtector) and never sent back to clients.
+    /// </summary>
+    public class GymPaymentAccount
+    {
+        public int Id { get; set; }
+
+        public int TenantId { get; set; }
+
+        /// <summary>PaymentProviderIds.HitPay or Safepay.</summary>
+        public string Provider { get; set; } = "";
+
+        /// <summary>Live keys take real money; otherwise the provider's sandbox.</summary>
+        public bool IsLive { get; set; }
+
+        /// <summary>HitPay API key / Safepay public key, encrypted.</summary>
+        public string ApiKeyEncrypted { get; set; } = "";
+
+        /// <summary>HitPay salt / Safepay secret key, encrypted.</summary>
+        public string SecretEncrypted { get; set; } = "";
+
+        /// <summary>Safepay webhook shared secret, encrypted (HitPay signs webhooks with the salt).</summary>
+        public string? WebhookSecretEncrypted { get; set; }
+
+        /// <summary>Last characters of the API key, so staff recognise which key is stored.</summary>
+        public string ApiKeyHint { get; set; } = "";
+
+        /// <summary>When the provider last accepted these credentials.</summary>
+        public DateTime? VerifiedAtUtc { get; set; }
+
+        public int? UpdatedByUserId { get; set; }
+
+        public DateTime CreatedAtUtc { get; set; }
+
+        public DateTime UpdatedAtUtc { get; set; }
     }
 
     /// <summary>Payment-provider events already handled (idempotency).</summary>

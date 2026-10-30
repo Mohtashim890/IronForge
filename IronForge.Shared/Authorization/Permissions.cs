@@ -55,9 +55,6 @@ namespace IronForge.Shared.Authorization
         public const string GymSelfWorkoutsWrite = "gym.self.workouts.write";
         public const string GymSelfPayments = "gym.self.payments";
 
-        /// <summary>Check oneself in by scanning the gym's entrance code.</summary>
-        public const string GymSelfCheckIn = "gym.self.checkin";
-
         // Platform-level: granted by User.Role, independent of the selected tenant.
         public const string PlatformTenantsManage = "platform.tenants.manage";
     }

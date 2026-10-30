@@ -1,22 +1,19 @@
-@page "/access/terminal-users"
+﻿@page "/access/terminal-users"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
-<PageTitle>Terminal users | IronForge</PageTitle>
+<PageTitle>Fingerprint users | IronForge</PageTitle>
 
 <div class="if-page">
     <p><a href="/checkin-devices" class="if-small">← Check-in devices</a></p>
 
     <div class="if-page-head">
         <div>
-            <h1>Fingerprint terminal users</h1>
+            <h1>Fingerprint check-in</h1>
             <p>People enrolled on the gym's ZKTeco terminals. Link each one to a member: IronForge then tells the terminals who may enter.</p>
         </div>
         <AuthorizeView Policy="@Permissions.GymMembersManage">
-            <div class="if-row">
-                <button class="if-btn" @onclick="() => _importing = true">Import from ZKTeco software</button>
-                <button class="if-btn" @onclick="() => _adding = true">Add a member to the terminals</button>
-            </div>
+            <button class="if-btn" @onclick="() => _adding = true">Add a member to the terminals</button>
         </AuthorizeView>
     </div>
 
@@ -40,6 +37,45 @@
         var linked = _users.Where(x => x.MemberId is not null).ToList();
         var ignored = _users.Where(x => x.Ignored).ToList();
         var suggested = waiting.Count(x => x.SuggestedMemberId is not null);
+        var connected = _terminals?.Any(x => x.IsPaired) == true;
+        var inSync = _terminals?.Sum(x => x.UsersInSync) ?? 0;
+        var pending = _terminals?.Sum(x => x.UsersPending) ?? 0;
+
+        <div class="if-card" style="margin-bottom: 16px">
+            <div class="if-card-head"><h2>How fingerprint check-in works</h2></div>
+            <ol class="if-steps">
+                <li class="@(Done(_hasMembers))">
+                    <strong>Members are in IronForge.</strong>
+                    Add them one by one or with <a href="/members/import">Import members</a>. Fingerprints only ever link to existing members.
+                </li>
+                <li class="@(Done(connected))">
+                    <strong>A terminal is connected.</strong>
+                    Register it by serial number under <a href="/checkin-devices">Check-in devices</a> and point it at IronForge.
+                    @if (_terminals is not null)
+                    {
+                        <span class="if-muted">@(_terminals.Count == 0 ? "No terminal registered yet." : connected ? $"{_terminals.Count(x => x.IsPaired)} connected." : "Registered, waiting for the terminal to call in.")</span>
+                    }
+                </li>
+                <li class="@(Done(_users.Count > 0))">
+                    <strong>The terminal sends who is enrolled</strong> (user number, name, whether a finger exists, never the fingerprint).
+                    <span class="if-muted">@_users.Count received.</span>
+                </li>
+                <li class="@(Done(_users.Count > 0 && waiting.Count == 0))">
+                    <strong>Link each person to a member</strong> below; mark staff as "Not a member".
+                    <span class="if-muted">@(waiting.Count == 0 ? "Nobody waiting." : $"{waiting.Count} waiting.")</span>
+                </li>
+                <li class="@(Done(linked.Count > 0 && pending == 0 && inSync > 0))">
+                    <strong>The terminals receive each member's access</strong>: allowed until a date, or refused. They then decide at the door, also offline.
+                    @if (_terminals is not null)
+                    {
+                        <span class="if-muted">@inSync in step@(pending > 0 ? $", {pending} being sent" : "").</span>
+                    }
+                </li>
+                <li class="@(Done(linked.Any(x => x.LastEntryAtUtc is not null)))">
+                    <strong>Members enter with their finger.</strong> Each entry appears as a visit on the <a href="/checkins">Front desk</a>.
+                </li>
+            </ol>
+        </div>
 
         <div class="if-grid">
             <StatTile Label="Waiting to be linked" Value="@waiting.Count.ToString()" Tone="@(waiting.Count > 0 ? "warning" : null)" />
@@ -188,31 +224,16 @@
     </ChildContent>
 </Modal>
 
-<Modal @bind-Open="_importing" Title="Import users from ZKTeco software" Wide="true">
-    <ChildContent>
-        <p class="if-small if-muted">
-            In ZKBio Time or ZKAccess, export the personnel list as CSV and paste it here: one person per line, user number first, then the name.
-            Only numbers and names are imported, never fingerprints. You can also let the terminal send its list itself (Check-in devices → Fetch users).
-        </p>
-        <div class="if-field">
-            <textarea rows="10" class="if-mono" @bind="_csv" placeholder="User ID,Name&#10;1001,Sara Khan&#10;1002,Omar Ali"></textarea>
-        </div>
-    </ChildContent>
-    <Footer>
-        <button class="if-btn" @onclick="() => _importing = false">Cancel</button>
-        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_csv))" @onclick="ImportAsync">Import</button>
-    </Footer>
-</Modal>
-
 @code {
     private List<TerminalUserDto>? _users;
     private TerminalUserDto? _choosing;
     private bool _adding;
-    private bool _importing;
     private bool _busy;
-    private string _csv = "";
     private string? _error;
     private string? _message;
+
+    private List<CheckInDeviceDto>? _terminals;
+    private bool _hasMembers;
 
     protected override Task OnInitializedAsync() => LoadAsync();
 
@@ -222,7 +243,17 @@
 
         _users = result.Data ?? [];
         _error = result.Success ? null : result.ErrorMessage;
+
+        // Terminals are visible to admins only; trainers see the people and the links.
+        var devices = await Gym.GetCheckInDevicesAsync();
+        _terminals = devices.Success
+            ? devices.Data!.Where(x => x.Kind == CheckInDeviceKind.ZkTecoTerminal && !x.IsRevoked).ToList()
+            : null;
+
+        _hasMembers = ((await Gym.GetMembersAsync(new MemberQuery { PageSize = 1 })).Data?.TotalCount ?? 0) > 0;
     }
+
+    private static string Done(bool done) => done ? "done" : "";
 
     private void Choose(TerminalUserDto user) => _choosing = user;
 
@@ -264,25 +295,6 @@
         _message = result.Success
             ? $"{member.FullName} is user number {result.Data!.Pin}. On the terminal: Menu → User Mgt. → find {result.Data.Pin} → enrol a fingerprint."
             : null;
-        await LoadAsync();
-    }
-
-    private async Task ImportAsync()
-    {
-        _busy = true;
-        var result = await Gym.ImportTerminalUsersAsync(_csv);
-        _busy = false;
-
-        if (!result.Success)
-        {
-            _error = result.ErrorMessage;
-            return;
-        }
-
-        _importing = false;
-        _csv = "";
-        _message = $"Imported: {result.Data!.Added} new, {result.Data.Updated} updated." +
-                   (result.Data.Errors.Count > 0 ? " Skipped: " + string.Join(" ", result.Data.Errors) : "");
         await LoadAsync();
     }
 

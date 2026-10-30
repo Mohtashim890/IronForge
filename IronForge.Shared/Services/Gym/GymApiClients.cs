@@ -29,11 +29,18 @@ public sealed class GymApiClient : ApiClientBase
     public Task<ServiceResult<GymSettingsDto>> RegenerateJoinCodeAsync(CancellationToken ct = default) =>
         PostAsync<GymSettingsDto>("api/gym/settings/join-code", null, "Unable to create a new join code.", ct);
 
-    public Task<ServiceResult<StripeConnectLinkDto>> ConnectStripeAsync(CancellationToken ct = default) =>
-        PostAsync<StripeConnectLinkDto>("api/gym/settings/stripe/connect", null, "Unable to start Stripe onboarding.", ct);
+    // Online payments: the gym's own payment provider account.
+    public Task<ServiceResult<PaymentAccountDto>> GetPaymentAccountAsync(CancellationToken ct = default) =>
+        GetAsync<PaymentAccountDto>("api/gym/settings/payments", "Unable to load the payment settings.", ct);
 
-    public Task<ServiceResult<GymSettingsDto>> RefreshStripeAsync(CancellationToken ct = default) =>
-        PostAsync<GymSettingsDto>("api/gym/settings/stripe/refresh", null, "Unable to check the Stripe account.", ct);
+    public Task<ServiceResult<PaymentAccountDto>> SavePaymentAccountAsync(SavePaymentAccountRequest request, CancellationToken ct = default) =>
+        PutAsync<PaymentAccountDto>("api/gym/settings/payments", request, "Unable to save the payment provider.", ct);
+
+    public Task<ServiceResult<PaymentAccountDto>> TestPaymentAccountAsync(CancellationToken ct = default) =>
+        PostAsync<PaymentAccountDto>("api/gym/settings/payments/test", null, "Unable to check the payment provider.", ct);
+
+    public Task<ServiceResult<bool>> RemovePaymentAccountAsync(CancellationToken ct = default) =>
+        DeleteAsync("api/gym/settings/payments", "Unable to disconnect the payment provider.", ct);
 
     // Plans.
     public Task<ServiceResult<List<MembershipPlanDto>>> GetPlansAsync(bool includeArchived = false, CancellationToken ct = default) =>
@@ -151,8 +158,13 @@ public sealed class GymApiClient : ApiClientBase
     public Task<ServiceResult<TerminalUserDto>> CreateTerminalUserAsync(int memberId, CancellationToken ct = default) =>
         PostAsync<TerminalUserDto>("api/gym/access/users", new CreateTerminalUserRequest { MemberId = memberId }, "Unable to add the member to the terminals.", ct);
 
-    public Task<ServiceResult<TerminalImportResultDto>> ImportTerminalUsersAsync(string csv, CancellationToken ct = default) =>
-        PostAsync<TerminalImportResultDto>("api/gym/access/users/import", new ImportTerminalUsersRequest { Csv = csv }, "Unable to import the users.", ct);
+    // ---- Bulk member onboarding ----
+
+    public Task<ServiceResult<MemberImportResultDto>> PreviewMemberImportAsync(MemberImportRequest request, CancellationToken ct = default) =>
+        PostAsync<MemberImportResultDto>("api/gym/members/import/preview", request, "Unable to check the file.", ct);
+
+    public Task<ServiceResult<MemberImportResultDto>> ImportMembersAsync(MemberImportRequest request, CancellationToken ct = default) =>
+        PostAsync<MemberImportResultDto>("api/gym/members/import", request, "Unable to import the members.", ct);
 
     public Task<ServiceResult<List<CheckInDenialDto>>> GetCheckInDenialsAsync(int take = 20, CancellationToken ct = default) =>
         GetAsync<List<CheckInDenialDto>>(Query("api/gym/checkins/denials", ("take", take)), "Unable to load refused check-ins.", ct);
@@ -264,6 +276,10 @@ public sealed class MemberApiClient : ApiClientBase
     public Task<ServiceResult<CheckoutSessionDto>> StartCheckoutAsync(int invoiceId, CancellationToken ct = default) =>
         PostAsync<CheckoutSessionDto>($"api/me/invoices/{invoiceId}/checkout", null, "Unable to start the payment.", ct);
 
+    /// <summary>Asks the gym's payment provider whether the member's payment came through.</summary>
+    public Task<ServiceResult<CheckoutCheckDto>> CheckPaymentAsync(int invoiceId, CancellationToken ct = default) =>
+        PostAsync<CheckoutCheckDto>($"api/me/invoices/{invoiceId}/checkout/check", null, "Unable to check the payment.", ct);
+
     public Task<ServiceResult<List<PaymentDto>>> GetPaymentsAsync(CancellationToken ct = default) =>
         GetAsync<List<PaymentDto>>("api/me/payments", "Unable to load payments.", ct);
 
@@ -272,10 +288,6 @@ public sealed class MemberApiClient : ApiClientBase
 
     /// <summary>Status code when the pass lives on another phone; the member may move it.</summary>
     public const int PassOnAnotherPhone = 423;
-
-    /// <summary>Checks in with the entrance code scanned at the gym, from the phone the pass is on.</summary>
-    public Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(string code, string phoneId, CancellationToken ct = default) =>
-        SendAsync<CheckInResultDto>(HttpMethod.Post, "api/me/check-ins", new GymQrCheckInRequest { Code = code }, Phone(phoneId), "Unable to check in.", ct);
 
     public Task<ServiceResult<MemberPassDto>> GetPassAsync(string phoneId, CancellationToken ct = default) =>
         SendAsync<MemberPassDto>(HttpMethod.Get, "api/me/pass", null, Phone(phoneId), "Unable to load your pass.", ct);
@@ -361,22 +373,6 @@ public sealed class KioskApiClient : ApiClientBase
         catch (HttpRequestException)
         {
             return ServiceResult<KioskInfoDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
-        }
-    }
-
-    public async Task<ServiceResult<GymQrDto>> GetGymQrAsync(string deviceKey, CancellationToken ct = default)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "api/kiosk/gym-qr");
-            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
-
-            using var response = await Http.SendAsync(request, ct);
-            return await ApiResponseReader.ReadAsync<GymQrDto>(response, "Unable to load the entrance code.", ct);
-        }
-        catch (HttpRequestException)
-        {
-            return ServiceResult<GymQrDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
         }
     }
 

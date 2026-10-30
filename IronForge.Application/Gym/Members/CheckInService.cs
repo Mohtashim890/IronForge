@@ -28,19 +28,6 @@ public interface ICheckInService
         string code,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// The member scanned the code a check-in device shows (gym QR). The
-    /// member is the caller; the code proves they are at that device.
-    /// </summary>
-    Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(
-        string code,
-        string? phoneId,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>The entrance code the calling check-in device shows now.</summary>
-    Task<ServiceResult<GymQrDto>> GetGymQrAsync(
-        CancellationToken cancellationToken = default);
-
     Task<ServiceResult<List<CheckInDto>>> ListRecentAsync(
         int take,
         CancellationToken cancellationToken = default);
@@ -78,7 +65,6 @@ public sealed class CheckInService : ICheckInService
     private readonly IRepository<MemberProfile> _members;
     private readonly IRepository<Invoice> _invoices;
     private readonly IRepository<MemberPhoto> _photos;
-    private readonly IRepository<CheckInDevice> _devices;
     private readonly ICheckInKeys _keys;
     private readonly IBillingEngine _billing;
     private readonly IAuditService _audit;
@@ -91,7 +77,6 @@ public sealed class CheckInService : ICheckInService
         IRepository<MemberProfile> members,
         IRepository<Invoice> invoices,
         IRepository<MemberPhoto> photos,
-        IRepository<CheckInDevice> devices,
         ICheckInKeys keys,
         IBillingEngine billing,
         IAuditService audit,
@@ -103,7 +88,6 @@ public sealed class CheckInService : ICheckInService
         _members = members;
         _invoices = invoices;
         _photos = photos;
-        _devices = devices;
         _keys = keys;
         _billing = billing;
         _audit = audit;
@@ -214,102 +198,6 @@ public sealed class CheckInService : ICheckInService
         return Ok(await AdmitAsync(member, attempt, cancellationToken));
     }
 
-    public async Task<ServiceResult<CheckInResultDto>> CheckInWithGymQrAsync(
-        string code,
-        string? phoneId,
-        CancellationToken cancellationToken = default)
-    {
-        var current = await _access.GetCurrentMemberAsync(
-            Permissions.GymSelfCheckIn,
-            tracked: true,
-            cancellationToken: cancellationToken);
-
-        if (!current.Success)
-        {
-            return GymResults.From<CheckInResultDto, MemberProfile>(current);
-        }
-
-        var member = current.Data!;
-        var gym = await _billing.GetGymAsync(member.TenantId, cancellationToken);
-
-        if (gym is null || !gym.Settings.GymQrCheckInEnabled)
-        {
-            return GymResults.Conflict<CheckInResultDto>(
-                "Your gym does not use the entrance code. Show your pass, or check in at the front desk.");
-        }
-
-        // Only from the member's own phone: someone signed in to the member's
-        // account on another phone cannot check in for them.
-        var phone = await PhoneBinding.CheckAsync(member, phoneId, _clock, _members, cancellationToken);
-
-        if (phone is not null)
-        {
-            return GymResults.From<CheckInResultDto, bool>(phone);
-        }
-
-        if (!GymQrCode.TryParse(code, out var qr) || qr!.TenantId != member.TenantId)
-        {
-            return Ok(await DenyAsync(member, new Attempt(CheckInMethod.GymQr, null, null),
-                CheckInDenialReason.InvalidGymQr,
-                "That is not this gym's entrance code. Scan the code on the check-in screen.", cancellationToken));
-        }
-
-        // The device must still be paired: removing it also retires its codes.
-        var device = (await _devices.QueryAsync(
-                q => q.Where(x => x.Id == qr.DeviceId && x.RevokedAtUtc == null && x.KeyHash != null),
-                cancellationToken))
-            .FirstOrDefault();
-
-        var attempt = new Attempt(CheckInMethod.GymQr, device?.Id, null);
-
-        if (device is null || !qr.HasValidSignature(_keys.GymQrSecret(member.TenantId, device.Id)))
-        {
-            await AuditSuspiciousAsync(member, "GymQrRejected", "an entrance code that this gym did not issue", cancellationToken);
-
-            return Ok(await DenyAsync(member, attempt, CheckInDenialReason.InvalidGymQr,
-                "That is not this gym's entrance code. Scan the code on the check-in screen.", cancellationToken));
-        }
-
-        // Current step or the one before: at most 30 seconds old.
-        var currentStep = GymQrCode.StepAt(_clock.GetUtcNow());
-
-        if (qr.Step < currentStep - 1 || qr.Step > currentStep)
-        {
-            return Ok(await DenyAsync(member, attempt, CheckInDenialReason.ExpiredGymQr,
-                "That code has expired. Scan the code on the screen again; photos of it don't work.", cancellationToken));
-        }
-
-        return Ok(await AdmitAsync(member, attempt, cancellationToken));
-    }
-
-    public async Task<ServiceResult<GymQrDto>> GetGymQrAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var authorization = await _access.AuthorizeAsync(Permissions.GymCheckInsDevice, cancellationToken);
-
-        if (!authorization.Allowed || _access.DeviceId is not { } deviceId)
-        {
-            return GymResults.Forbidden<GymQrDto>(authorization);
-        }
-
-        var tenantId = _access.TenantId!.Value;
-        var gym = await _billing.GetGymAsync(tenantId, cancellationToken);
-
-        if (gym is null || !gym.Settings.GymQrCheckInEnabled)
-        {
-            return GymResults.Conflict<GymQrDto>("The entrance code is turned off for this gym.");
-        }
-
-        var now = _clock.GetUtcNow();
-
-        return ServiceResult<GymQrDto>.Ok(new GymQrDto
-        {
-            Code = GymQrCode.Create(_keys.GymQrSecret(tenantId, deviceId), tenantId, deviceId, GymQrCode.StepAt(now)),
-            StepSeconds = GymQrCode.StepSeconds,
-            ExpiresAtUtc = GymQrCode.StepEndsAt(now)
-        });
-    }
-
     public async Task<ServiceResult<List<CheckInDto>>> ListRecentAsync(
         int take,
         CancellationToken cancellationToken = default)
@@ -333,7 +221,7 @@ public sealed class CheckInService : ICheckInService
                     MemberId = x.MemberProfileId,
                     MemberName = x.MemberProfile!.FullName,
                     CheckedInAtUtc = x.CheckedInAtUtc,
-                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.Terminal,
                     Warning = x.Warning,
                     Method = x.Method,
                     DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
@@ -473,7 +361,7 @@ public sealed class CheckInService : ICheckInService
                     MemberId = x.MemberProfileId,
                     MemberName = name,
                     CheckedInAtUtc = x.CheckedInAtUtc,
-                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                    SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.Terminal,
                     Warning = x.Warning,
                     Method = x.Method,
                     DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
@@ -653,7 +541,7 @@ public sealed class CheckInService : ICheckInService
         MemberId = checkIn.MemberProfileId,
         MemberName = memberName,
         CheckedInAtUtc = checkIn.CheckedInAtUtc,
-        SelfCheckIn = checkIn.Method == CheckInMethod.Kiosk || checkIn.Method == CheckInMethod.GymQr,
+        SelfCheckIn = checkIn.Method == CheckInMethod.Kiosk || checkIn.Method == CheckInMethod.Terminal,
         Method = checkIn.Method
     };
 

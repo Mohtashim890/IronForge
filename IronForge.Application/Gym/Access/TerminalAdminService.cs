@@ -58,10 +58,6 @@ public interface ITerminalAdminService
         CreateTerminalUserRequest request,
         CancellationToken cancellationToken = default);
 
-    /// <summary>Users exported from ZKTeco's software as "PIN,Name" lines.</summary>
-    Task<ServiceResult<TerminalImportResultDto>> ImportAsync(
-        ImportTerminalUsersRequest request,
-        CancellationToken cancellationToken = default);
 }
 
 public sealed class TerminalAdminService : ITerminalAdminService
@@ -441,80 +437,6 @@ public sealed class TerminalAdminService : ITerminalAdminService
         await SaveAndResyncAsync(cancellationToken);
 
         return await SingleAsync(user.Id, cancellationToken);
-    }
-
-    public async Task<ServiceResult<TerminalImportResultDto>> ImportAsync(
-        ImportTerminalUsersRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        var authorization = await _access.AuthorizeAsync(Permissions.GymMembersManage, PlatformModules.GymAccess, cancellationToken);
-
-        if (!authorization.Allowed)
-        {
-            return GymResults.Forbidden<TerminalImportResultDto>(authorization);
-        }
-
-        var result = new TerminalImportResultDto();
-        var now = _clock.GetUtcNow().UtcDateTime;
-        var tenantId = _access.TenantId!.Value;
-        var rows = new Dictionary<string, string?>(StringComparer.Ordinal);
-        var lineNumber = 0;
-
-        foreach (var raw in request.Csv.Replace("\r", "").Split('\n'))
-        {
-            lineNumber++;
-            var line = raw.Trim();
-
-            if (line.Length == 0)
-                continue;
-
-            var parts = line.Split([',', ';', '\t'], 2);
-            var pin = ZkTecoProtocol.Clean(parts[0].Trim().Trim('"'));
-
-            if (pin is null)
-            {
-                // A header row ("PIN,Name" or "User ID,Name") is expected; anything else is reported.
-                if (lineNumber > 1)
-                    result.Errors.Add($"Line {lineNumber}: \"{Truncate(line, 40)}\" has no user number.");
-
-                continue;
-            }
-
-            rows[pin] = parts.Length > 1 && parts[1].Trim().Trim('"') is { Length: > 0 } name ? Truncate(name, 100) : null;
-        }
-
-        var pins = rows.Keys.ToList();
-        var existing = (await _users.QueryTrackedAsync(q => q.Where(x => pins.Contains(x.Pin)), cancellationToken))
-            .ToDictionary(x => x.Pin, StringComparer.Ordinal);
-
-        foreach (var (pin, name) in rows)
-        {
-            if (existing.TryGetValue(pin, out var user))
-            {
-                if (name is not null && user.TerminalName != name)
-                {
-                    user.TerminalName = name;
-                    result.Updated++;
-                }
-
-                continue;
-            }
-
-            _users.Add(new TerminalUser { TenantId = tenantId, Pin = pin, TerminalName = name, FirstSeenAtUtc = now });
-            result.Added++;
-        }
-
-        await _users.SaveChangesAsync(cancellationToken);
-
-        await _audit.RecordAsync(
-            AuditCategory.Membership,
-            "TerminalUsersImported",
-            AuditOutcome.Succeeded,
-            resourceType: "TerminalUser",
-            reason: $"{result.Added} added, {result.Updated} updated",
-            cancellationToken: cancellationToken);
-
-        return ServiceResult<TerminalImportResultDto>.Ok(result);
     }
 
     /// <summary>Saves, and makes every terminal compare its list at its next poll.</summary>

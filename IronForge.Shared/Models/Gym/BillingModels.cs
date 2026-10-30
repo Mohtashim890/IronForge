@@ -86,10 +86,13 @@ namespace IronForge.Shared.Models.Gym
 
     public sealed class CheckoutSessionDto
     {
-        /// <summary>Page where the member pays (Stripe Checkout or the simulated gateway).</summary>
+        /// <summary>The gym's payment provider's checkout page (or the simulated one).</summary>
         public string Url { get; set; } = "";
 
         public bool Simulated { get; set; }
+
+        /// <summary>PaymentProviderIds: hitpay, safepay or simulated.</summary>
+        public string Provider { get; set; } = "";
     }
 
     public sealed class SendReminderResultDto

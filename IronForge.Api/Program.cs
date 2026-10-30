@@ -408,18 +408,14 @@ app.UseMiddleware<ExecutionContextMiddleware>();
 
 app.MapControllers();
 
-var paymentGateway = app.Services.GetRequiredService<IronForge.Application.Gym.Billing.IPaymentGateway>();
-
-if (!app.Environment.IsDevelopment() && paymentGateway.IsSimulated)
+// Gyms connect their own payment provider (Settings → Online payments). The
+// simulated checkout for gyms without one is for demo deployments only.
+if (!app.Environment.IsDevelopment() &&
+    app.Services.GetRequiredService<IOptions<IronForge.Application.Gym.Billing.Payments.PaymentOptions>>().Value.AllowSimulated)
 {
-    // Payments__AllowSimulated is for demo deployments only: members can "pay" without money moving.
     app.Logger.LogError(
-        "Online payments are SIMULATED (Payments:AllowSimulated). Never run real gyms on this deployment.");
-}
-else if (paymentGateway.Provider == "none")
-{
-    app.Logger.LogInformation(
-        "No online payment provider is configured: members pay at the front desk or by bank transfer.");
+        "Payments:AllowSimulated is on: gyms without a payment provider get a test checkout where no money moves. " +
+        "Never run real gyms on this deployment.");
 }
 
 // Local demo: migrate and seed on startup (appsettings.Development.json Seed:Demo).

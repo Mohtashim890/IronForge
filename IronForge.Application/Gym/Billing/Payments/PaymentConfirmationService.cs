@@ -6,78 +6,22 @@ using IronForge.Application.Persistence;
 using IronForge.Shared.Models.Gym;
 using Microsoft.Extensions.Logging;
 
-namespace IronForge.Application.Gym.Billing;
-
-public sealed class CheckoutRequest
-{
-    public required int TenantId { get; init; }
-
-    public required int InvoiceId { get; init; }
-
-    public required string InvoiceNumber { get; init; }
-
-    public required string Description { get; init; }
-
-    public required decimal Amount { get; init; }
-
-    public required string Currency { get; init; }
-
-    public string? CustomerEmail { get; init; }
-
-    /// <summary>The gym's Stripe Connect account; null charges the platform account.</summary>
-    public string? ConnectedAccountId { get; init; }
-}
-
-public sealed record CheckoutResult(string SessionId, string Url);
-
-public sealed record ConnectOnboardingLink(string AccountId, string Url);
+namespace IronForge.Application.Gym.Billing.Payments;
 
 /// <summary>
-/// Online payments for member invoices: Stripe Checkout when Stripe keys are
-/// configured; the simulated checkout only where Payments:AllowSimulated
-/// is on (local and demo); otherwise none, and members pay at the desk or by
-/// bank transfer.
-/// </summary>
-public interface IPaymentGateway
-{
-    /// <summary>"stripe", "simulated" or "none"; stored on payments.</summary>
-    string Provider { get; }
-
-    bool IsSimulated { get; }
-
-    /// <summary>Whether gyms are onboarded with Stripe Connect.</summary>
-    bool SupportsStripeConnect { get; }
-
-    /// <summary>
-    /// Whether members of this gym can pay online now. A live Stripe key
-    /// needs the gym's own connected account, so member money never lands
-    /// on the platform's account.
-    /// </summary>
-    bool CanTakePayments(GymSettings settings);
-
-    Task<CheckoutResult> CreateCheckoutAsync(
-        CheckoutRequest request,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>Creates the gym's Connect account when needed and returns its onboarding link.</summary>
-    Task<ConnectOnboardingLink> CreateConnectOnboardingLinkAsync(
-        string? existingAccountId,
-        string? email,
-        CancellationToken cancellationToken = default);
-
-    Task<bool> IsChargesEnabledAsync(
-        string accountId,
-        CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// Applies a completed card checkout. Called by the Stripe webhook and the
-/// simulated gateway, without a user: the caller establishes the tenant
-/// execution context from the checkout's metadata first.
+/// Applies a completed online payment. Called without a user (webhook,
+/// return page, simulated checkout) or for the member; the caller has set
+/// the tenant execution context and checked the outcome with the provider.
 /// </summary>
 public interface IPaymentConfirmationService
 {
+    /// <summary>
+    /// Idempotent per <paramref name="eventId"/>: true when the payment was
+    /// applied now, false when it was already handled or the invoice no
+    /// longer needs paying.
+    /// </summary>
     Task<ServiceResult<bool>> ConfirmCheckoutAsync(
+        string provider,
         string eventId,
         int tenantId,
         int invoiceId,
@@ -93,7 +37,6 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
     private readonly IRepository<Invoice> _invoices;
     private readonly IRepository<MemberProfile> _members;
     private readonly IBillingEngine _billing;
-    private readonly IPaymentGateway _gateway;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
@@ -104,7 +47,6 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
         IRepository<Invoice> invoices,
         IRepository<MemberProfile> members,
         IBillingEngine billing,
-        IPaymentGateway gateway,
         IUnitOfWork unitOfWork,
         IAuditService audit,
         TimeProvider clock,
@@ -114,7 +56,6 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
         _invoices = invoices;
         _members = members;
         _billing = billing;
-        _gateway = gateway;
         _unitOfWork = unitOfWork;
         _audit = audit;
         _clock = clock;
@@ -122,6 +63,7 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
     }
 
     public async Task<ServiceResult<bool>> ConfirmCheckoutAsync(
+        string provider,
         string eventId,
         int tenantId,
         int invoiceId,
@@ -139,12 +81,12 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
         {
             return await _unitOfWork.ExecuteInTransactionAsync(
                 () => ConfirmInTransactionAsync(
-                    eventId, tenantId, invoiceId, sessionId, amountPaid, currency, cancellationToken),
+                    provider, eventId, tenantId, invoiceId, sessionId, amountPaid, currency, cancellationToken),
                 cancellationToken);
         }
         catch (ConcurrencyConflictException)
         {
-            // Paid at the same moment by another path (e.g. cash at the desk).
+            // Paid at the same moment by another path (another webhook, cash at the desk).
             _logger.LogWarning(
                 "Payment event {EventId} for invoice {InvoiceId} lost a concurrent update.",
                 eventId,
@@ -155,6 +97,7 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
     }
 
     private async Task<ServiceResult<bool>> ConfirmInTransactionAsync(
+        string provider,
         string eventId,
         int tenantId,
         int invoiceId,
@@ -166,7 +109,7 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
         _processed.Add(new ProcessedWebhookEvent
         {
             Id = eventId,
-            Provider = _gateway.Provider,
+            Provider = provider,
             ProcessedAtUtc = _clock.GetUtcNow().UtcDateTime
         });
 
@@ -187,12 +130,12 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
 
             await _audit.RecordAsync(
                 AuditCategory.Billing,
-                "CardPaymentIgnored",
+                "OnlinePaymentIgnored",
                 AuditOutcome.Failed,
                 AuditActorType.System,
                 "Invoice",
                 invoice.Id.ToString(),
-                reason: $"Invoice was {invoice.Status} when checkout {sessionId} completed; refund it in the payment provider.",
+                reason: $"Invoice was {invoice.Status} when {provider} checkout {sessionId} completed; refund it in the provider's dashboard.",
                 cancellationToken: cancellationToken,
                 tenantId: tenantId);
 
@@ -206,12 +149,12 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
 
             await _audit.RecordAsync(
                 AuditCategory.Billing,
-                "CardPaymentMismatch",
+                "OnlinePaymentMismatch",
                 AuditOutcome.Failed,
                 AuditActorType.System,
                 "Invoice",
                 invoice.Id.ToString(),
-                reason: $"Paid {amountPaid} {currency}, invoice is {invoice.Amount} {invoice.Currency}.",
+                reason: $"Paid {amountPaid} {currency} through {provider}, invoice is {invoice.Amount} {invoice.Currency}.",
                 cancellationToken: cancellationToken,
                 tenantId: tenantId);
 
@@ -233,8 +176,8 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
             gym,
             invoice,
             member,
-            PaymentMethod.Card,
-            _gateway.Provider,
+            PaymentMethod.Online,
+            provider,
             sessionId,
             recordedByUserId: null);
 
@@ -242,12 +185,12 @@ public sealed class PaymentConfirmationService : IPaymentConfirmationService
 
         await _audit.RecordAsync(
             AuditCategory.Billing,
-            "CardPaymentReceived",
+            "OnlinePaymentReceived",
             AuditOutcome.Succeeded,
             AuditActorType.System,
             "Invoice",
             invoice.Id.ToString(),
-            reason: $"{invoice.Number} paid by card ({_gateway.Provider}).",
+            reason: $"{invoice.Number} paid online ({provider}).",
             cancellationToken: cancellationToken,
             tenantId: tenantId);
 

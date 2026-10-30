@@ -39,33 +39,25 @@
             </div>
 
             <div class="if-card">
-                <div class="if-card-head"><h2>Online payments</h2></div>
-                @if (_settings.PaymentsSimulated)
+                <div class="if-card-head">
+                    <h2>Online payments</h2>
+                    <a class="if-small" href="/settings/payments">Set up →</a>
+                </div>
+                @if (_settings.OnlinePaymentsAvailable && _settings.PaymentsSimulated)
                 {
-                    <div class="if-alert info">Online payments run in <strong>demo mode</strong>: members see a test checkout and no money moves.</div>
+                    <div class="if-alert info">Members see a <strong>test checkout</strong>: no money moves (demo platform).</div>
                 }
-                else if (!_settings.StripeAvailable)
+                else if (_settings.OnlinePaymentsAvailable)
                 {
-                    <p class="if-muted if-small">
-                        Members can't pay in the app yet. They pay at the front desk or by bank transfer, and you record it on the
-                        <a href="/invoices">Invoices</a> page. Tell them how to pay under "Payment instructions" below.
-                    </p>
-                }
-                else if (_settings.StripeConnected)
-                {
-                    <div class="if-alert success">Stripe is connected. Member payments go to your Stripe account.</div>
-                    <p class="if-small if-muted">Account: <span class="if-mono">@_settings.StripeConnectedAccountId</span></p>
+                    <div class="if-alert success">Members can pay their invoices in the app, straight into your payment provider account.</div>
                 }
                 else
                 {
-                    <p class="if-muted if-small">Connect a Stripe account so members can pay by card in the app. Until then, members pay at the front desk or by bank transfer.</p>
-                    <div class="if-row">
-                        <button class="if-btn primary" disabled="@_busy" @onclick="ConnectStripeAsync">Connect Stripe</button>
-                        @if (_settings.StripeConnectedAccountId is not null)
-                        {
-                            <button class="if-btn" disabled="@_busy" @onclick="RefreshStripeAsync">I finished onboarding</button>
-                        }
-                    </div>
+                    <p class="if-muted if-small">
+                        Members can't pay in the app yet. Connect your HitPay or Safepay account under
+                        <a href="/settings/payments">Online payments</a>. Until then they pay at the front desk or by bank transfer,
+                        and you record it on the <a href="/billing/invoices">Invoices</a> page.
+                    </p>
                 }
             </div>
         </div>
@@ -76,28 +68,17 @@
                 <a class="if-small" href="/checkin-devices">Check-in devices →</a>
             </div>
             <p class="if-muted if-small" style="margin-top: 0">
-                Choose how members check themselves in. Staff can always check a member in by name at the front desk.
-                Changes apply at once, in the app, at the front desk and on every check-in device.
+                Staff can always check a member in by name at the front desk. Fingerprint terminals are set up under
+                <a href="/checkin-devices">Check-in devices</a>. Changes here apply at once, in the app, at the front desk and on every kiosk.
             </p>
 
             <label class="if-check-option">
                 <input type="checkbox" @bind="_memberPass" />
                 <span>
-                    <strong>Member pass</strong>
+                    <strong>Member pass (QR code in the app)</strong>
                     <span class="if-small if-muted">
-                        Members show a QR code from the app that changes every 30 seconds. Staff or a check-in device scan it,
-                        and staff see the member's photo. Works without internet on the phone.
-                    </span>
-                </span>
-            </label>
-
-            <label class="if-check-option">
-                <input type="checkbox" @bind="_gymQr" />
-                <span>
-                    <strong>Entrance code (gym QR)</strong>
-                    <span class="if-small if-muted">
-                        A check-in device shows a QR code that changes every 15 seconds; members scan it with the app's camera.
-                        Needs no scanner at the desk, only a screen. The member's phone needs internet.
+                        Members show a QR code from the app that changes every 30 seconds. Staff at the front desk or a kiosk scan it,
+                        and staff see the member's photo. Works without internet on the phone. Off: the Pass tab and the kiosk are switched off.
                     </span>
                 </span>
             </label>
@@ -107,16 +88,16 @@
                 <span>
                     <strong>Ask for the phone's fingerprint, face or screen lock</strong>
                     <span class="if-small if-muted">
-                        Before the app shows the pass or scans the entrance code, the member confirms it's them on their phone.
+                        Before the app shows the pass, the member confirms it's them on their phone.
                         The pass then hides again after a minute. Stops a member handing the phone to a friend.
                         A pass also works on one phone at a time: moving it resets it and emails the member.
                     </span>
                 </span>
             </label>
 
-            @if (!_memberPass && !_gymQr)
+            @if (!_memberPass)
             {
-                <div class="if-alert info" style="margin: 10px 0 0">With both off, members are checked in by staff at the front desk only.</div>
+                <div class="if-alert info" style="margin: 10px 0 0">With the pass off, members check in by name at the front desk, or with a fingerprint terminal.</div>
             }
 
             <button class="if-btn primary" style="margin-top: 12px" disabled="@(_busy || !CheckInChanged)" @onclick="SaveCheckInMethodsAsync">Save check-in methods</button>
@@ -165,19 +146,15 @@
 </div>
 
 @code {
-    [SupplyParameterFromQuery(Name = "stripe")] public string? StripeReturn { get; set; }
-
     private GymSettingsDto? _settings;
     private UpdateGymSettingsRequest _form = new();
     private string _afterDue = "";
     private bool _memberPass;
-    private bool _gymQr;
     private bool _phoneUnlock;
 
     private bool CheckInChanged =>
         _settings is not null &&
         (_memberPass != _settings.MemberPassCheckInEnabled ||
-         _gymQr != _settings.GymQrCheckInEnabled ||
          _phoneUnlock != _settings.RequirePhoneUnlock);
     private bool _busy;
     private string? _error;
@@ -185,9 +162,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var result = StripeReturn == "return"
-            ? await Gym.RefreshStripeAsync()
-            : await Gym.GetSettingsAsync();
+        var result = await Gym.GetSettingsAsync();
 
         if (!result.Success)
         {
@@ -196,13 +171,6 @@
         }
 
         Apply(result.Data!);
-
-        if (StripeReturn == "return")
-        {
-            _message = _settings!.StripeConnected
-                ? "Stripe is connected. Members can now pay by card."
-                : "Stripe onboarding is not complete yet. Finish it to accept card payments.";
-        }
     }
 
     private void Apply(GymSettingsDto settings)
@@ -223,7 +191,6 @@
         };
         _afterDue = string.Join(", ", settings.ReminderDaysAfterDue);
         _memberPass = settings.MemberPassCheckInEnabled;
-        _gymQr = settings.GymQrCheckInEnabled;
         _phoneUnlock = settings.RequirePhoneUnlock;
     }
 
@@ -232,7 +199,6 @@
             () => Gym.UpdateCheckInMethodsAsync(new UpdateCheckInMethodsRequest
             {
                 MemberPassEnabled = _memberPass,
-                GymQrEnabled = _gymQr,
                 RequirePhoneUnlock = _phoneUnlock
             }),
             "Check-in methods saved.");
@@ -249,20 +215,6 @@
     }
 
     private Task RegenerateAsync() => RunAsync(Gym.RegenerateJoinCodeAsync, "New join code created.");
-
-    private Task RefreshStripeAsync() => RunAsync(Gym.RefreshStripeAsync, "Stripe status updated.");
-
-    private async Task ConnectStripeAsync()
-    {
-        _busy = true;
-        var result = await Gym.ConnectStripeAsync();
-        _busy = false;
-
-        if (result.Success)
-            Navigation.NavigateTo(result.Data!.Url, forceLoad: true);
-        else
-            _error = result.ErrorMessage;
-    }
 
     private async Task RunAsync(Func<CancellationToken, Task<ServiceResult<GymSettingsDto>>> action, string success)
     {

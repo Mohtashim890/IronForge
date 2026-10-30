@@ -308,10 +308,8 @@ namespace IronForge.Shared.Models.Gym
         /// <summary>The gym accepts the member's own pass (Pass tab).</summary>
         public bool MemberPassCheckInEnabled { get; set; }
 
-        /// <summary>The gym shows an entrance code the member scans with the app.</summary>
-        public bool GymQrCheckInEnabled { get; set; }
 
-        /// <summary>Unlock the phone (fingerprint, face or screen lock) before showing the pass or scanning.</summary>
+        /// <summary>Unlock the phone (fingerprint, face or screen lock) before showing the pass.</summary>
         public bool RequirePhoneUnlock { get; set; }
     }
 }

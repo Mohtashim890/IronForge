@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\IronForge.Application\IronForge.Application.csproj" />
+    <ProjectReference Include="..\..\IronForge.Payments\IronForge.Payments.csproj" />
   </ItemGroup>
 
   <ItemGroup>

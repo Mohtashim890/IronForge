@@ -17,6 +17,7 @@ using IronForge.Application.Execution;
 using IronForge.Application.Gym.Access;
 using IronForge.Application.Gym.AgentTools;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Application.Gym.CheckIns;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Fitness;
@@ -27,6 +28,7 @@ using IronForge.Application.Tenants.Invitations;
 using IronForge.Application.Tenants.Services;
 using IronForge.Infrastructure.Data;
 using IronForge.Infrastructure.Persistence;
+using IronForge.Payments.Simulated;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -60,6 +62,9 @@ public sealed class TestServiceFactory
     public IronForgeDbContext Db { get; }
 
     public TestExecutionContextAccessor ContextAccessor { get; }
+
+    public AuditQueryService AuditQuery =>
+        new(new EfRepository<AuditEvent>(Db), ContextAccessor, GymAccess);
 
     public AuditService Audit =>
         new(new EfRepository<AuditEvent>(Db), ContextAccessor);
@@ -303,7 +308,50 @@ public sealed class TestServiceFactory
             Notifications,
             Clock);
 
-    public TestPaymentGateway PaymentGateway { get; } = new();
+    /// <summary>
+    /// A provider that records checkouts and answers with the statuses a
+    /// test sets. Share one instance across a test's requests.
+    /// </summary>
+    public TestPaymentProvider PaymentProvider { get; init; } = new();
+
+    /// <summary>The simulated checkout is on, as in Development; tests turn it off.</summary>
+    public PaymentOptions PaymentOptions { get; init; } = new()
+    {
+        AllowSimulated = true,
+        EncryptionKey = "integration-test-payment-key-long-enough"
+    };
+
+    public static AppUrlOptions Urls { get; } = new() { ApiBaseUrl = "https://api.test" };
+
+    public PaymentProviderCatalog PaymentProviders =>
+        new([PaymentProvider, new SimulatedPaymentProvider(Options.Create(Urls))]);
+
+    public PaymentCredentialProtector PaymentProtector => new(Options.Create(PaymentOptions));
+
+    public OnlinePaymentService OnlinePayments =>
+        new(
+            new EfRepository<GymPaymentAccount>(Db),
+            new EfRepository<Invoice>(Db),
+            PaymentProviders,
+            PaymentProtector,
+            PaymentConfirmation,
+            Audit,
+            Options.Create(PaymentOptions),
+            Options.Create(Urls),
+            NullLogger<OnlinePaymentService>.Instance);
+
+    public GymPaymentAccountService PaymentAccounts =>
+        new(
+            GymAccess,
+            new EfRepository<GymPaymentAccount>(Db),
+            new EfRepository<GymSettings>(Db),
+            PaymentProviders,
+            PaymentProtector,
+            OnlinePayments,
+            Audit,
+            Options.Create(PaymentOptions),
+            Options.Create(Urls),
+            Clock);
 
     public BillingService Billing =>
         new(
@@ -312,7 +360,7 @@ public sealed class TestServiceFactory
             new EfRepository<Payment>(Db),
             new EfRepository<MemberProfile>(Db),
             BillingEngine,
-            PaymentGateway,
+            OnlinePayments,
             Audit,
             Clock);
 
@@ -322,7 +370,6 @@ public sealed class TestServiceFactory
             new EfRepository<Invoice>(Db),
             new EfRepository<MemberProfile>(Db),
             BillingEngine,
-            PaymentGateway,
             new EfUnitOfWork(Db),
             Audit,
             Clock,
@@ -334,6 +381,19 @@ public sealed class TestServiceFactory
             new EfRepository<MembershipPlan>(Db),
             new EfRepository<MemberProfile>(Db),
             new EfRepository<GymSettings>(Db),
+            Audit,
+            Clock);
+
+    public MemberImportService MemberImport =>
+        new(
+            GymAccess,
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<MembershipPlan>(Db),
+            new EfRepository<User>(Db),
+            new EfRepository<TenantMembership>(Db),
+            BillingEngine,
+            Invitations,
+            new EfUnitOfWork(Db),
             Audit,
             Clock);
 
@@ -358,7 +418,7 @@ public sealed class TestServiceFactory
             new EfUnitOfWork(Db),
             Audit,
             Clock,
-            PaymentGateway);
+            OnlinePayments);
 
     public const string PassSigningKey = "integration-test-member-pass-key-long-enough";
 
@@ -373,7 +433,6 @@ public sealed class TestServiceFactory
             new EfRepository<MemberProfile>(Db),
             new EfRepository<Invoice>(Db),
             new EfRepository<MemberPhoto>(Db),
-            new EfRepository<CheckInDevice>(Db),
             PassKeys,
             BillingEngine,
             Audit,
@@ -384,7 +443,8 @@ public sealed class TestServiceFactory
             GymAccess,
             new EfRepository<GymSettings>(Db),
             new EfRepository<Tenant>(Db),
-            PaymentGateway,
+            OnlinePayments,
+            Options.Create(PaymentOptions),
             Audit,
             Clock);
 
@@ -571,39 +631,87 @@ public sealed class TestModelProfiles : IronForge.Application.Agents.ModelProfil
         throw new NotSupportedException("Tests do not call models.");
 }
 
-/// <summary>Checkout without a payment provider: sessions are recorded, nothing is charged.</summary>
-public sealed class TestPaymentGateway : IPaymentGateway
+/// <summary>
+/// A payment provider for tests: checkouts are recorded and stay pending
+/// until the test marks them paid; webhooks are "signed" with the
+/// X-Test-Signature header equal to the gym's webhook secret.
+/// </summary>
+public sealed class TestPaymentProvider : IPaymentProvider
 {
+    public const string Id = "testpay";
+
     public List<CheckoutRequest> Checkouts { get; } = [];
 
-    public string Provider => "test";
+    /// <summary>What GetStatusAsync answers, by session id.</summary>
+    public Dictionary<string, CheckoutStatus> Statuses { get; } = [];
 
-    public bool IsSimulated => true;
+    /// <summary>When set, VerifyCredentialsAsync refuses the keys with this reason.</summary>
+    public string? CredentialsProblem { get; set; }
 
-    /// <summary>Tests turn it off to act like a platform without an online payment provider.</summary>
-    public bool TakesPayments { get; set; } = true;
+    public List<PaymentAccountCredentials> CredentialsUsed { get; } = [];
 
-    public bool SupportsStripeConnect => false;
-
-    public bool CanTakePayments(GymSettings settings) => TakesPayments;
-
-    public Task<CheckoutResult> CreateCheckoutAsync(CheckoutRequest request, CancellationToken cancellationToken = default)
+    public PaymentProviderDescriptor Descriptor { get; } = new()
     {
+        Id = Id,
+        Name = "TestPay",
+        Region = "Tests",
+        Currencies = ["USD", "PKR"],
+        ApiKeyLabel = "API key",
+        SecretLabel = "Secret",
+        WebhookSecretLabel = "Webhook secret"
+    };
+
+    public Task<CheckoutSession> CreateCheckoutAsync(
+        PaymentAccountCredentials account,
+        CheckoutRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        CredentialsUsed.Add(account);
         Checkouts.Add(request);
 
-        var session = $"test_{Guid.NewGuid():N}";
+        var session = $"tp_{Guid.NewGuid():N}";
+        Statuses[session] = new CheckoutStatus(CheckoutState.Pending, request.Amount, request.Currency, request.Reference, null);
 
-        return Task.FromResult(new CheckoutResult(session, $"https://pay.test/{session}"));
+        return Task.FromResult(new CheckoutSession(session, $"https://pay.test/{session}"));
     }
 
-    public Task<ConnectOnboardingLink> CreateConnectOnboardingLinkAsync(
-        string? existingAccountId,
-        string? email,
-        CancellationToken cancellationToken = default) =>
-        throw new NotSupportedException();
+    /// <summary>The provider now reports the checkout as paid (optionally with another amount).</summary>
+    public void MarkPaid(string sessionId, decimal? amount = null)
+    {
+        var status = Statuses[sessionId];
+        Statuses[sessionId] = status with { State = CheckoutState.Paid, Amount = amount ?? status.Amount, PaymentReference = $"pay_{sessionId}" };
+    }
 
-    public Task<bool> IsChargesEnabledAsync(string accountId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(false);
+    public Task<CheckoutStatus> GetStatusAsync(
+        PaymentAccountCredentials account,
+        string sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        CredentialsUsed.Add(account);
+
+        return Statuses.TryGetValue(sessionId, out var status)
+            ? Task.FromResult(status)
+            : throw new PaymentProviderException("Unknown checkout.", statusCode: 404);
+    }
+
+    public Task<string?> VerifyCredentialsAsync(
+        PaymentAccountCredentials account,
+        CancellationToken cancellationToken = default)
+    {
+        CredentialsUsed.Add(account);
+
+        return Task.FromResult(CredentialsProblem);
+    }
+
+    public WebhookNotice? ReadWebhook(
+        PaymentAccountCredentials account,
+        IReadOnlyDictionary<string, string> headers,
+        string body) =>
+        account.WebhookSecret is not null &&
+        headers.TryGetValue("X-Test-Signature", out var signature) &&
+        signature == account.WebhookSecret
+            ? new WebhookNotice(string.IsNullOrWhiteSpace(body) ? null : body.Trim())
+            : null;
 }
 
 /// <summary>A clock tests can set and move.</summary>

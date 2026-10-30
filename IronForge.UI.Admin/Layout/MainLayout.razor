@@ -3,11 +3,12 @@
 @inject IAuthService AuthService
 @inject ClientAppProfile Profile
 @inject NavigationManager Navigation
+@inject GymApiClient Gym
 
 <div class="ironforge-shell @(_mobileMenuOpen ? "mobile-menu-open" : "")">
 
     <aside class="ironforge-sidebar">
-        <NavMenu GymName="@_gymName" />
+        <NavMenu GymName="@_gymName" Coaching="@(_settings?.CoachingEnabled == true)" AccessControl="@(_settings?.AccessControlEnabled == true)" />
     </aside>
 
     @if (_mobileMenuOpen)
@@ -102,6 +103,9 @@
     private ActiveTenant? _gym;
     private string? _gymName;
 
+    /// <summary>The gym's modules decide which sidebar items exist (e.g. no exercise library without Coaching).</summary>
+    private GymSettingsDto? _settings;
+
     // A layout instance survives navigation, so the checks run for every page
     // (OnParametersSet), not only once.
     protected override async Task OnParametersSetAsync()
@@ -131,6 +135,7 @@
         {
             var gyms = await AuthService.GetMyTenantsAsync();
             _gymName = gyms.Data?.FirstOrDefault(x => x.TenantId == gym.TenantId)?.TenantName;
+            _settings = Profile.AcceptsRole(gym.Role) ? (await Gym.GetSettingsAsync()).Data : null;
         }
 
         _gym = gym;

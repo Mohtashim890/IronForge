@@ -13,7 +13,7 @@ using IronForge.Application.Gym.Notifications;
 using IronForge.Application.Gym.Settings;
 using IronForge.Infrastructure.Background;
 using IronForge.Infrastructure.Email;
-using IronForge.Infrastructure.Payments;
+using IronForge.Payments;
 using IronForge.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,20 +74,12 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddSingleton<SessionStateCache>();
         services.AddScoped<ISessionValidator, SessionValidator>();
 
-        services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
 
-        var stripe = configuration.GetSection(StripeOptions.SectionName).Get<StripeOptions>() ?? new();
-        var payments = configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>() ?? new();
         var email = configuration.GetSection(EmailOptions.SectionName).Get<EmailOptions>() ?? new();
 
-        // The simulated checkout lets members "pay" without money moving: only where explicitly allowed.
-        if (stripe.IsConfigured)
-            services.AddSingleton<IPaymentGateway, StripePaymentGateway>();
-        else if (payments.AllowSimulated)
-            services.AddSingleton<IPaymentGateway, SimulatedPaymentGateway>();
-        else
-            services.AddSingleton<IPaymentGateway, NoOnlinePaymentGateway>();
+        // Online payments: each gym connects its own provider account (IronForge.Payments).
+        services.AddIronForgePayments(configuration);
 
         if (email.IsConfigured)
             services.AddSingleton<IEmailSender, SmtpEmailSender>();
@@ -101,11 +93,11 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddScoped<IInvoiceNumberGenerator, InvoiceNumberGenerator>();
         services.AddScoped<IBillingEngine, BillingEngine>();
         services.AddScoped<IBillingService, BillingService>();
-        services.AddScoped<IPaymentConfirmationService, PaymentConfirmationService>();
         services.AddScoped<IGymSettingsFactory, GymSettingsFactory>();
         services.AddScoped<IGymSettingsService, GymSettingsService>();
         services.AddScoped<IMembershipPlanService, MembershipPlanService>();
         services.AddScoped<IMemberService, MemberService>();
+        services.AddScoped<IMemberImportService, MemberImportService>();
         services.AddScoped<ICheckInService, CheckInService>();
         services.AddSingleton<ICheckInKeys, CheckInKeys>();
         services.AddScoped<IMemberPassService, MemberPassService>();
@@ -121,7 +113,6 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddScoped<IProgressService, ProgressService>();
         services.AddScoped<IAnnouncementService, AnnouncementService>();
         services.AddScoped<IPasswordResetService, PasswordResetService>();
-        services.AddScoped<StripeWebhookHandler>();
 
         // Agent tool catalogue: every gym tool declares its name, schema and default governance.
         foreach (var toolType in GymAgentToolCatalog.Types)

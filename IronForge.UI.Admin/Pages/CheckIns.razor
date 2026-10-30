@@ -39,11 +39,6 @@
                     <div class="if-alert info">The member pass is turned off for this gym, so there is nothing to scan here. An admin can turn it on in Gym settings.</div>
                 }
 
-                @if (_methods?.GymQrCheckInEnabled == true)
-                {
-                    <p class="if-small if-muted" style="margin: 10px 0 0">Members can also check themselves in by scanning the entrance code on a check-in device.</p>
-                }
-
                 <div class="if-card-head" style="margin-top: 18px"><h2>Find by name</h2></div>
                 <input class="if-input" placeholder="Type a member's name, email or phone" @bind="_search" @bind:event="oninput" @onkeyup="SearchAsync" aria-label="Find a member" />
 
@@ -275,7 +270,6 @@
     private static string MethodText(CheckInMethod method, string? device) => method switch
     {
         CheckInMethod.Kiosk => device ?? "Kiosk",
-        CheckInMethod.GymQr => $"Entrance code{(device is null ? "" : $" ({device})")}",
         CheckInMethod.Terminal => $"Fingerprint{(device is null ? "" : $" ({device})")}",
         CheckInMethod.PassScan => "Pass scan",
         _ => "Front desk"
@@ -284,8 +278,7 @@
     private static bool IsPassProblem(CheckInDenialReason reason) =>
         reason is CheckInDenialReason.InvalidPass or CheckInDenialReason.ReusedPass
             or CheckInDenialReason.ExpiredPass or CheckInDenialReason.RevokedPass
-            or CheckInDenialReason.UnknownMember or CheckInDenialReason.InvalidGymQr
-            or CheckInDenialReason.ExpiredGymQr;
+            or CheckInDenialReason.UnknownMember;
 
     private static string ReasonText(CheckInDenialReason reason) => reason switch
     {
@@ -295,8 +288,6 @@
         CheckInDenialReason.ReusedPass => "Copied code",
         CheckInDenialReason.RevokedPass => "Reset pass",
         CheckInDenialReason.UnknownMember => "Not a member",
-        CheckInDenialReason.InvalidGymQr => "Wrong entrance code",
-        CheckInDenialReason.ExpiredGymQr => "Old entrance code",
         _ => reason.ToString()
     };
 }

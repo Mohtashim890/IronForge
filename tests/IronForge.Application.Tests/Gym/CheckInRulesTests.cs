@@ -79,43 +79,6 @@ public class CheckInRulesTests
         Assert.Equal(4, secrets.Select(Convert.ToBase64String).Distinct().Count());
     }
 
-    [Fact]
-    public void GymQrCode_RoundTrips_AndUsesItsOwnSecret()
-    {
-        var keys = Keys();
-        var code = GymQrCode.Create(keys.GymQrSecret(7, 3), 7, 3, 1000);
-
-        Assert.True(GymQrCode.TryParse(code, out var qr));
-        Assert.Equal((7, 3, 1000L), (qr!.TenantId, qr.DeviceId, qr.Step));
-        Assert.True(qr.HasValidSignature(keys.GymQrSecret(7, 3)));
-        Assert.False(qr.HasValidSignature(keys.GymQrSecret(7, 4)));
-
-        // Device 3's code secret is never member 3's pass secret.
-        Assert.NotEqual(
-            Convert.ToBase64String(keys.GymQrSecret(7, 3)),
-            Convert.ToBase64String(keys.MemberPassSecret(7, 3, 1)));
-
-        // The two code formats cannot be mistaken for each other.
-        Assert.False(MemberPassCode.TryParse(code, out _));
-        Assert.False(GymQrCode.TryParse(MemberPassCode.Create(keys.MemberPassSecret(7, 3, 1), 7, 3, 1, 1000), out _));
-    }
-
-    [Fact]
-    public void GymQrCode_StepIs15Seconds()
-    {
-        var start = new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero);
-
-        Assert.Equal(GymQrCode.StepAt(start) + 1, GymQrCode.StepAt(start.AddSeconds(15)));
-        Assert.Equal(start.AddSeconds(15).UtcDateTime, GymQrCode.StepEndsAt(start));
-    }
-
-    [Fact]
-    public void OnlyMembers_MayCheckThemselvesIn()
-    {
-        Assert.Contains(Permissions.GymSelfCheckIn, RolePermissions.GetPermissions(TenantRoles.Member));
-        Assert.DoesNotContain(Permissions.GymSelfCheckIn, RolePermissions.GetPermissions(TenantRoles.Trainer));
-    }
-
     // ---- Policy ------------------------------------------------------------------
 
     [Theory]

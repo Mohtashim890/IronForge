@@ -192,29 +192,7 @@ namespace IronForge.Shared.Models.Gym
 
         public string GymName { get; set; } = "";
 
-        /// <summary>The kiosk scans members' passes.</summary>
+        /// <summary>The kiosk scans members' passes; when false it sends members to the front desk.</summary>
         public bool MemberPassEnabled { get; set; }
-
-        /// <summary>The kiosk shows the gym's entrance code for members to scan.</summary>
-        public bool GymQrEnabled { get; set; }
-    }
-
-    /// <summary>The entrance code a check-in device shows right now.</summary>
-    public sealed class GymQrDto
-    {
-        public string Code { get; set; } = "";
-
-        public int StepSeconds { get; set; }
-
-        /// <summary>When the screen should fetch the next code.</summary>
-        public DateTime ExpiresAtUtc { get; set; }
-    }
-
-    public sealed class GymQrCheckInRequest
-    {
-        /// <summary>The text of the code the member scanned at the gym.</summary>
-        [Required]
-        [MaxLength(200)]
-        public string Code { get; set; } = "";
     }
 }

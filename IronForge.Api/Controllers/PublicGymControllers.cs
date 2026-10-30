@@ -7,11 +7,12 @@ using IronForge.Application.Execution;
 using IronForge.Application.Gym.Billing;
 using IronForge.Application.Gym.Members;
 using IronForge.Application.Persistence;
-using IronForge.Infrastructure.Payments;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Shared.Models.Gym;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 
 namespace IronForge.Api.Controllers
 {
@@ -36,38 +37,97 @@ namespace IronForge.Api.Controllers
     }
 
     /// <summary>
-    /// Payment callbacks: the Stripe webhook, the simulated checkout used
-    /// without Stripe keys, and the page the payer lands on afterwards.
+    /// Online payment callbacks, all anonymous: the providers' webhooks, the
+    /// page the payer's browser returns to, and the simulated test checkout.
+    /// None of them trusts what it is sent: each asks the gym's provider
+    /// (OnlinePaymentService) before an invoice is marked paid.
     /// </summary>
     [ApiController]
     [AllowAnonymous]
     public sealed class PaymentsController : ControllerBase
     {
-        private readonly IPaymentGateway _gateway;
+        private readonly IOnlinePaymentService _payments;
+        private readonly ILogger<PaymentsController> _logger;
 
-        public PaymentsController(IPaymentGateway gateway) => _gateway = gateway;
+        public PaymentsController(IOnlinePaymentService payments, ILogger<PaymentsController> logger)
+        {
+            _payments = payments;
+            _logger = logger;
+        }
 
-        [HttpPost("api/payments/stripe/webhook")]
+        /// <summary>
+        /// A provider's notification for one gym: the URL the gym registers in
+        /// its provider dashboard (Settings → Online payments shows it).
+        /// </summary>
+        [HttpPost("api/payments/webhooks/{provider}/{tenantId:int}")]
         [EnableRateLimiting(RateLimitPolicies.Webhook)]
-        public async Task<IActionResult> StripeWebhook(
-            [FromServices] StripeWebhookHandler handler,
+        public async Task<IActionResult> Webhook(
+            string provider,
+            int tenantId,
+            [FromServices] IExecutionContextAccessor executionContext,
             CancellationToken cancellationToken)
         {
             using var reader = new StreamReader(Request.Body, Encoding.UTF8);
-            var payload = await reader.ReadToEndAsync(cancellationToken);
+            var body = await reader.ReadToEndAsync(cancellationToken);
 
-            var outcome = await handler.HandleAsync(
-                payload,
-                Request.Headers["Stripe-Signature"],
-                cancellationToken);
+            var headers = Request.Headers.ToDictionary(
+                x => x.Key,
+                x => x.Value.ToString(),
+                StringComparer.OrdinalIgnoreCase);
 
-            return outcome switch
+            EnterTenant(executionContext, tenantId);
+
+            var result = await _payments.HandleWebhookAsync(provider, tenantId, headers, body, cancellationToken);
+
+            if (!result.Success)
             {
-                WebhookOutcome.InvalidSignature => BadRequest(),
-                WebhookOutcome.NotConfigured => NotFound(),
-                _ => Ok()
-            };
+                _logger.LogWarning(
+                    "{Provider} webhook for tenant {TenantId} not applied: {Reason}",
+                    provider,
+                    tenantId,
+                    result.ErrorMessage);
+            }
+
+            // Provider unreachable (502): ask the provider to retry later.
+            return result.Success
+                ? Ok()
+                : StatusCode(result.StatusCode == 502 ? 503 : result.StatusCode ?? 400);
         }
+
+        /// <summary>
+        /// Where the payer's browser lands after the provider's checkout. The
+        /// provider's API is asked for the outcome, so payments are confirmed
+        /// even where webhooks cannot reach the API (local development).
+        /// </summary>
+        [HttpGet("payments/return/{tenantId:int}/{invoiceId:int}")]
+        [EnableRateLimiting(RateLimitPolicies.Anonymous)]
+        public async Task<IActionResult> Return(
+            int tenantId,
+            int invoiceId,
+            [FromServices] IExecutionContextAccessor executionContext,
+            CancellationToken cancellationToken)
+        {
+            EnterTenant(executionContext, tenantId);
+
+            var result = await _payments.ConfirmInvoiceAsync(tenantId, invoiceId, cancellationToken);
+
+            if (result.Success && result.Data)
+            {
+                return Redirect("/payments/complete?status=success");
+            }
+
+            return result.Success
+                ? Page(
+                    "Payment processing",
+                    "<p>We have not received the payment confirmation yet.</p>" +
+                    "<p>If you completed the payment, it will show in the IronForge app in a moment: " +
+                    "open your invoices and tap \"I've paid — check now\".</p>")
+                : Redirect("/payments/complete?status=failed");
+        }
+
+        [HttpGet("payments/cancelled")]
+        public IActionResult Cancelled() =>
+            Page("Payment cancelled", "<p>No payment was made. You can close this page and return to the app.</p>");
 
         [HttpGet("payments/simulated")]
         [EnableRateLimiting(RateLimitPolicies.Anonymous)]
@@ -77,18 +137,17 @@ namespace IronForge.Api.Controllers
             [FromQuery] string session,
             [FromServices] IExecutionContextAccessor executionContext,
             [FromServices] IRepository<Invoice> invoices,
+            [FromServices] IOptions<PaymentOptions> options,
             CancellationToken cancellationToken)
         {
-            if (!_gateway.IsSimulated)
+            if (!options.Value.AllowSimulated)
             {
                 return NotFound();
             }
 
             EnterTenant(executionContext, tenant);
 
-            var found = await invoices.FirstOrDefaultAsync(
-                x => x.Id == invoice && x.CheckoutSessionId == session,
-                cancellationToken);
+            var found = await FindSimulatedAsync(invoices, invoice, session, cancellationToken);
 
             if (found is null)
             {
@@ -105,7 +164,7 @@ namespace IronForge.Api.Controllers
             return Page(
                 "Test payment",
                 $"""
-                <p class="muted">IronForge simulated checkout. No real payment is made.</p>
+                <p class="muted">IronForge test checkout. No real payment is made.</p>
                 <p><strong>{Encode(found.Number)}</strong><br>{Encode(found.Description)}</p>
                 <p class="amount">{Encode(amount)}</p>
                 <form method="post" action="/payments/simulated">
@@ -114,7 +173,7 @@ namespace IronForge.Api.Controllers
                   <input type="hidden" name="session" value="{Encode(session)}">
                   <button type="submit">Pay {Encode(amount)}</button>
                 </form>
-                <p><a href="/payments/complete?status=cancelled">Cancel</a></p>
+                <p><a href="/payments/cancelled">Cancel</a></p>
                 """);
         }
 
@@ -127,19 +186,18 @@ namespace IronForge.Api.Controllers
             [FromForm] string session,
             [FromServices] IExecutionContextAccessor executionContext,
             [FromServices] IRepository<Invoice> invoices,
+            [FromServices] IOptions<PaymentOptions> options,
             [FromServices] IPaymentConfirmationService confirmation,
             CancellationToken cancellationToken)
         {
-            if (!_gateway.IsSimulated)
+            if (!options.Value.AllowSimulated)
             {
                 return NotFound();
             }
 
             EnterTenant(executionContext, tenant);
 
-            var found = await invoices.FirstOrDefaultAsync(
-                x => x.Id == invoice && x.CheckoutSessionId == session,
-                cancellationToken);
+            var found = await FindSimulatedAsync(invoices, invoice, session, cancellationToken);
 
             if (found is null)
             {
@@ -147,6 +205,7 @@ namespace IronForge.Api.Controllers
             }
 
             var result = await confirmation.ConfirmCheckoutAsync(
+                PaymentProviderIds.Simulated,
                 $"simevt_{session}",
                 tenant,
                 invoice,
@@ -167,6 +226,17 @@ namespace IronForge.Api.Controllers
             "cancelled" => Page("Payment cancelled", "<p>No payment was made. You can close this page and return to the app.</p>"),
             _ => Page("Payment not completed", "<p>The payment could not be completed. Return to the app and try again.</p>")
         };
+
+        private static Task<Invoice?> FindSimulatedAsync(
+            IRepository<Invoice> invoices,
+            int invoiceId,
+            string session,
+            CancellationToken cancellationToken) =>
+            invoices.FirstOrDefaultAsync(
+                x => x.Id == invoiceId &&
+                     x.CheckoutSessionId == session &&
+                     x.CheckoutProvider == PaymentProviderIds.Simulated,
+                cancellationToken);
 
         private static void EnterTenant(IExecutionContextAccessor executionContext, int tenantId)
         {

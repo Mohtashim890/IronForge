@@ -33,15 +33,8 @@ namespace IronForge.Shared.Models.Gym
         /// <summary>Days an invoice may stay overdue before the membership expires.</summary>
         public int GracePeriodDays { get; set; }
 
-        public bool StripeConnected { get; set; }
-
-        public string? StripeConnectedAccountId { get; set; }
-
-        /// <summary>True when card payments go through a simulated gateway (no Stripe keys).</summary>
+        /// <summary>The platform offers the simulated checkout to gyms without a payment provider (no money moves).</summary>
         public bool PaymentsSimulated { get; set; }
-
-        /// <summary>Stripe is configured on the platform, so the gym can connect its account.</summary>
-        public bool StripeAvailable { get; set; }
 
         /// <summary>Members of this gym can pay invoices online in the app now.</summary>
         public bool OnlinePaymentsAvailable { get; set; }
@@ -52,25 +45,24 @@ namespace IronForge.Shared.Models.Gym
         /// <summary>Members show their rotating pass; staff or a kiosk scan it.</summary>
         public bool MemberPassCheckInEnabled { get; set; }
 
-        /// <summary>A check-in device shows a rotating code; members scan it with the app.</summary>
-        public bool GymQrCheckInEnabled { get; set; }
 
-        /// <summary>The app asks for the phone's fingerprint, face or screen lock before a pass or a scan.</summary>
+        /// <summary>The app asks for the phone's fingerprint, face or screen lock before it shows the pass.</summary>
         public bool RequirePhoneUnlock { get; set; }
 
         /// <summary>The Access control module (fingerprint terminals) is part of the gym's subscription.</summary>
         public bool AccessControlEnabled { get; set; }
+
+        /// <summary>The Coaching module (exercise library, routines, AI coach) is part of the gym's subscription.</summary>
+        public bool CoachingEnabled { get; set; }
     }
 
     /// <summary>
-    /// Which self-service check-in methods the gym offers. Staff can always
-    /// check a member in by name at the front desk.
+    /// Whether members check in with their pass, and whether the app asks for
+    /// the phone unlock first. Staff can always check a member in by name.
     /// </summary>
     public sealed class UpdateCheckInMethodsRequest
     {
         public bool MemberPassEnabled { get; set; }
-
-        public bool GymQrEnabled { get; set; }
 
         public bool RequirePhoneUnlock { get; set; } = true;
     }
@@ -108,11 +100,6 @@ namespace IronForge.Shared.Models.Gym
 
         [MaxLength(1000)]
         public string? PaymentInstructions { get; set; }
-    }
-
-    public sealed class StripeConnectLinkDto
-    {
-        public string Url { get; set; } = "";
     }
 
     /// <summary>Public information shown before joining with a code.</summary>

@@ -251,19 +251,15 @@ public sealed class AccessTerminalTests
     }
 
     [Fact]
-    public async Task VendorExport_IsImported_AndNewMembersGetTheNextNumber()
+    public async Task TheTerminalsOwnList_IsTheSource_AndNewMembersGetTheNextNumber()
     {
         var gym = await SeedGymAsync();
         var sara = await SeedMemberAsync(gym, "Sara Khan");
         var omar = await SeedMemberAsync(gym, "Omar Ali");
+        var serial = await RegisterAsync(gym, "SN0010");
 
-        var import = await AsAdmin(gym, s => s.TerminalAdmin.ImportAsync(new ImportTerminalUsersRequest
-        {
-            Csv = "User ID,Name\n1001,Sara Khan\n1005,\"Coach Bilal\"\nabc,Nobody\n"
-        }));
-
-        Assert.Equal(2, import.Data!.Added);
-        Assert.Single(import.Data.Errors);
+        await AsTerminal(serial, s => s.Terminal.UploadAsync("OPERLOG",
+            "USER PIN=1001\tName=Sara Khan\nUSER PIN=1005\tName=Coach Bilal\n"));
 
         var created = await AsAdmin(gym, s => s.TerminalAdmin.CreateForMemberAsync(new CreateTerminalUserRequest { MemberId = omar }));
         Assert.Equal("1006", created.Data!.Pin);
@@ -274,6 +270,10 @@ public sealed class AccessTerminalTests
 
         var users = (await AsAdmin(gym, s => s.TerminalAdmin.ListUsersAsync())).Data!;
         Assert.Equal(sara, users.Single(x => x.Pin == "1001").SuggestedMemberId);
+
+        // The new number reaches the terminal at its next poll, so the member can enrol a finger there.
+        var poll = await AsTerminal(serial, s => s.Terminal.PollAsync());
+        Assert.Contains("DATA UPDATE USERINFO PIN=1006\tName=Omar Ali", poll);
     }
 
     [Fact]

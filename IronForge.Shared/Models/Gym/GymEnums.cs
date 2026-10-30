@@ -34,9 +34,13 @@
 
     public enum PaymentMethod
     {
+        /// <summary>Old card payments (Stripe); new online payments use <see cref="Online"/>.</summary>
         Card = 0,
         Cash = 1,
-        BankTransfer = 2
+        BankTransfer = 2,
+
+        /// <summary>Paid in the app through the gym's payment provider (card, wallet or online banking).</summary>
+        Online = 3
     }
 
     /// <summary>Who created a workout routine.</summary>
@@ -93,8 +97,7 @@
         /// <summary>An unattended check-in device scanned the member's pass.</summary>
         Kiosk = 2,
 
-        /// <summary>The member scanned the gym's rotating code (shown on a check-in device) with the app.</summary>
-        GymQr = 3,
+        // 3 was GymQr (the member scanned a code shown by the gym); removed, old rows were migrated to Kiosk.
 
         /// <summary>A fingerprint terminal recognised the member and let them in.</summary>
         Terminal = 4
@@ -143,12 +146,8 @@
         RevokedPass = 8,
 
         /// <summary>The pass belongs to another gym or to a deleted member.</summary>
-        UnknownMember = 9,
+        UnknownMember = 9
 
-        /// <summary>The scanned code is not this gym's entrance code, or its device was removed.</summary>
-        InvalidGymQr = 10,
-
-        /// <summary>The entrance code is older than 30 seconds (a photo of the screen).</summary>
-        ExpiredGymQr = 11
+        // 10 and 11 were the gym-QR refusals; old rows were migrated to InvalidPass and ExpiredPass.
     }
 }

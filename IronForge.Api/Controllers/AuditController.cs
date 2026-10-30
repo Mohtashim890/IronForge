@@ -28,7 +28,7 @@ namespace IronForge.Api.Controllers
 
             if (!result.Success)
             {
-                return BadRequest(result);
+                return StatusCode(result.StatusCode ?? StatusCodes.Status400BadRequest, result.ErrorMessage);
             }
 
             return Ok(result.Data);

@@ -70,24 +70,4 @@ namespace IronForge.Shared.Models.Gym
         [Required]
         public int MemberId { get; set; }
     }
-
-    /// <summary>
-    /// Users exported from the vendor software (e.g. ZKBio Time / ZKAccess),
-    /// one per line: <c>PIN,Name</c>. No fingerprint data.
-    /// </summary>
-    public sealed class ImportTerminalUsersRequest
-    {
-        [Required]
-        [MaxLength(200_000)]
-        public string Csv { get; set; } = "";
-    }
-
-    public sealed class TerminalImportResultDto
-    {
-        public int Added { get; set; }
-
-        public int Updated { get; set; }
-
-        public List<string> Errors { get; set; } = [];
-    }
 }

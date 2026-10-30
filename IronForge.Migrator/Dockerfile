@@ -8,6 +8,7 @@ WORKDIR /src
 
 COPY ["IronForge.Migrator/IronForge.Migrator.csproj", "IronForge.Migrator/"]
 COPY ["IronForge.Infrastructure/IronForge.Infrastructure.csproj", "IronForge.Infrastructure/"]
+COPY ["IronForge.Payments/IronForge.Payments.csproj", "IronForge.Payments/"]
 COPY ["IronForge.Application/IronForge.Application.csproj", "IronForge.Application/"]
 COPY ["IronForge.Shared/IronForge.Shared.csproj", "IronForge.Shared/"]
 

@@ -1,7 +1,9 @@
-using IronForge.Application.Auditing.DTOs;
+﻿using IronForge.Application.Auditing.DTOs;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
+using IronForge.Application.Gym.Common;
+using IronForge.Shared.Authorization;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Models;
 
@@ -11,13 +13,16 @@ namespace IronForge.Application.Auditing.Services
     {
         private readonly IRepository<AuditEvent> _auditEvents;
         private readonly IExecutionContextAccessor _executionContext;
+        private readonly IGymAccessService _access;
 
         public AuditQueryService(
             IRepository<AuditEvent> auditEvents,
-            IExecutionContextAccessor executionContext)
+            IExecutionContextAccessor executionContext,
+            IGymAccessService access)
         {
             _auditEvents = auditEvents;
             _executionContext = executionContext;
+            _access = access;
         }
 
         public async Task<ServiceResult<AuditQueryResult>> QueryAsync(
@@ -36,6 +41,16 @@ namespace IronForge.Application.Auditing.Services
             {
                 return ServiceResult<AuditQueryResult>.Fail(
                     "A tenant context is required to query audit events.");
+            }
+
+            // The activity log names members and staff: admins (and agents acting for them) only.
+            var authorization = await _access.AuthorizeAsync(Permissions.AuditRead, cancellationToken);
+
+            if (!authorization.Allowed)
+            {
+                return ServiceResult<AuditQueryResult>.Fail(
+                    authorization.Reason ?? "You do not have permission to read the activity log.",
+                    403);
             }
 
             if (request.Page < 1)

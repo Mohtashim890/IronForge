@@ -20,7 +20,7 @@
 }
 
 # Gym admin dashboard.
-mohtashim.dev {
+app.mohtashim.dev {
     import security_headers_camera
     reverse_proxy ironforge-web:8080
 }
@@ -58,7 +58,7 @@ http://api.mohtashim.dev {
     }
 }
 
-# API (mobile app, web apps, Stripe webhooks, payment pages).
+# API (mobile app, web apps, payment provider webhooks and return pages).
 api.mohtashim.dev {
     import security_headers
     reverse_proxy ironforge-api:8080

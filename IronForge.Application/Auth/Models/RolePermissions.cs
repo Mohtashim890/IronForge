@@ -56,8 +56,7 @@ namespace IronForge.Application.Auth.Models
                 [
                     Permissions.GymSelfRead,
                     Permissions.GymSelfWorkoutsWrite,
-                    Permissions.GymSelfPayments,
-                    Permissions.GymSelfCheckIn
+                    Permissions.GymSelfPayments
                 ],
 
                 _ =>

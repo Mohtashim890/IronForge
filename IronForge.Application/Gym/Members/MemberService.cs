@@ -3,6 +3,7 @@ using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
 using IronForge.Application.Gym.Billing;
+using IronForge.Application.Gym.Billing.Payments;
 using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Notifications;
 using IronForge.Application.Persistence;
@@ -118,7 +119,7 @@ public sealed class MemberService : IMemberService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IAuditService _audit;
     private readonly TimeProvider _clock;
-    private readonly IPaymentGateway _payments;
+    private readonly IOnlinePaymentService _payments;
 
     public MemberService(
         IGymAccessService access,
@@ -140,7 +141,7 @@ public sealed class MemberService : IMemberService
         IUnitOfWork unitOfWork,
         IAuditService audit,
         TimeProvider clock,
-        IPaymentGateway payments)
+        IOnlinePaymentService payments)
     {
         _payments = payments;
         _access = access;
@@ -287,7 +288,7 @@ public sealed class MemberService : IMemberService
                         MemberId = x.MemberProfileId,
                         MemberName = member.FullName,
                         CheckedInAtUtc = x.CheckedInAtUtc,
-                        SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.GymQr || x.Method == CheckInMethod.Terminal,
+                        SelfCheckIn = x.Method == CheckInMethod.Kiosk || x.Method == CheckInMethod.Terminal,
                     Warning = x.Warning,
                         Method = x.Method,
                         DeviceName = x.CheckInDevice != null ? x.CheckInDevice.Name : null
@@ -960,9 +961,8 @@ public sealed class MemberService : IMemberService
                 .Contains(PlatformModules.GymCoaching),
             HasPhoto = member.PhotoUpdatedAtUtc != null,
             MemberPassCheckInEnabled = gym?.Settings.MemberPassCheckInEnabled ?? false,
-            GymQrCheckInEnabled = gym?.Settings.GymQrCheckInEnabled ?? false,
             RequirePhoneUnlock = gym?.Settings.RequirePhoneUnlock ?? true,
-            OnlinePaymentAvailable = gym?.Settings is { } settings && _payments.CanTakePayments(settings),
+            OnlinePaymentAvailable = gym?.Settings is { } settings && await _payments.IsAvailableAsync(settings, cancellationToken),
             PaymentInstructions = gym?.Settings.PaymentInstructions,
             NextDueInvoice = next is null
                 ? null

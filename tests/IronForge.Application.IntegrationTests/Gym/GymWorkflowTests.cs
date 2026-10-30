@@ -469,7 +469,7 @@ public sealed class GymWorkflowTests
 
         var checkout = await AsMember(gym, ali, s =>
         {
-            s.PaymentGateway.TakesPayments = false;
+            s.PaymentOptions.AllowSimulated = false;
             return s.Billing.StartMyCheckoutAsync(invoice);
         });
 
@@ -477,7 +477,7 @@ public sealed class GymWorkflowTests
 
         var membership = await AsMember(gym, ali, s =>
         {
-            s.PaymentGateway.TakesPayments = false;
+            s.PaymentOptions.AllowSimulated = false;
             return s.GymMembers.GetMyMembershipAsync();
         });
 
@@ -486,7 +486,7 @@ public sealed class GymWorkflowTests
 
         var settings = await AsAdmin(gym, s =>
         {
-            s.PaymentGateway.TakesPayments = false;
+            s.PaymentOptions.AllowSimulated = false;
             return s.GymSettings.GetAsync();
         });
 
@@ -506,6 +506,10 @@ public sealed class GymWorkflowTests
         Assert.Equal(403, list.StatusCode);
         Assert.Equal(403, invoices.StatusCode);
         Assert.Equal(403, checkIn.StatusCode);
+
+        // The activity log names other members and staff.
+        var audit = await AsMember(gym, ali, s => s.AuditQuery.QueryAsync(new IronForge.Application.Auditing.DTOs.AuditQueryRequest()));
+        Assert.Equal(403, audit.StatusCode);
     }
 
     [Fact]
@@ -520,6 +524,11 @@ public sealed class GymWorkflowTests
 
         Assert.Equal(1, members.Data!.TotalCount);
         Assert.Equal(403, invoices.StatusCode);
+
+        var trainerAudit = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.AuditQuery.QueryAsync(new IronForge.Application.Auditing.DTOs.AuditQueryRequest()));
+        var adminAudit = await AsAdmin(gym, s => s.AuditQuery.QueryAsync(new IronForge.Application.Auditing.DTOs.AuditQueryRequest()));
+        Assert.Equal(403, trainerAudit.StatusCode);
+        Assert.True(adminAudit.Success, adminAudit.ErrorMessage);
     }
 
     // ---- Payments ---------------------------------------------------------------
@@ -532,9 +541,9 @@ public sealed class GymWorkflowTests
         var invoiceId = await IssueInvoiceAsync(gym, ali.MemberId);
 
         var first = await AsSystem(gym, s => s.PaymentConfirmation.ConfirmCheckoutAsync(
-            "evt_1", gym.TenantId, invoiceId, "cs_1", 50m, "USD"));
+            TestPaymentProvider.Id, "evt_1", gym.TenantId, invoiceId, "cs_1", 50m, "USD"));
         var second = await AsSystem(gym, s => s.PaymentConfirmation.ConfirmCheckoutAsync(
-            "evt_1", gym.TenantId, invoiceId, "cs_1", 50m, "USD"));
+            TestPaymentProvider.Id, "evt_1", gym.TenantId, invoiceId, "cs_1", 50m, "USD"));
 
         Assert.True(first.Data);
         Assert.False(second.Data);
@@ -558,7 +567,7 @@ public sealed class GymWorkflowTests
         var invoiceId = await IssueInvoiceAsync(gym, ali.MemberId);
 
         var result = await AsSystem(gym, s => s.PaymentConfirmation.ConfirmCheckoutAsync(
-            "evt_2", gym.TenantId, invoiceId, "cs_2", 5m, "USD"));
+            TestPaymentProvider.Id, "evt_2", gym.TenantId, invoiceId, "cs_2", 5m, "USD"));
 
         Assert.Equal(400, result.StatusCode);
 

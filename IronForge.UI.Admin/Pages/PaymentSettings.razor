@@ -1,0 +1,313 @@
+@page "/settings/payments"
+@attribute [Authorize(Policy = Permissions.GymSettingsManage)]
+@inject GymApiClient Gym
+@inject IJSRuntime JS
+
+<PageTitle>Online payments | IronForge</PageTitle>
+
+<div class="if-page" style="max-width: 980px">
+    <div class="if-page-head">
+        <div>
+            <h1>Online payments</h1>
+            <p>
+                Members pay their invoices in the app, straight into your own payment provider account.
+                IronForge never holds the money; the provider pays it out to your bank.
+            </p>
+        </div>
+        <a class="if-btn" href="/settings">← Gym settings</a>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_account is null)
+    {
+        @if (_error is null)
+        {
+            <div class="if-loading">Loading…</div>
+        }
+    }
+    else
+    {
+        <div class="if-card">
+            <div class="if-card-head"><h2>Status</h2></div>
+
+            @if (_account.Configured)
+            {
+                <div class="if-row" style="gap: 8px; align-items: center">
+                    <strong>@_account.ProviderName</strong>
+                    <Badge Tone="@(_account.IsLive ? "success" : "warning")">@(_account.IsLive ? "Live" : "Sandbox")</Badge>
+                    <span class="if-small if-muted">Key <span class="if-mono">@_account.ApiKeyHint</span></span>
+                </div>
+
+                @if (!_account.IsLive)
+                {
+                    <div class="if-alert warning" style="margin-top: 10px">
+                        Sandbox keys: members only see test payments and no real money moves. Enter your live keys before members pay.
+                    </div>
+                }
+                else if (_account.OnlinePaymentsAvailable)
+                {
+                    <div class="if-alert success" style="margin-top: 10px">Members can pay their invoices in the app.</div>
+                }
+
+                @if (!_account.OnlinePaymentsAvailable)
+                {
+                    <div class="if-alert error" style="margin-top: 10px">
+                        @_account.ProviderName does not charge in @_account.Currency, the currency your gym bills in, so members cannot pay in the app.
+                    </div>
+                }
+
+                <p class="if-small if-muted">
+                    Keys last accepted by @_account.ProviderName on @GymFormat.DateTime(_account.VerifiedAtUtc).
+                </p>
+
+                <div class="if-row">
+                    <button class="if-btn" disabled="@_busy" @onclick="TestAsync">Check connection</button>
+                    <button class="if-btn danger" disabled="@_busy" @onclick="() => _confirmRemove = true">Disconnect</button>
+                </div>
+            }
+            else if (_account.SimulatedFallback)
+            {
+                <div class="if-alert info">
+                    No provider is connected. This is a demo platform, so members see a <strong>test checkout</strong> where no money moves.
+                </div>
+            }
+            else
+            {
+                <p class="if-muted">
+                    No provider is connected: members can't pay in the app. They pay at the front desk or by bank transfer
+                    (see <em>Payment instructions</em> in <a href="/settings">Gym settings</a>), and you record it on the
+                    <a href="/billing/invoices">Invoices</a> page.
+                </p>
+            }
+        </div>
+
+        <div class="if-card" style="margin-top: 16px">
+            <div class="if-card-head"><h2>@(_account.Configured ? "Change keys or provider" : "Connect your provider")</h2></div>
+
+            <p class="if-small if-muted" style="margin-top: 0">
+                Your gym bills in <strong>@_account.Currency</strong>. Sign up with the provider as a business, then copy the keys from its dashboard.
+                IronForge checks them with the provider before saving and stores them encrypted.
+            </p>
+
+            <div class="if-grid-2">
+                @foreach (var provider in _account.Providers)
+                {
+                    var selected = _form.Provider == provider.Id;
+
+                    <label class="if-check-option" style="@(provider.SupportsGymCurrency ? "" : "opacity: 0.6")">
+                        <input type="radio"
+                               name="provider"
+                               checked="@selected"
+                               disabled="@(!provider.SupportsGymCurrency)"
+                               @onchange="() => SelectProvider(provider)" />
+                        <span>
+                            <strong>@provider.Name</strong>
+                            <span class="if-small if-muted">@provider.Region</span>
+                            <span class="if-small if-muted">Charges in @string.Join(", ", provider.Currencies)</span>
+                            @if (!provider.SupportsGymCurrency)
+                            {
+                                <span class="if-small" style="color: var(--if-danger)">Not available: your gym bills in @_account.Currency.</span>
+                            }
+                        </span>
+                    </label>
+                }
+            </div>
+
+            @if (Selected is { } chosen)
+            {
+                <div class="if-field" style="margin-top: 12px">
+                    <label>Keys</label>
+                    <div class="if-row">
+                        <label class="if-row" style="gap: 6px">
+                            <input type="radio" name="mode" checked="@(!_form.IsLive)" @onchange="() => _form.IsLive = false" />
+                            Sandbox (testing)
+                        </label>
+                        <label class="if-row" style="gap: 6px">
+                            <input type="radio" name="mode" checked="@_form.IsLive" @onchange="() => _form.IsLive = true" />
+                            Live (real payments)
+                        </label>
+                    </div>
+                    <span class="if-small if-muted">
+                        Find them in the
+                        <a href="@(_form.IsLive ? chosen.LiveDashboardUrl : chosen.SandboxDashboardUrl)" target="_blank" rel="noopener">
+                            @chosen.Name @(_form.IsLive ? "dashboard" : "sandbox dashboard")
+                        </a>
+                        under Developers → API keys. Sandbox and live keys differ.
+                    </span>
+                </div>
+
+                <div class="if-form-grid">
+                    <div class="if-field">
+                        <label for="payment-api-key">@chosen.ApiKeyLabel</label>
+                        <PasswordInput Id="payment-api-key" @bind-Value="_form.ApiKey" Autocomplete="off" Placeholder="@KeepPlaceholder" />
+                    </div>
+                    <div class="if-field">
+                        <label for="payment-secret">@chosen.SecretLabel</label>
+                        <PasswordInput Id="payment-secret" @bind-Value="_form.Secret" Autocomplete="off" Placeholder="@KeepPlaceholder" />
+                    </div>
+                    @if (chosen.WebhookSecretLabel is not null)
+                    {
+                        <div class="if-field">
+                            <label for="payment-webhook-secret">@chosen.WebhookSecretLabel <span class="if-muted">(optional)</span></label>
+                            <PasswordInput Id="payment-webhook-secret" @bind-Value="_form.WebhookSecret" Autocomplete="off"
+                                           Placeholder="@(IsCurrentProvider && _account.HasWebhookSecret ? "Leave blank to keep the stored one" : "From the webhook endpoint, see below")" />
+                        </div>
+                    }
+                </div>
+
+                <button class="if-btn primary" disabled="@_busy" @onclick="SaveAsync">
+                    @(_busy ? "Checking with " + chosen.Name + "…" : "Check and save")
+                </button>
+            }
+        </div>
+
+        @if (_account.Configured && _account.WebhookUrl is not null && CurrentProvider is { } current)
+        {
+            <div class="if-card" style="margin-top: 16px">
+                <div class="if-card-head"><h2>Payment notifications (webhook)</h2></div>
+                <p class="if-small">@current.WebhookSetup</p>
+                <div class="if-row">
+                    <input class="if-mono" style="flex: 1" readonly value="@_account.WebhookUrl" />
+                    <button class="if-btn" @onclick="CopyWebhookUrlAsync">@(_copied ? "Copied" : "Copy")</button>
+                </div>
+                <p class="if-small if-muted">
+                    The webhook confirms a payment even when the member closes the browser before returning to IronForge.
+                    Without it, payments are still confirmed when the member returns, or when they tap "I've paid" in the app.
+                    The provider must be able to reach this address over the internet (not localhost).
+                </p>
+            </div>
+        }
+    }
+</div>
+
+<Modal @bind-Open="_confirmRemove" Title="Disconnect the payment provider?">
+    <p>Members will no longer be able to pay in the app. Payments already made stay recorded. You can connect again at any time.</p>
+    <div class="if-row" style="justify-content: flex-end">
+        <button class="if-btn" @onclick="() => _confirmRemove = false">Cancel</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="RemoveAsync">Disconnect</button>
+    </div>
+</Modal>
+
+@code {
+    private PaymentAccountDto? _account;
+    private SavePaymentAccountRequest _form = new();
+    private bool _busy;
+    private bool _copied;
+    private bool _confirmRemove;
+    private string? _error;
+    private string? _message;
+
+    private PaymentProviderInfoDto? Selected => _account?.Providers.FirstOrDefault(x => x.Id == _form.Provider);
+
+    private PaymentProviderInfoDto? CurrentProvider => _account?.Providers.FirstOrDefault(x => x.Id == _account.Provider);
+
+    private bool IsCurrentProvider => _account?.Configured == true && _account.Provider == _form.Provider;
+
+    private string KeepPlaceholder => IsCurrentProvider ? "Leave blank to keep the stored key" : "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await Gym.GetPaymentAccountAsync();
+
+        if (result.Success)
+            Apply(result.Data!);
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private void Apply(PaymentAccountDto account)
+    {
+        _account = account;
+        _form = new SavePaymentAccountRequest
+        {
+            Provider = account.Provider
+                       ?? account.Providers.FirstOrDefault(x => x.SupportsGymCurrency)?.Id
+                       ?? "",
+            IsLive = account.IsLive
+        };
+    }
+
+    private void SelectProvider(PaymentProviderInfoDto provider)
+    {
+        _form.Provider = provider.Id;
+        _form.ApiKey = null;
+        _form.Secret = null;
+        _form.WebhookSecret = null;
+    }
+
+    private Task SaveAsync() =>
+        RunAsync(() => Gym.SavePaymentAccountAsync(_form), $"{Selected?.Name} is connected. Members can pay in the app.");
+
+    private Task TestAsync() =>
+        RunAsync(() => Gym.TestPaymentAccountAsync(), "The provider accepted the stored keys.");
+
+    private async Task RemoveAsync()
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var removed = await Gym.RemovePaymentAccountAsync();
+        var reloaded = await Gym.GetPaymentAccountAsync();
+
+        _busy = false;
+        _confirmRemove = false;
+
+        if (!removed.Success)
+        {
+            _error = removed.ErrorMessage;
+        }
+        else
+        {
+            _message = "The payment provider was disconnected.";
+        }
+
+        if (reloaded.Success)
+        {
+            Apply(reloaded.Data!);
+        }
+    }
+
+    private async Task RunAsync(Func<Task<ServiceResult<PaymentAccountDto>>> action, string success)
+    {
+        _busy = true;
+        _error = null;
+        _message = null;
+
+        var result = await action();
+
+        _busy = false;
+
+        if (result.Success)
+        {
+            Apply(result.Data!);
+            _message = success;
+        }
+        else
+        {
+            _error = result.ErrorMessage;
+        }
+    }
+
+    private async Task CopyWebhookUrlAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _account!.WebhookUrl);
+            _copied = true;
+        }
+        catch (JSException)
+        {
+            _error = "Copy the address by hand: the browser blocked the clipboard.";
+        }
+    }
+}

@@ -28,8 +28,6 @@
     </array>
     <key>NSFaceIDUsageDescription</key>
     <string>IronForge asks for Face ID before showing your gym pass, so only you can use it.</string>
-    <key>NSCameraUsageDescription</key>
-    <string>IronForge uses the camera to scan your gym's check-in code.</string>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/appicon.appiconset</string>
 </dict>

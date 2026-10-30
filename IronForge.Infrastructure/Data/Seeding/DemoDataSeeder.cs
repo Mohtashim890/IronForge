@@ -177,8 +177,6 @@ public sealed class DemoDataSeeder
             Currency = spec.Currency,
             TimeZoneId = spec.TimeZoneId,
             JoinCode = spec.JoinCode,
-            // The showcase gym offers both self check-in methods; the others only the pass.
-            GymQrCheckInEnabled = spec.Slug == "ironparadise",
             CreatedAtUtc = tenant.CreatedAtUtc,
             UpdatedAtUtc = tenant.CreatedAtUtc
         };
@@ -598,9 +596,9 @@ public sealed class DemoDataSeeder
                 MemberProfileId = profile.Id,
                 CheckedInAtUtc = at,
                 RecordedByUserId = byStaff ? gym.TrainerUserId : null,
-                // Self check-ins: the kiosk scanned the pass, or the member scanned the entrance code.
+                // Self check-ins at the kiosk; staff either scanned the pass or picked the name.
                 Method = !byStaff
-                    ? gym.Settings.GymQrCheckInEnabled && _checkInRandom.NextDouble() < 0.4 ? CheckInMethod.GymQr : CheckInMethod.Kiosk
+                    ? CheckInMethod.Kiosk
                     : _checkInRandom.NextDouble() < 0.5 ? CheckInMethod.PassScan : CheckInMethod.FrontDesk,
                 CheckInDeviceId = byStaff ? null : gym.KioskDeviceId
             });
