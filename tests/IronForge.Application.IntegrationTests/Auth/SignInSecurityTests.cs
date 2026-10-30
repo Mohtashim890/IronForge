@@ -108,9 +108,9 @@ public sealed class SignInSecurityTests
     // ---- Two-factor -------------------------------------------------------------
 
     [Fact]
-    public async Task Admin_MustSetUpTwoFactor_AtFirstSignIn_ThenNeedsACodeEachTime()
+    public async Task PlatformOperator_MustSetUpTwoFactor_AtFirstSignIn_ThenNeedsACodeEachTime()
     {
-        var seed = await SeedAsync(TenantRoles.Admin);
+        var seed = await SeedAsync(TenantRoles.Admin, accountRole: PlatformRoles.PlatformAdmin);
 
         var first = await SignInAsync(seed.Username, Password, requireTwoFactor: true);
 
@@ -151,7 +151,7 @@ public sealed class SignInSecurityTests
     [Fact]
     public async Task RecoveryCode_SignsInOnce()
     {
-        var seed = await SeedAsync(TenantRoles.Admin);
+        var seed = await SeedAsync(TenantRoles.Admin, accountRole: PlatformRoles.PlatformAdmin);
         var (signedIn, _) = await SetUpAtSignInAsync((await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!);
         var recoveryCode = signedIn.RecoveryCodes![0].ToUpperInvariant();
 
@@ -168,7 +168,7 @@ public sealed class SignInSecurityTests
     [Fact]
     public async Task WrongCodes_LockTheAccount_AndTheRightPasswordDoesNotResetTheCount()
     {
-        var seed = await SeedAsync(TenantRoles.Admin);
+        var seed = await SeedAsync(TenantRoles.Admin, accountRole: PlatformRoles.PlatformAdmin);
         await SetUpAtSignInAsync((await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!);
 
         var challenge = (await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!;
@@ -187,7 +187,7 @@ public sealed class SignInSecurityTests
     [Fact]
     public async Task Challenge_IsVoidAfterAPasswordReset_AndIsNotAnAccessToken()
     {
-        var seed = await SeedAsync(TenantRoles.Admin);
+        var seed = await SeedAsync(TenantRoles.Admin, accountRole: PlatformRoles.PlatformAdmin);
         var challenge = (await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!;
 
         // As an access token it fails: another audience.
@@ -210,15 +210,21 @@ public sealed class SignInSecurityTests
         Assert.Equal(403, setup.StatusCode);
     }
 
-    [Fact]
-    public async Task Trainer_IsNotForcedIntoTwoFactor_ButCanTurnItOnAndOff()
+    [Theory]
+    [InlineData(TenantRoles.Admin)]
+    [InlineData(TenantRoles.Trainer)]
+    [InlineData(TenantRoles.Member)]
+    public async Task GymAccounts_AreNotForcedIntoTwoFactor_ButCanTurnItOnAndOff(string role)
     {
-        var seed = await SeedAsync(TenantRoles.Trainer);
+        var seed = await SeedAsync(role);
 
         var signIn = await SignInAsync(seed.Username, Password, requireTwoFactor: true);
         Assert.False(signIn.Response!.TwoFactorRequired);
 
-        var context = TestServiceFactory.AsRole(seed.TenantId, seed.UserId, TenantRoles.Trainer);
+        var context = TestServiceFactory.AsRole(seed.TenantId, seed.UserId, role);
+
+        var status = await RunAsync(context, s => s.TwoFactor.GetMyStatusAsync(), requireTwoFactor: true);
+        Assert.False(status.Data!.Required);
 
         var setup = await RunAsync(context, s => s.TwoFactor.BeginMySetupAsync());
         var secret = Totp.FromBase32(setup.Data!.ManualKey);
@@ -226,20 +232,20 @@ public sealed class SignInSecurityTests
         var enabled = await RunAsync(context, s => s.TwoFactor.EnableMineAsync(new TwoFactorCodeRequest { Code = CurrentCode(secret) }));
         Assert.True(enabled.Success, enabled.ErrorMessage);
 
-        // Now the trainer's sign-in asks for a code too.
+        // Once chosen, their sign-in asks for a code too.
         Assert.True((await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!.TwoFactorRequired);
 
         _clock.Now += TimeSpan.FromSeconds(30);
 
-        var disabled = await RunAsync(context, s => s.TwoFactor.DisableMineAsync(new TwoFactorCodeRequest { Code = CurrentCode(secret) }));
+        var disabled = await RunAsync(context, s => s.TwoFactor.DisableMineAsync(new TwoFactorCodeRequest { Code = CurrentCode(secret) }), requireTwoFactor: true);
         Assert.True(disabled.Success, disabled.ErrorMessage);
         Assert.False((await LoadUserAsync(seed.UserId)).TwoFactorEnabled);
     }
 
     [Fact]
-    public async Task Admin_CannotTurnTwoFactorOff()
+    public async Task PlatformOperator_CannotTurnTwoFactorOff()
     {
-        var seed = await SeedAsync(TenantRoles.Admin);
+        var seed = await SeedAsync(TenantRoles.Admin, accountRole: PlatformRoles.PlatformAdmin);
         var (_, secret) = await SetUpAtSignInAsync((await SignInAsync(seed.Username, Password, requireTwoFactor: true)).Response!);
 
         _clock.Now += TimeSpan.FromSeconds(30);
@@ -372,7 +378,7 @@ public sealed class SignInSecurityTests
             TwoFactorOptions = new TwoFactorOptions
             {
                 EncryptionKey = "integration-test-two-factor-key-long-enough",
-                RequiredForAdmins = requireTwoFactor
+                RequiredForPlatformAdmins = requireTwoFactor
             }
         };
 

@@ -157,7 +157,7 @@ Three agents, defined as versioned templates and installed per gym as database r
 
 - **Custom JWT authentication** with 15-minute access tokens and rotating refresh-token families (reuse detection).
 - **Two-step sign-in**: account-level token first, then a tenant-scoped token with role-based permission claims.
-- **TOTP two-factor authentication** (RFC 6238) implemented from scratch: required for admins and operators in production, AES-GCM encrypted secrets, single-use codes, hashed recovery codes.
+- **TOTP two-factor authentication** (RFC 6238) implemented from scratch: required for platform operators, optional for every gym account, AES-GCM encrypted secrets, single-use codes, hashed recovery codes.
 - **Every request re-validated**: account active, security stamp, membership and role unchanged, gym subscription active (cached 30 s). Removing a staff member or resetting a password ends their sessions immediately.
 - **Account lockout** with exponential back-off, plus per-IP **rate limiting** policies (auth, anonymous, webhook, device).
 - **Fine-grained permissions** (Admin, Trainer, Member, PlatformAdmin) enforced in services; UI gated with policy-based authorization.

@@ -19,8 +19,11 @@ public sealed class TwoFactorOptions
     [MinLength(32)]
     public string EncryptionKey { get; set; } = "";
 
-    /// <summary>Gym admins and platform operators must use an authenticator app to sign in.</summary>
-    public bool RequiredForAdmins { get; set; } = true;
+    /// <summary>
+    /// Platform operators must use an authenticator app to sign in. Everyone in
+    /// a gym (admins, trainers, members) chooses for themselves.
+    /// </summary>
+    public bool RequiredForPlatformAdmins { get; set; } = true;
 
     /// <summary>The name authenticator apps show next to the code.</summary>
     public string Issuer { get; set; } = "IronForge";

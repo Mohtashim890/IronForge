@@ -21,7 +21,7 @@ services:
       # Gyms without a payment provider get the test checkout (this local demo only).
       Payments__AllowSimulated: "true"
       # The seeded demo admins share one login; production requires two-factor for admins.
-      TwoFactor__RequiredForAdmins: "false"
+      TwoFactor__RequiredForPlatformAdmins: "false"
       # Mailpit catches every email (inbox at http://localhost:8025).
       Email__Host: ironforge-mailpit
       Email__Port: "1025"

@@ -1,4 +1,4 @@
-﻿using IronForge.Application.Agents.Approvals;
+using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Governance.Policies;
@@ -95,13 +95,13 @@ public sealed class TestServiceFactory
         new(new EfRepository<User>(Db), new PasswordHasher<User>(), Audit, Clock);
 
     /// <summary>
-    /// Two-factor is not required, so tests of other features sign admins in
+    /// Two-factor is not required, so tests of other features sign operators in
     /// with a password; the two-factor tests turn it on as in production.
     /// </summary>
     public TwoFactorOptions TwoFactorOptions { get; init; } = new()
     {
         EncryptionKey = "integration-test-two-factor-key-long-enough",
-        RequiredForAdmins = false
+        RequiredForPlatformAdmins = false
     };
 
     public TwoFactorSecretProtector TwoFactorProtector => new(Options.Create(TwoFactorOptions));
@@ -109,7 +109,6 @@ public sealed class TestServiceFactory
     public TwoFactorService TwoFactor =>
         new(
             new EfRepository<User>(Db),
-            new EfRepository<TenantMembership>(Db),
             TwoFactorProtector,
             SignInGuard,
             ContextAccessor,

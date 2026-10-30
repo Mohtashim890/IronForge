@@ -23,7 +23,10 @@ namespace IronForge.Application.Auth.Services;
 /// </summary>
 public interface ITwoFactorService
 {
-    /// <summary>Gym admins and platform operators must use two-factor (TwoFactor:RequiredForAdmins).</summary>
+    /// <summary>
+    /// Only platform operators must use two-factor (TwoFactor:RequiredForPlatformAdmins);
+    /// for gym admins, trainers and members it is their own choice.
+    /// </summary>
     Task<bool> IsRequiredAsync(User user, CancellationToken cancellationToken = default);
 
     /// <summary>Stores a new pending secret on the tracked user (the caller saves).</summary>
@@ -56,7 +59,6 @@ public sealed class TwoFactorService : ITwoFactorService
     private const string RecoveryAlphabet = "abcdefghjkmnpqrstuvwxyz23456789";
 
     private readonly IRepository<User> _users;
-    private readonly IRepository<TenantMembership> _memberships;
     private readonly ITwoFactorSecretProtector _protector;
     private readonly ISignInGuard _guard;
     private readonly IExecutionContextAccessor _context;
@@ -66,7 +68,6 @@ public sealed class TwoFactorService : ITwoFactorService
 
     public TwoFactorService(
         IRepository<User> users,
-        IRepository<TenantMembership> memberships,
         ITwoFactorSecretProtector protector,
         ISignInGuard guard,
         IExecutionContextAccessor context,
@@ -75,7 +76,6 @@ public sealed class TwoFactorService : ITwoFactorService
         TimeProvider clock)
     {
         _users = users;
-        _memberships = memberships;
         _protector = protector;
         _guard = guard;
         _context = context;
@@ -84,18 +84,8 @@ public sealed class TwoFactorService : ITwoFactorService
         _clock = clock;
     }
 
-    public async Task<bool> IsRequiredAsync(User user, CancellationToken cancellationToken = default)
-    {
-        if (!_options.RequiredForAdmins)
-        {
-            return false;
-        }
-
-        return user.Role == PlatformRoles.PlatformAdmin ||
-               await _memberships.AnyAsync(
-                   x => x.UserId == user.Id && x.IsActive && x.Role == TenantRoles.Admin,
-                   cancellationToken);
-    }
+    public Task<bool> IsRequiredAsync(User user, CancellationToken cancellationToken = default) =>
+        Task.FromResult(_options.RequiredForPlatformAdmins && user.Role == PlatformRoles.PlatformAdmin);
 
     public TwoFactorSetupDto StartSetup(User trackedUser)
     {
@@ -275,7 +265,7 @@ public sealed class TwoFactorService : ITwoFactorService
 
         if (await IsRequiredAsync(user, cancellationToken))
         {
-            return ServiceResult<bool>.Fail("Admins must keep two-factor sign-in on.", 409);
+            return ServiceResult<bool>.Fail("Platform operators must keep two-factor sign-in on.", 409);
         }
 
         ClearTwoFactor(user);

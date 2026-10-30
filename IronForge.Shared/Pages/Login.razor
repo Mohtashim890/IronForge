@@ -88,7 +88,7 @@
                 <form class="login-two-factor" @onsubmit="VerifyCodeAsync">
                     @if (_challenge.TwoFactorSetupRequired)
                     {
-                        <p><strong>Set up two-factor sign-in.</strong> Admin accounts need a code from an authenticator app
+                        <p><strong>Set up two-factor sign-in.</strong> Platform operator accounts need a code from an authenticator app
                             (Google Authenticator, Microsoft Authenticator or similar) as well as the password.</p>
 
                         @if (_setup is not null)

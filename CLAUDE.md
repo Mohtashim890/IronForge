@@ -121,10 +121,10 @@ Dependency direction: Api, Mcp and Migrator → Infrastructure → Payments → 
 - **Custom JWT**: no ASP.NET Identity store; `IPasswordHasher<User>` only. Access token (15 minutes) plus rotating refresh-token families.
 - **Sign-in flow**:
   1. Login (username **or email**) returns a tenantless token that carries platform permissions only.
-     With two-factor on (or required) it returns instead `TwoFactorRequired` + a 5-minute `TwoFactorToken` (a JWT with audience `{Audience}.two-factor`, so never an access token) and no tokens; `POST api/auth/two-factor/setup` (first sign-in of a required account) and `POST api/auth/two-factor` (code or recovery code) finish it. The first code of a setup returns the 10 recovery codes once.
+     With two-factor on (or required) it returns instead `TwoFactorRequired` + a 5-minute `TwoFactorToken` (a JWT with audience `{Audience}.two-factor`, so never an access token) and no tokens; `POST api/auth/two-factor/setup` (first sign-in of a platform operator without it) and `POST api/auth/two-factor` (code or recovery code) finish it. The first code of a setup returns the 10 recovery codes once.
   2. `POST api/tenants/select` issues a tenant-scoped token with `tenant_id`, `ClaimTypes.Role` and `permission` claims from `RolePermissions.GetPermissions(role)`.
 - **Account lockout** (`ISignInGuard`, per account, on top of the per-IP rate limits): every password check (sign-in, joining with an existing account, accepting an invitation) and every wrong two-factor code counts. From the 5th failure in a row the account is locked 1, 2, 4, 8, 16, then 30 minutes (429 with the reason). Only a complete sign-in clears the count (a right password before a code does not); a password reset lifts it.
-- **Two-factor** (`ITwoFactorService`, `Auth/TwoFactor/Totp.cs`, RFC 6238 TOTP): required for PlatformAdmins and anyone with an active Admin membership when `TwoFactor:RequiredForAdmins` (on in production, off in Development and local compose because demo admins share a login); optional for others on `/account/security` (Shared page, `api/account/two-factor/*`). Secrets are AES-GCM encrypted (`ITwoFactorSecretProtector`, key `TwoFactor:EncryptionKey`, fallback JWT key); each code works once (`TwoFactorLastStep`); recovery codes are stored as SHA-256. Operators reset a lost authenticator with the Migrator.
+- **Two-factor** (`ITwoFactorService`, `Auth/TwoFactor/Totp.cs`, RFC 6238 TOTP): required only for PlatformAdmins when `TwoFactor:RequiredForPlatformAdmins` (on in production, off in Development and local compose); optional for every gym account (Admin, Trainer, Member), each turns it on or off on `/account/security` (Shared page, `api/account/two-factor/*`). Secrets are AES-GCM encrypted (`ITwoFactorSecretProtector`, key `TwoFactor:EncryptionKey`, fallback JWT key); each code works once (`TwoFactorLastStep`); recovery codes are stored as SHA-256. Operators reset a lost authenticator with the Migrator.
 - **Every request is re-checked** (`ISessionValidator`, JwtBearer `OnTokenValidated`): the account is active, the token's `sstamp` equals `User.SecurityStamp`, a platform permission still matches `User.Role`, and for a tenant token the membership is active with the same role and the tenant `HasAccess`. A 30-second per-instance cache (`SessionStateCache`) keeps it cheap; `TenantMemberService` invalidates it and revokes the member's refresh tokens for that tenant on deactivate/remove. A failure is a 401, so the client refreshes (new role) or is signed out. Changing `SecurityStamp` (password reset, two-factor reset) ends every session at once.
 - **Tenant roles** (`TenantRoles`):
   - **Admin**: all `gym.*` staff permissions, agents, MCP, approvals.decide, audit.read, tenant.members.*
@@ -347,7 +347,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 |---|---|
 | `ConnectionStrings:DefaultConnection` | From secrets or the environment. The local `.env` points at a **remote Supabase DB**: never wipe or seed it without explicit user approval. |
 | `JwtSettings:{Key,Issuer,Audience,ExpirationMinutes}` | Key from secrets/env (≥ 32 characters); access tokens last 15 minutes |
-| `TwoFactor:{EncryptionKey,RequiredForAdmins,Issuer}` | Key ≥ 32 characters, empty uses the JWT key (changing it needs a two-factor reset per admin). `RequiredForAdmins` true by default, false in Development |
+| `TwoFactor:{EncryptionKey,RequiredForPlatformAdmins,Issuer}` | Key ≥ 32 characters, empty uses the JWT key (changing it needs a two-factor reset per enrolled account). `RequiredForPlatformAdmins` true by default, false in Development; gym accounts always choose |
 | `AISettings:{ApiKey,Model,ModelProfiles}` | OpenAI |
 | `AgentQuotas:DefaultMonthlyTokenLimit` | |
 | `CheckIns:PassSigningKey` | Master key for member pass secrets (≥ 32 characters). Empty uses `JwtSettings:Key`; changing either invalidates every pass until the app is online again |
@@ -430,7 +430,7 @@ dotnet test IronForge.Server.slnf                              # 334 tests (2 pr
 - **Before onboarding real gyms**:
   - each gym connects its own HitPay (Malaysia) or Safepay (Pakistan) **live** keys under Settings → Online payments and registers the webhook URL shown there; or uses payment instructions (cash, bank transfer). Never `Payments__AllowSimulated`
   - set up backups and run a restore test (`deploy/BACKUPS.md`); Supabase on a plan with backups
-  - keep `TwoFactor__RequiredForAdmins=true`
+  - keep `TwoFactor__RequiredForPlatformAdmins=true`
   - set SMTP credentials
   - ensure production CORS and AppUrls are correct
   - run the migrator (never seed production)
