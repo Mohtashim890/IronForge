@@ -12,6 +12,10 @@ obj/
 .vs/
 .vscode/
 
+# App release builds (publish output and installers, see deploy/APP-RELEASES.md)
+/out/
+/dist/
+
 # Android release signing material
 *.keystore
 *.jks

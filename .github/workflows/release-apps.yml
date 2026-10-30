@@ -1,0 +1,397 @@
+name: IronForge App Release
+
+# Builds the member app for Android (signed APK) and Windows (installer) and
+# publishes both on a GitHub Release, so they can be downloaded from
+# https://github.com/<owner>/IronForge/releases/latest
+#
+#   Release:  git tag app-v1.2.0 && git push origin app-v1.2.0
+#   Test run: Actions > IronForge App Release > Run workflow (builds only,
+#             files are attached to the run as artifacts, no release)
+#
+# Setup and user instructions: deploy/APP-RELEASES.md
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 1.2.0 (test run: no release is created)'
+        required: true
+        default: '0.0.1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ironforge-app-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  MAUI_PROJECT: ./IronForge/IronForge.csproj
+  ANDROID_TFM: net10.0-android
+  WINDOWS_TFM: net10.0-windows10.0.19041.0
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Version from the tag: app-v1.2.0 -> display 1.2.0, Android version code
+  # 10200 (major*10000 + minor*100 + patch). The code must only ever grow, or
+  # Android refuses to update an installed app.
+  # ---------------------------------------------------------------------------
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      display: ${{ steps.version.outputs.display }}
+      numeric: ${{ steps.version.outputs.numeric }}
+      core: ${{ steps.version.outputs.core }}
+      code: ${{ steps.version.outputs.code }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      tag: ${{ steps.version.outputs.tag }}
+      publish: ${{ steps.version.outputs.publish }}
+
+    steps:
+      - name: Parse version
+        id: version
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ "$EVENT" == "push" ]]; then
+            tag="$REF_NAME"
+            version="${tag#app-v}"
+            publish=true
+          else
+            tag=""
+            version="$INPUT_VERSION"
+            publish=false
+          fi
+
+          # MAJOR.MINOR.PATCH with an optional pre-release suffix (1.2.0-beta.1).
+          if [[ ! "$version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$version' is not a version like 1.2.0 or 1.2.0-beta.1 (tag app-v1.2.0)."
+            exit 1
+          fi
+
+          major=$((10#${BASH_REMATCH[1]}))
+          minor=$((10#${BASH_REMATCH[2]}))
+          patch=$((10#${BASH_REMATCH[3]}))
+          suffix="${BASH_REMATCH[4]}"
+
+          if (( minor > 99 || patch > 99 )); then
+            echo "::error::Minor and patch must be at most 99 (they are packed into the Android version code)."
+            exit 1
+          fi
+
+          code=$(( major * 10000 + minor * 100 + patch ))
+          if (( code < 1 )); then code=1; fi
+
+          if [[ -n "$suffix" ]]; then prerelease=true; else prerelease=false; fi
+
+          {
+            echo "display=$version"
+            echo "numeric=$major.$minor.$patch.0"
+            echo "core=$major.$minor.$patch"
+            echo "code=$code"
+            echo "prerelease=$prerelease"
+            echo "tag=$tag"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Version $version, Android version code $code, pre-release $prerelease, publish $publish"
+
+      - name: Create draft release
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.display }}
+        run: |
+          # A re-run of the same tag reuses the existing release.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "Release $TAG exists; its files will be replaced."
+            exit 0
+          fi
+
+          cat > notes.md <<NOTES
+          ## Download
+
+          | Device | File | |
+          |---|---|---|
+          | Android phone or tablet (Android 7.0+) | **IronForge.apk** | [Download](https://github.com/$GH_REPO/releases/download/$TAG/IronForge.apk) |
+          | Windows 10 (1809+) / 11, 64-bit | **IronForge-Setup.exe** | [Download](https://github.com/$GH_REPO/releases/download/$TAG/IronForge-Setup.exe) |
+
+          The latest version is always at https://github.com/$GH_REPO/releases/latest
+
+          **Android:** open the APK on the phone and allow installing from this source when asked.
+          **Windows:** run the setup. If Windows SmartScreen appears, choose *More info* and then *Run anyway*.
+          Installing a newer version keeps you signed in and keeps your data.
+
+          Each file has a matching \`.sha256\` checksum.
+          NOTES
+
+          gh release create "$TAG" \
+            --draft \
+            --title "IronForge app $VERSION" \
+            --notes-file notes.md \
+            --generate-notes
+
+  # ---------------------------------------------------------------------------
+  # Android: one universal APK, signed with the release keystore. Every release
+  # must use the same keystore, or installed apps cannot be updated.
+  # ---------------------------------------------------------------------------
+  android:
+    name: Android APK
+    needs: version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Android workload
+        run: dotnet workload install maui-android
+
+      - name: Restore keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [[ -z "$ANDROID_KEYSTORE_BASE64" || -z "$ANDROID_KEYSTORE_PASSWORD" ]]; then
+            echo "::error::Secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are required (see deploy/APP-RELEASES.md)."
+            exit 1
+          fi
+
+          keystore="$RUNNER_TEMP/ironforge-release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          echo "KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: >
+          dotnet restore ${{ env.MAUI_PROJECT }}
+          -p:Configuration=Release
+          -p:IronForgeTargetFramework=${{ env.ANDROID_TFM }}
+
+      # Passwords are read from environment variables by the Android build
+      # (env:NAME), so they never appear on a command line or in logs.
+      - name: Publish signed APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: >
+          dotnet publish ${{ env.MAUI_PROJECT }}
+          --configuration Release
+          --framework ${{ env.ANDROID_TFM }}
+          --no-restore
+          --output ./out/android
+          -p:IronForgeTargetFramework=${{ env.ANDROID_TFM }}
+          -p:AndroidPackageFormat=apk
+          -p:AndroidKeyStore=true
+          -p:AndroidSigningKeyStore=${{ env.KEYSTORE_PATH }}
+          -p:AndroidSigningKeyAlias=${{ secrets.ANDROID_KEY_ALIAS || 'ironforge-release' }}
+          -p:AndroidSigningStorePass=env:ANDROID_KEYSTORE_PASSWORD
+          -p:AndroidSigningKeyPass=env:ANDROID_KEY_PASSWORD
+          -p:ApplicationDisplayVersion=${{ needs.version.outputs.display }}
+          -p:ApplicationVersion=${{ needs.version.outputs.code }}
+
+      # With the repository variable ANDROID_CERT_SHA256 set, a build signed
+      # with any other key fails: an APK from a different key cannot update
+      # the installed app.
+      - name: Collect APK and verify signature
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          mkdir -p dist
+
+          apk=$(find ./out/android -name '*-Signed.apk' | head -n 1)
+          if [[ -z "$apk" ]]; then
+            echo "::error::No signed APK was produced."
+            find ./out/android -maxdepth 2 -type f
+            exit 1
+          fi
+
+          cp "$apk" dist/IronForge.apk
+
+          # Prints the signing certificate; compare its SHA-256 with the one in
+          # deploy/APP-RELEASES.md to confirm the release key was used.
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          "$apksigner" verify --print-certs dist/IronForge.apk | tee signature.txt
+
+          actual=$(grep -m1 "certificate SHA-256 digest" signature.txt | awk '{print $NF}')
+          if [[ -z "$actual" ]]; then
+            echo "::error::The APK is not signed."
+            exit 1
+          fi
+
+          expected=$(echo "$EXPECTED_CERT_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')
+          if [[ -n "$expected" && "$actual" != "$expected" ]]; then
+            echo "::error::The APK is signed with certificate $actual, expected $expected. Check the keystore secret."
+            exit 1
+          fi
+
+          (cd dist && sha256sum IronForge.apk > IronForge.apk.sha256)
+
+      - name: Remove keystore
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/ironforge-release.keystore"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ironforge-android-${{ needs.version.outputs.display }}
+          path: dist/
+          retention-days: 14
+
+      - name: Attach to release
+        if: needs.version.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >
+          gh release upload "${{ needs.version.outputs.tag }}"
+          dist/IronForge.apk dist/IronForge.apk.sha256
+          --clobber
+
+  # ---------------------------------------------------------------------------
+  # Windows: unpackaged, self-contained x64 build in an Inno Setup installer.
+  # No certificate needs to be installed by users (unlike a self-signed MSIX).
+  # The app gets the numeric version (Windows manifests accept no suffix and
+  # at most 65535 per part); the installer shows the full version.
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows installer
+    needs: version
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      # Restore as Release with the runtime identifier: the self-contained,
+      # ReadyToRun publish needs the win-x64 runtime packs.
+      - name: Restore
+        run: >
+          dotnet restore ${{ env.MAUI_PROJECT }}
+          -p:Configuration=Release
+          -p:IronForgeTargetFramework=${{ env.WINDOWS_TFM }}
+          -p:RuntimeIdentifierOverride=win-x64
+
+      - name: Publish app
+        run: >
+          dotnet publish ${{ env.MAUI_PROJECT }}
+          --configuration Release
+          --framework ${{ env.WINDOWS_TFM }}
+          --no-restore
+          --output ./out/windows
+          -p:IronForgeTargetFramework=${{ env.WINDOWS_TFM }}
+          -p:RuntimeIdentifierOverride=win-x64
+          -p:WindowsPackageType=None
+          -p:WindowsAppSDKSelfContained=true
+          -p:SelfContained=true
+          -p:AppxPackageSigningEnabled=false
+          -p:ApplicationDisplayVersion=${{ needs.version.outputs.core }}
+
+      - name: Check published app
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ./out/windows/IronForge.exe)) {
+            Write-Error "IronForge.exe was not published."
+            Get-ChildItem ./out/windows | Select-Object -First 30
+            exit 1
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+          }
+          if (-not (Test-Path $iscc)) { Write-Error "Inno Setup is not available."; exit 1 }
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build installer
+        shell: pwsh
+        run: >
+          & $env:ISCC
+          "/DAppVersion=${{ needs.version.outputs.display }}"
+          "/DFileVersion=${{ needs.version.outputs.numeric }}"
+          "/DSourceDir=${{ github.workspace }}\out\windows"
+          "/DOutputDir=${{ github.workspace }}\dist"
+          ./IronForge/Installer/IronForge.iss
+
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash ./dist/IronForge-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  IronForge-Setup.exe" | Out-File -FilePath ./dist/IronForge-Setup.exe.sha256 -Encoding ascii -NoNewline
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ironforge-windows-${{ needs.version.outputs.display }}
+          path: dist/
+          retention-days: 14
+
+      - name: Attach to release
+        if: needs.version.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: >
+          gh release upload "${{ needs.version.outputs.tag }}"
+          dist/IronForge-Setup.exe dist/IronForge-Setup.exe.sha256
+          --clobber
+
+  # ---------------------------------------------------------------------------
+  # Both files are attached: make the release public. Until then it stays a
+  # draft, so a failed build never publishes a half-finished release.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish release
+    needs: [version, android, windows]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+        run: |
+          # Pre-releases (app-v1.2.0-beta.1) never become "latest", so the
+          # permanent latest-download links keep pointing at a stable version.
+          if [[ "$PRERELEASE" == "true" ]]; then
+            gh release edit "$TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$TAG" --draft=false --prerelease=false --latest
+          fi
+
+          echo "Published https://github.com/$GH_REPO/releases/tag/$TAG"
