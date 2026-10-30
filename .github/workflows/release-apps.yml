@@ -5,8 +5,10 @@ name: IronForge App Release
 # https://github.com/<owner>/IronForge/releases/latest
 #
 #   Release:  git tag app-v1.2.0 && git push origin app-v1.2.0
-#   Test run: Actions > IronForge App Release > Run workflow (builds only,
-#             files are attached to the run as artifacts, no release)
+#        or:  Actions > IronForge App Release > Run workflow, enter the
+#             version and tick "Publish a release" (tags the selected branch)
+#   Test run: Run workflow without ticking it (builds only, files are
+#             attached to the run as artifacts, no release)
 #
 # Setup and user instructions: deploy/APP-RELEASES.md
 
@@ -18,9 +20,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build, e.g. 1.2.0 (test run: no release is created)'
+        description: 'Version, e.g. 1.2.0 (or 1.2.0-beta.1 for a pre-release)'
         required: true
         default: '0.0.1'
+      publish:
+        description: 'Publish a release (creates tag app-v<version> on the selected branch). Unticked: test build only'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -60,15 +67,25 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
           if [[ "$EVENT" == "push" ]]; then
+            # A pushed tag app-v1.2.0 always publishes.
             tag="$REF_NAME"
             version="${tag#app-v}"
             publish=true
           else
-            tag=""
-            version="$INPUT_VERSION"
-            publish=false
+            # Run workflow: publishes only when "Publish a release" is ticked;
+            # the release then creates the tag on the run's commit.
+            version="$(echo "$INPUT_VERSION" | tr -d '[:space:]')"
+            version="${version#v}"
+            if [[ "$INPUT_PUBLISH" == "true" ]]; then
+              tag="app-v$version"
+              publish=true
+            else
+              tag=""
+              publish=false
+            fi
           fi
 
           # MAJOR.MINOR.PATCH with an optional pre-release suffix (1.2.0-beta.1).
@@ -112,11 +129,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.display }}
+          EVENT: ${{ github.event_name }}
         run: |
-          # A re-run of the same tag reuses the existing release.
+          # A re-run of the same version reuses its release (draft or not).
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "Release $TAG exists; its files will be replaced."
             exit 0
+          fi
+
+          # Started from Run workflow: never move an existing tag. The tag is
+          # created on this run's commit when the release is published.
+          if [[ "$EVENT" != "push" ]] && gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists without a release. Use a higher version, or delete the tag first."
+            exit 1
           fi
 
           cat > notes.md <<NOTES
@@ -136,8 +161,11 @@ jobs:
           Each file has a matching \`.sha256\` checksum.
           NOTES
 
+          # --target: for a pushed tag it is ignored (the tag exists); for Run
+          # workflow it is the commit the new tag will point to.
           gh release create "$TAG" \
             --draft \
+            --target "$GITHUB_SHA" \
             --title "IronForge app $VERSION" \
             --notes-file notes.md \
             --generate-notes

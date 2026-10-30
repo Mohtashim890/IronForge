@@ -110,7 +110,8 @@ by integration", open **Settings** > **Actions** > **General** >
 Before the first real release, do a trial build:
 
 1. https://github.com/Mohtashim890/IronForge/actions > **IronForge App Release**
-   > **Run workflow**, enter a version such as `0.0.1`, **Run workflow**.
+   > **Run workflow**, enter a version such as `0.0.1`, leave **Publish a
+   release** unticked, **Run workflow**.
 2. When it finishes, open the run: under **Artifacts** are
    `ironforge-android-0.0.1` and `ironforge-windows-0.0.1` (zip files with the
    APK and the installer, kept 14 days). No release is created and nothing is
@@ -127,12 +128,23 @@ to appear.
 1. Pick the version. Format `MAJOR.MINOR.PATCH`, e.g. `1.2.0`; MINOR and PATCH
    at most 99. **Each release must be higher than the previous one**: Android
    refuses to install an older version over a newer one.
-2. Tag the commit you want to ship and push the tag:
+2. Start the release, in either of two ways:
 
-   ```bash
-   git tag app-v1.2.0
-   git push origin app-v1.2.0
-   ```
+   - **From GitHub (no command line):** **Actions** > **IronForge App Release**
+     > **Run workflow**. Choose the branch to ship (normally `main`), enter the
+     version (e.g. `1.2.0`), tick **Publish a release**, **Run workflow**. The
+     release creates the tag `app-v1.2.0` on the newest commit of that branch.
+     If that tag already exists, the run stops; use a higher version.
+   - **From a terminal:** tag the commit you want to ship and push the tag:
+
+     ```bash
+     git tag app-v1.2.0
+     git push origin app-v1.2.0
+     ```
+
+   A run started with **Run workflow** and **Publish a release** unticked is
+   only a test build (section 2): its jobs **Attach to release** and
+   **Publish release** show as skipped, and nothing appears under Releases.
 
 3. Watch **Actions** > **IronForge App Release** (about 15 to 25 minutes). The
    workflow:
