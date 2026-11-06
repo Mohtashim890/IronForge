@@ -9,16 +9,9 @@ namespace IronForge.Shared.Authorization
         public const string AuditRead = "audit.read";
 
         public const string AgentsRead = "agents.read";
-        public const string AgentsCreate = "agents.create";
-        public const string AgentsUpdate = "agents.update";
-        public const string AgentsDelete = "agents.delete";
-        public const string AgentsPermissionsManage = "agents.permissions.manage";
 
-        public const string McpClientsRead = "mcp.clients.read";
-        public const string McpClientsCreate = "mcp.clients.create";
-        public const string McpClientsUpdate = "mcp.clients.update";
-        public const string McpClientsDelete = "mcp.clients.delete";
-        public const string AgentsMcpClientsManage = "agents.mcp-clients.manage";
+        /// <summary>Turn the gym's built-in agents on or off.</summary>
+        public const string AgentsUpdate = "agents.update";
 
         /// <summary>Decide High/Critical-risk agent actions requested by others (four-eyes).</summary>
         public const string ApprovalsDecide = "agents.approvals.decide";
@@ -36,12 +29,6 @@ namespace IronForge.Shared.Authorization
         public const string GymRoutinesManage = "gym.routines.manage";
         public const string GymNotificationsSend = "gym.notifications.send";
         public const string GymSettingsManage = "gym.settings.manage";
-
-        /// <summary>
-        /// Held only by a paired check-in device (kiosk), never by a role: it
-        /// can scan member passes and nothing else.
-        /// </summary>
-        public const string GymCheckInsDevice = "gym.checkins.device";
 
         /// <summary>
         /// Held only by a registered access terminal (ZKTeco), never by a

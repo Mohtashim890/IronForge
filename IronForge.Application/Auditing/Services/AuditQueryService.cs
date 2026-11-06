@@ -73,148 +73,69 @@ namespace IronForge.Application.Auditing.Services
                     "FromUtc must be earlier than ToUtc.");
             }
 
-            // IRepository intentionally does not expose IQueryable.
-            // Retrieve the tenant-scoped data and apply the existing
-            // filtering, ordering, paging, and projection in memory.
-            var query = await _auditEvents.ListAsync(
-                x => x.TenantId == context.TenantId,
-                cancellationToken);
+            var tenantId = context.TenantId.Value;
 
-            if (request.Category.HasValue)
+            // Filtered, ordered and paged in the database: the log grows with
+            // every check-in, payment and sign-in.
+            IQueryable<AuditEvent> Filter(IQueryable<AuditEvent> q)
             {
-                query = query
-                    .Where(x =>
-                        x.Category == request.Category.Value)
-                    .ToList();
+                q = q.Where(x => x.TenantId == tenantId);
+
+                if (request.Category.HasValue)
+                    q = q.Where(x => x.Category == request.Category.Value);
+                if (request.Outcome.HasValue)
+                    q = q.Where(x => x.Outcome == request.Outcome.Value);
+                if (request.ActorType.HasValue)
+                    q = q.Where(x => x.ActorType == request.ActorType.Value);
+                if (request.UserId.HasValue)
+                    q = q.Where(x => x.UserId == request.UserId.Value);
+                if (!string.IsNullOrWhiteSpace(request.AgentId))
+                    q = q.Where(x => x.AgentId == request.AgentId);
+                if (!string.IsNullOrWhiteSpace(request.ResourceType))
+                    q = q.Where(x => x.ResourceType == request.ResourceType);
+                if (!string.IsNullOrWhiteSpace(request.ResourceId))
+                    q = q.Where(x => x.ResourceId == request.ResourceId);
+                if (!string.IsNullOrWhiteSpace(request.Action))
+                    q = q.Where(x => x.Action == request.Action);
+                if (!string.IsNullOrWhiteSpace(request.CorrelationId))
+                    q = q.Where(x => x.CorrelationId == request.CorrelationId);
+                if (!string.IsNullOrWhiteSpace(request.TraceId))
+                    q = q.Where(x => x.TraceId == request.TraceId);
+                if (request.FromUtc.HasValue)
+                    q = q.Where(x => x.OccurredAtUtc >= request.FromUtc.Value);
+                if (request.ToUtc.HasValue)
+                    q = q.Where(x => x.OccurredAtUtc < request.ToUtc.Value);
+
+                return q;
             }
 
-            if (request.Outcome.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.Outcome == request.Outcome.Value)
-                    .ToList();
-            }
-
-            if (request.ActorType.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.ActorType == request.ActorType.Value)
-                    .ToList();
-            }
-
-            if (request.UserId.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.UserId == request.UserId.Value)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.AgentId))
-            {
-                query = query
-                    .Where(x =>
-                        x.AgentId == request.AgentId)
-                    .ToList();
-            }
-
-            if (request.DelegationId.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.DelegationId == request.DelegationId.Value)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.ResourceType))
-            {
-                query = query
-                    .Where(x =>
-                        x.ResourceType == request.ResourceType)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.ResourceId))
-            {
-                query = query
-                    .Where(x =>
-                        x.ResourceId == request.ResourceId)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.Action))
-            {
-                query = query
-                    .Where(x =>
-                        x.Action == request.Action)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.CorrelationId))
-            {
-                query = query
-                    .Where(x =>
-                        x.CorrelationId == request.CorrelationId)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.TraceId))
-            {
-                query = query
-                    .Where(x =>
-                        x.TraceId == request.TraceId)
-                    .ToList();
-            }
-
-            if (request.FromUtc.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.OccurredAtUtc >= request.FromUtc.Value)
-                    .ToList();
-            }
-
-            if (request.ToUtc.HasValue)
-            {
-                query = query
-                    .Where(x =>
-                        x.OccurredAtUtc < request.ToUtc.Value)
-                    .ToList();
-            }
-
-            query = query
-                .OrderByDescending(x => x.OccurredAtUtc)
-                .ThenByDescending(x => x.Id)
-                .ToList();
-
-            var totalCount = query.Count;
+            var totalCount = await _auditEvents.QueryCountAsync(Filter, cancellationToken);
 
             var skip = (request.Page - 1) * request.PageSize;
 
-            var items = query
-                .Skip(skip)
-                .Take(request.PageSize)
-                .Select(x => new AuditEventDto
-                {
-                    Id = x.Id,
-                    OccurredAtUtc = x.OccurredAtUtc,
-                    Category = x.Category,
-                    Action = x.Action,
-                    Outcome = x.Outcome,
-                    ActorType = x.ActorType,
-                    UserId = x.UserId,
-                    AgentId = x.AgentId,
-                    ClientId = x.ClientId,
-                    DelegationId = x.DelegationId,
-                    ResourceType = x.ResourceType,
-                    ResourceId = x.ResourceId,
-                    CorrelationId = x.CorrelationId,
-                    TraceId = x.TraceId,
-                    Reason = x.Reason
-                })
-                .ToList();
+            var items = await _auditEvents.QueryAsync(
+                q => Filter(q)
+                    .OrderByDescending(x => x.OccurredAtUtc)
+                    .ThenByDescending(x => x.Id)
+                    .Skip(skip)
+                    .Take(request.PageSize)
+                    .Select(x => new AuditEventDto
+                    {
+                        Id = x.Id,
+                        OccurredAtUtc = x.OccurredAtUtc,
+                        Category = x.Category,
+                        Action = x.Action,
+                        Outcome = x.Outcome,
+                        ActorType = x.ActorType,
+                        UserId = x.UserId,
+                        AgentId = x.AgentId,
+                        ResourceType = x.ResourceType,
+                        ResourceId = x.ResourceId,
+                        CorrelationId = x.CorrelationId,
+                        TraceId = x.TraceId,
+                        Reason = x.Reason
+                    }),
+                cancellationToken);
 
             var result = new AuditQueryResult
             {

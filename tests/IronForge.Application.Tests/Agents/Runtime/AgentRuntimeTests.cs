@@ -12,7 +12,7 @@ using IronForge.Application.Agents.Usage;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
 using IronForge.Application.Observablity.Tracing;
-using IronForge.Application.Tests.Agents.Delegations;
+
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -21,6 +21,9 @@ namespace IronForge.Application.Tests.Agents.Runtime;
 
 public class AgentRuntimeTests
 {
+    private const int DefaultUserId = 42;
+    private const int DefaultTenantId = 7;
+
     private readonly Mock<IChatClient> _chatClient = new();
     private readonly Mock<IAgentChatClientFactory> _chatClients = new();
     private readonly Mock<IAgentQuotaService> _quota = new();
@@ -45,10 +48,10 @@ public class AgentRuntimeTests
     {
         _executionContext.Set(new IronForge.Application.Execution.ExecutionContext
         {
-            TenantId = ApplicationTestContext.DefaultTenantId,
+            TenantId = DefaultTenantId,
             Actor = new ExecutionActor
             {
-                UserId = ApplicationTestContext.DefaultUserId,
+                UserId = DefaultUserId,
                 Role = "Admin"
             }
         });
@@ -127,8 +130,8 @@ public class AgentRuntimeTests
         return new AgentSession
         {
             Id = Guid.NewGuid(),
-            TenantId = ApplicationTestContext.DefaultTenantId,
-            UserId = ApplicationTestContext.DefaultUserId,
+            TenantId = DefaultTenantId,
+            UserId = DefaultUserId,
             AgentId = agentId
         };
     }
@@ -226,7 +229,7 @@ public class AgentRuntimeTests
             .Setup(x => x.GetSessionAsync(foreignSession.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(foreignSession);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+        var exception = await Assert.ThrowsAsync<AgentUnavailableException>(
             () => CreateRuntime().RunAsync(
                 AgentIds.GymAdmin,
                 foreignSession.Id,
@@ -253,8 +256,8 @@ public class AgentRuntimeTests
         {
             ApprovalId = "approval-1",
             SessionId = foreignSession.Id,
-            TenantId = ApplicationTestContext.DefaultTenantId,
-            UserId = ApplicationTestContext.DefaultUserId,
+            TenantId = DefaultTenantId,
+            UserId = DefaultUserId,
             AgentId = AgentIds.GymAdmin,
             ToolName = "send_announcement",
             Status = AgentApprovalStatus.Pending,
@@ -269,7 +272,7 @@ public class AgentRuntimeTests
             .Setup(x => x.GetSessionAsync(foreignSession.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(foreignSession);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(
             () => CreateRuntime().RespondToApprovalAsync(
                 AgentIds.GymAdmin,
                 "approval-1",
@@ -344,8 +347,8 @@ public class AgentRuntimeTests
         {
             ApprovalId = Guid.NewGuid().ToString("N"),
             SessionId = session.Id,
-            TenantId = ApplicationTestContext.DefaultTenantId,
-            UserId = ApplicationTestContext.DefaultUserId,
+            TenantId = DefaultTenantId,
+            UserId = DefaultUserId,
             AgentId = AgentIds.GymAdmin,
             ToolName = toolName,
             ArgumentsJson = "{}",
@@ -389,7 +392,7 @@ public class AgentRuntimeTests
         var approval = PendingApproval(AgentRiskLevel.High, "send_announcement");
 
         approval.Status = AgentApprovalStatus.Approved;
-        approval.DecidedByUserId = ApplicationTestContext.DefaultUserId + 1;
+        approval.DecidedByUserId = DefaultUserId + 1;
 
         var result = await CreateRuntime().RespondToApprovalAsync(
             AgentIds.GymAdmin,
@@ -399,7 +402,7 @@ public class AgentRuntimeTests
         Assert.Equal(AgentRunStatus.Completed, result.Status);
 
         // The second approver's decision is kept, not overwritten by the requester.
-        Assert.Equal(ApplicationTestContext.DefaultUserId + 1, approval.DecidedByUserId);
+        Assert.Equal(DefaultUserId + 1, approval.DecidedByUserId);
 
         _approvedExecution.Verify(
             x => x.ExecuteAsync(approval, It.IsAny<CancellationToken>()),
@@ -417,7 +420,7 @@ public class AgentRuntimeTests
             approved: false);
 
         Assert.Equal(AgentApprovalStatus.Rejected, approval.Status);
-        Assert.Equal(ApplicationTestContext.DefaultUserId, approval.DecidedByUserId);
+        Assert.Equal(DefaultUserId, approval.DecidedByUserId);
     }
 
     [Fact]
@@ -431,7 +434,7 @@ public class AgentRuntimeTests
             approved: true);
 
         Assert.Equal(AgentApprovalStatus.Approved, approval.Status);
-        Assert.Equal(ApplicationTestContext.DefaultUserId, approval.DecidedByUserId);
+        Assert.Equal(DefaultUserId, approval.DecidedByUserId);
 
         _approvedExecution.Verify(
             x => x.ExecuteAsync(approval, It.IsAny<CancellationToken>()),
@@ -464,10 +467,10 @@ public class AgentRuntimeTests
         _executionContext = new ExecutionContextAccessor();
         _executionContext.Set(new IronForge.Application.Execution.ExecutionContext
         {
-            TenantId = ApplicationTestContext.DefaultTenantId,
+            TenantId = DefaultTenantId,
             Actor = new ExecutionActor
             {
-                UserId = ApplicationTestContext.DefaultUserId,
+                UserId = DefaultUserId,
                 Role = role
             }
         });

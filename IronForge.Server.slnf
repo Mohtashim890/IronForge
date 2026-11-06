@@ -5,8 +5,6 @@
       "IronForge.Api\\IronForge.Api.csproj",
       "IronForge.Application\\IronForge.Application.csproj",
       "IronForge.Infrastructure\\IronForge.Infrastructure.csproj",
-      "IronForge.Mcp.Client\\IronForge.Mcp.Client.csproj",
-      "IronForge.Mcp\\IronForge.Mcp.csproj",
       "IronForge.Migrator\\IronForge.Migrator.csproj",
       "IronForge.Payments\\IronForge.Payments.csproj",
       "IronForge.Shared\\IronForge.Shared.csproj",

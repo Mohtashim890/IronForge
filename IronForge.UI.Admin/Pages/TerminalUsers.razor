@@ -5,16 +5,19 @@
 <PageTitle>Fingerprint users | IronForge</PageTitle>
 
 <div class="if-page">
-    <p><a href="/checkin-devices" class="if-small">← Check-in devices</a></p>
-
     <div class="if-page-head">
         <div>
             <h1>Fingerprint check-in</h1>
             <p>People enrolled on the gym's ZKTeco terminals. Link each one to a member: IronForge then tells the terminals who may enter.</p>
         </div>
-        <AuthorizeView Policy="@Permissions.GymMembersManage">
-            <button class="if-btn" @onclick="() => _adding = true">Add a member to the terminals</button>
-        </AuthorizeView>
+        <div class="if-row">
+            <AuthorizeView Policy="@Permissions.GymSettingsManage">
+                <a class="if-btn" href="/access/terminals">Terminals</a>
+            </AuthorizeView>
+            <AuthorizeView Policy="@Permissions.GymMembersManage">
+                <button class="if-btn" @onclick="() => _adding = true">Add a member to the terminals</button>
+            </AuthorizeView>
+        </div>
     </div>
 
     @if (_error is not null)
@@ -50,7 +53,7 @@
                 </li>
                 <li class="@(Done(connected))">
                     <strong>A terminal is connected.</strong>
-                    Register it by serial number under <a href="/checkin-devices">Check-in devices</a> and point it at IronForge.
+                    An admin registers it by serial number under <a href="/access/terminals">Terminals</a> and points it at IronForge.
                     @if (_terminals is not null)
                     {
                         <span class="if-muted">@(_terminals.Count == 0 ? "No terminal registered yet." : connected ? $"{_terminals.Count(x => x.IsPaired)} connected." : "Registered, waiting for the terminal to call in.")</span>

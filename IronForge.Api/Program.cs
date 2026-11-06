@@ -2,7 +2,6 @@
 using IronForge.Application.Agents;
 using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
-using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Governance.Policies;
 using IronForge.Application.Agents.Memory.Context;
@@ -20,7 +19,6 @@ using IronForge.Application.Auth.Services;
 using IronForge.Application.Configurations;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
-using IronForge.Application.McpClients.Services;
 using IronForge.Application.Observablity.Metrics;
 using IronForge.Application.Observablity.Tracing;
 using IronForge.Application.Persistence;
@@ -152,14 +150,6 @@ builder.Services
     .ValidateOnStart();
 
 builder.Services
-    .AddOptions<AgentCredentialSettings>()
-    .Bind(
-        builder.Configuration.GetSection(
-            AgentCredentialSettings.SectionName))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
-
-builder.Services
     .AddOptions<InvitationOptions>()
     .Bind(
         builder.Configuration.GetSection(
@@ -232,18 +222,12 @@ builder.Services.AddScoped<ITenantInvitationService, TenantInvitationService>();
 builder.Services.AddScoped<ITenantInvitationStore, TenantInvitationStore>();
 builder.Services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 builder.Services.AddScoped<IAgentManagementService,AgentManagementService>();
-builder.Services.AddScoped<IMcpClientManagementService,McpClientManagementService>();
-builder.Services.AddScoped<IAgentMcpClientManagementService,AgentMcpClientManagementService>();
-builder.Services.AddScoped<IAgentDelegationService,AgentDelegationService>();
 
 
 builder.Services.AddScoped<ITenantAuthorizationService, TenantAuthorizationService>();
 builder.Services.AddScoped<IUserAuthorizationService, UserAuthorizationService>();
 builder.Services.AddScoped<IAgentManagementAuthorizationService, AgentManagementAuthorizationService>();
-builder.Services.AddScoped<IAgentMcpClientAuthorizationService,AgentMcpClientAuthorizationService>();
 builder.Services.AddScoped<IAgentAuthorizationService, AgentAuthorizationService>();
-builder.Services.AddScoped<IEffectiveAgentAuthorizationService, EffectiveAgentAuthorizationService>();
-builder.Services.AddScoped<IAgentDelegationCredentialService, AgentDelegationCredentialService>();
 // Derived from tool bindings; resolved lazily to avoid a cycle through the tools.
 builder.Services.AddScoped<IAgentPermissionRegistry>(services =>
     new DatabaseAgentPermissionRegistry(
@@ -283,7 +267,6 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IAuditQueryService, AuditQueryService>();
 
 builder.Services.AddScoped<IAgentApprovalStore, DBAgentApprovalStore>();
-builder.Services.AddScoped<IAgentDelegationStore, DBAgentDelegationStore>();
 /* AI LLM Agents */
 builder.Services.AddScoped<IAgentGovernanceService, AgentGovernanceService>();
 

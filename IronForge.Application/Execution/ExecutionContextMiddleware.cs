@@ -39,12 +39,6 @@ public class ExecutionContextMiddleware
 
             var role = httpContext.User.FindFirstValue(ClaimTypes.Role);
 
-            var agentId =
-                httpContext.User.FindFirstValue(CustomClaimTypes.AgentId);
-
-            var clientId =
-                httpContext.User.FindFirstValue(CustomClaimTypes.ClientId);
-
             var permissions =
                 httpContext.User
                     .FindAll(CustomClaimTypes.Permission)
@@ -62,7 +56,6 @@ public class ExecutionContextMiddleware
                     UserId = userId,
                     Username = username,
                     Agent = null,
-                    ClientId = clientId,
                     UserPermissions = permissions,
                     Role = role
                 },

@@ -147,9 +147,9 @@ public class CheckInRulesTests
     [InlineData(TenantRoles.Admin)]
     [InlineData(TenantRoles.Trainer)]
     [InlineData(TenantRoles.Member)]
-    public void NoRole_HoldsTheDevicePermission(string role)
+    public void NoRole_HoldsTheTerminalPermission(string role)
     {
-        Assert.DoesNotContain(Permissions.GymCheckInsDevice, RolePermissions.GetPermissions(role));
+        Assert.DoesNotContain(Permissions.GymAccessTerminal, RolePermissions.GetPermissions(role));
     }
 
     private static CheckInKeys Keys(string key = "unit-test-member-pass-key-that-is-long") =>

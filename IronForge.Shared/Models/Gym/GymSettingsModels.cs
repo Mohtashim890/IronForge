@@ -42,7 +42,7 @@ namespace IronForge.Shared.Models.Gym
         /// <summary>How members pay at the desk or by bank transfer; shown in the app.</summary>
         public string? PaymentInstructions { get; set; }
 
-        /// <summary>Members show their rotating pass; staff or a kiosk scan it.</summary>
+        /// <summary>Members show their rotating pass; staff scan it.</summary>
         public bool MemberPassCheckInEnabled { get; set; }
 
 

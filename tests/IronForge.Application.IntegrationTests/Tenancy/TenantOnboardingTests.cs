@@ -410,7 +410,7 @@ public sealed class TenantOnboardingTests
     }
 
     [Fact]
-    public async Task Deactivating_Member_RevokesTheirDelegationsInThatTenantOnly_AndBlocksSignIn()
+    public async Task Deactivating_Member_BlocksThatTenantOnly()
     {
         var (acmeId, acmeAdminId) = await OnboardAsync("acme");
         var (globexId, globexAdminId) = await OnboardAsync("globex");
@@ -419,21 +419,10 @@ public sealed class TenantOnboardingTests
         var userId = await AddMemberAsync(acmeId, acmeAdminId, "shared@example.com", "shared-user");
         await AddMemberAsync(globexId, globexAdminId, "shared@example.com", "shared-user");
 
-        var acmeDelegation = await SeedDelegationAsync(acmeId, userId);
-        var globexDelegation = await SeedDelegationAsync(globexId, userId);
-
         var result = await AsTenantAdmin(acmeId, acmeAdminId, s =>
             s.Members.UpdateStatusAsync(userId, isActive: false));
 
         Assert.True(result.Success, result.ErrorMessage);
-
-        await using (var db = Database.CreateDbContext())
-        {
-            var delegations = await db.AgentDelegations.IgnoreQueryFilters().ToListAsync();
-
-            Assert.True(delegations.Single(x => x.DelegationId == acmeDelegation).Revoked);
-            Assert.False(delegations.Single(x => x.DelegationId == globexDelegation).Revoked);
-        }
 
         // Selecting the deactivated tenant fails; the other tenant still works.
         var login = await LoginAsync("shared-user");
@@ -597,27 +586,6 @@ public sealed class TenantOnboardingTests
         await db.SaveChangesAsync();
 
         return user.Id;
-    }
-
-    private async Task<Guid> SeedDelegationAsync(int tenantId, int userId)
-    {
-        await using var db = Database.CreateDbContext();
-
-        var delegation = new AgentDelegationEntity
-        {
-            DelegationId = Guid.NewGuid(),
-            TenantId = tenantId,
-            UserId = userId,
-            AgentId = AgentTemplates.GymAdmin.Definition.AgentId,
-            ClientId = "mcp-client",
-            CreatedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30)
-        };
-
-        db.AgentDelegations.Add(delegation);
-        await db.SaveChangesAsync();
-
-        return delegation.DelegationId;
     }
 
     private async Task<LoginResponse> LoginAsync(string username)

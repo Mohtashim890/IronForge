@@ -77,24 +77,6 @@ jobs:
           tags: |
             ${{ env.IMAGE_PREFIX }}/ironforge-platform:${{ env.RELEASE_SHA }}
 
-      - name: Build and push MCP image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./IronForge.Mcp/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-mcp:${{ env.RELEASE_SHA }}
-
-      - name: Build and push MCP Client image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./IronForge.Mcp.Client/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_PREFIX }}/ironforge-mcp-client:${{ env.RELEASE_SHA }}
-
       - name: Build and push Migrator image
         uses: docker/build-push-action@v6
         with:

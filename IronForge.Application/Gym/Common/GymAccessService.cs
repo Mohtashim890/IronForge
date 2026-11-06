@@ -16,7 +16,7 @@ namespace IronForge.Application.Gym.Common;
 /// (tenant) is selected and the caller holds the permission. For an agent
 /// the rule is the platform's: an internal agent needs the permission itself
 /// (from its tool bindings) and never acts with more authority than the
-/// signed-in user; an external agent needs user ∩ agent ∩ delegation.
+/// signed-in user.
 /// </summary>
 public interface IGymAccessService
 {
@@ -26,7 +26,7 @@ public interface IGymAccessService
 
     string? Username { get; }
 
-    /// <summary>Set when the caller is a paired check-in device instead of a user.</summary>
+    /// <summary>Set when the caller is a fingerprint terminal instead of a user.</summary>
     int? DeviceId { get; }
 
     Task<ResourceAuthorizationResult> AuthorizeAsync(
@@ -59,7 +59,6 @@ public sealed class GymAccessService : IGymAccessService
     private readonly IExecutionContextAccessor _executionContext;
     private readonly IUserAuthorizationService _userAuthorization;
     private readonly IAgentAuthorizationService _agentAuthorization;
-    private readonly IEffectiveAgentAuthorizationService _effectiveAgentAuthorization;
     private readonly IRepository<MemberProfile> _members;
     private readonly ITenantEntitlementService _entitlements;
 
@@ -67,14 +66,12 @@ public sealed class GymAccessService : IGymAccessService
         IExecutionContextAccessor executionContext,
         IUserAuthorizationService userAuthorization,
         IAgentAuthorizationService agentAuthorization,
-        IEffectiveAgentAuthorizationService effectiveAgentAuthorization,
         IRepository<MemberProfile> members,
         ITenantEntitlementService entitlements)
     {
         _executionContext = executionContext;
         _userAuthorization = userAuthorization;
         _agentAuthorization = agentAuthorization;
-        _effectiveAgentAuthorization = effectiveAgentAuthorization;
         _members = members;
         _entitlements = entitlements;
     }
@@ -107,19 +104,7 @@ public sealed class GymAccessService : IGymAccessService
 
         var actor = context.Actor;
 
-        if (actor.Agent?.Type == AgentType.External)
-        {
-            var result = await _effectiveAgentAuthorization.AuthorizeAsync(
-                permission,
-                cancellationToken);
-
-            return result.Allowed
-                ? ResourceAuthorizationResult.Allow()
-                : ResourceAuthorizationResult.Deny(
-                    result.Reason ?? "External agent is not authorized.");
-        }
-
-        if (actor.Agent?.Type == AgentType.Internal &&
+        if (actor.Agent is not null &&
             !await _agentAuthorization.HasPermissionAsync(
                 actor.Agent,
                 permission,
@@ -129,14 +114,14 @@ public sealed class GymAccessService : IGymAccessService
                 "Internal agent does not have the required permission.");
         }
 
-        // A check-in device holds only the device permission it was given at
-        // authentication, so it can scan passes and call nothing else.
+        // A terminal holds only the terminal permission it was given at
+        // authentication, so it can call nothing else.
         if (actor.DeviceId.HasValue)
         {
             return actor.UserPermissions.Contains(permission)
                 ? ResourceAuthorizationResult.Allow()
                 : ResourceAuthorizationResult.Deny(
-                    "A check-in device can only check members in.");
+                    "A terminal can only report entries and enrolled users.");
         }
 
         if (!actor.UserId.HasValue)

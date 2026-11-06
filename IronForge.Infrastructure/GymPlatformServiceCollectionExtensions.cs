@@ -104,7 +104,6 @@ public static class GymPlatformServiceCollectionExtensions
         services.AddScoped<IMemberPhotoService, MemberPhotoService>();
         services.AddScoped<ICheckInDeviceService, CheckInDeviceService>();
         services.AddScoped<ICheckInDeviceDirectory, CheckInDeviceDirectory>();
-        services.AddScoped<IKioskService, KioskService>();
         services.AddScoped<ITerminalProtocolService, TerminalProtocolService>();
         services.AddScoped<ITerminalAdminService, TerminalAdminService>();
         services.AddScoped<IGymDashboardService, GymDashboardService>();

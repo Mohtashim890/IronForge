@@ -3,8 +3,6 @@ using IronForge.Application.Commons;
 using IronForge.Shared.Models.Agents;
 using IronForge.Shared.Models.Agents.Manage;
 using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
-using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 
 namespace IronForge.Application.Agents.Services
 {
@@ -17,37 +15,10 @@ namespace IronForge.Application.Agents.Services
             string agentId,
             CancellationToken cancellationToken = default);
 
-        Task<ServiceResult<AgentDto>> CreateAgentAsync(
-            CreateAgentRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<AgentDto>> UpdateAgentAsync(
+        /// <summary>Turns a built-in agent on or off for the gym.</summary>
+        Task<ServiceResult<AgentDto>> SetActiveAsync(
             string agentId,
-            UpdateAgentRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<bool>> DeleteAgentAsync(
-            string agentId,
-            CancellationToken cancellationToken = default);
-
-
-        Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
-            CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// Turns a managed (template) agent into the tenant's own copy: it can
-        /// be edited freely and no longer receives template updates.
-        /// </summary>
-        Task<ServiceResult<AgentDto>> DetachAsync(
-            string agentId,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<AgentDto>> UpdateToolsAsync(
-            string agentId,
-            UpdateAgentToolsRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<List<AgentModelProfileDto>>> GetModelProfilesAsync(
+            bool isActive,
             CancellationToken cancellationToken = default);
 
         Task<ServiceResult<AgentUsageSummaryDto>> GetUsageAsync(

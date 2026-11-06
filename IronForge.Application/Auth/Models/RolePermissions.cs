@@ -22,17 +22,9 @@ namespace IronForge.Application.Auth.Models
                     Permissions.GymNotificationsSend,
                     Permissions.GymSettingsManage,
 
-                    Permissions.AgentsCreate,
                     Permissions.AgentsRead,
                     Permissions.AgentsUpdate,
-                    Permissions.AgentsDelete,
-                    Permissions.AgentsPermissionsManage,
 
-                    Permissions.McpClientsRead,
-                    Permissions.McpClientsCreate,
-                    Permissions.McpClientsUpdate,
-                    Permissions.McpClientsDelete,
-                    Permissions.AgentsMcpClientsManage,
                     Permissions.ApprovalsDecide,
 
                     Permissions.AuditRead,

@@ -34,9 +34,6 @@ public static class IronForgeClientServiceCollectionExtensions
 
         services.AddScoped<IAgentWorkspaceService>(provider => new AgentWorkspaceService(Authorized(provider)));
         services.AddScoped<IAgentManagementService>(provider => new AgentManagementService(Authorized(provider)));
-        services.AddScoped<IMcpClientManagementService>(provider => new McpClientManagementService(Authorized(provider)));
-        services.AddScoped<IAgentMcpClientManagementService>(provider => new AgentMcpClientManagementService(Authorized(provider)));
-        services.AddScoped<IAgentDelegationManagementService>(provider => new AgentDelegationManagementService(Authorized(provider)));
         services.AddScoped<IPlatformTenantService>(provider => new PlatformTenantService(Authorized(provider)));
         services.AddScoped<ITenantMembersService>(provider => new TenantMembersService(Authorized(provider)));
         services.AddScoped<IApprovalQueueClient>(provider => new ApprovalQueueClient(Authorized(provider)));
@@ -50,9 +47,6 @@ public static class IronForgeClientServiceCollectionExtensions
         // Not signed in yet: plain clients without the JWT handler.
         services.AddScoped<IInvitationService>(provider => new InvitationService(Anonymous(provider)));
         services.AddScoped(provider => new PublicApiClient(Anonymous(provider)));
-
-        // Check-in devices authenticate with their own key, never a user's JWT.
-        services.AddScoped(provider => new KioskApiClient(Anonymous(provider)));
 
         // The member app replaces this with secure storage, so the pass works offline.
         services.TryAddScoped<IMemberPassStore, InMemoryMemberPassStore>();

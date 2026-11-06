@@ -14,8 +14,6 @@
     <Folder Include="Agents\Persistence\" />
     <Folder Include="Auditing\Persistence\" />
     <Folder Include="Auth\Persistence\" />
-    <Folder Include="McpClients\Models\" />
-    <Folder Include="McpClients\Persistence\" />
     <Folder Include="Tenants\Persistence\" />
   </ItemGroup>
 

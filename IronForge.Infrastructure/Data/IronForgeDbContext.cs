@@ -18,8 +18,6 @@ namespace IronForge.Infrastructure.Data
         public DbSet<Agent> Agents => Set<Agent>();
         public DbSet<AgentToolBindingEntity> AgentToolBindings => Set<AgentToolBindingEntity>();
         public DbSet<AgentUsageRecord> AgentUsageRecords => Set<AgentUsageRecord>();
-        public DbSet<AgentDelegationEntity> AgentDelegations => Set<AgentDelegationEntity>();
-        public DbSet<AgentDelegationScopeEntity> AgentDelegationScopes => Set<AgentDelegationScopeEntity>();
         public DbSet<Tenant> Tenants => Set<Tenant>();
         public DbSet<TenantMembership> TenantMemberships => Set<TenantMembership>();
         public DbSet<TenantInvitation> TenantInvitations => Set<TenantInvitation>();
@@ -28,8 +26,6 @@ namespace IronForge.Infrastructure.Data
         public DbSet<ConversationSummary> ConversationSummaries => Set<ConversationSummary>();
         public DbSet<AgentApproval> AgentApprovals => Set<AgentApproval>();
         public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
-        public DbSet<McpClient> McpClients => Set<McpClient>();
-        public DbSet<AgentMcpClientAuthorization>AgentMcpClientAuthorizations => Set<AgentMcpClientAuthorization>();
 
         protected override void OnModelCreating(
             ModelBuilder modelBuilder)
@@ -37,105 +33,6 @@ namespace IronForge.Infrastructure.Data
             base.OnModelCreating(modelBuilder);
 
             ConfigureGym(modelBuilder);
-
-            modelBuilder.Entity<AgentMcpClientAuthorization>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.TenantId).IsRequired();
-                entity.Property(x => x.IsActive).IsRequired();
-                entity.Property(x => x.CreatedAtUtc).IsRequired();
-                entity.Property(x => x.UpdatedAtUtc).IsRequired();
-
-                entity.HasOne(x => x.Agent)
-                    .WithMany()
-                    .HasForeignKey(x => x.AgentEntityId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasOne(x => x.McpClient)
-                    .WithMany()
-                    .HasForeignKey(x => x.McpClientEntityId)
-                    .OnDelete(DeleteBehavior.Cascade);
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.AgentEntityId,
-                    x.McpClientEntityId
-                }).IsUnique();
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.McpClientEntityId,
-                    x.IsActive
-                });
-
-                entity.HasQueryFilter(x =>
-                    CurrentTenantId.HasValue &&
-                    x.TenantId == CurrentTenantId.Value);
-            });
-
-
-            modelBuilder.Entity<McpClient>(entity =>
-            {
-                entity.HasKey(x => x.Id);
-
-                entity.Property(x => x.ClientId)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.Name)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.Description)
-                    .HasMaxLength(2000);
-
-                entity.Property(x => x.ClientType)
-                    .IsRequired()
-                    .HasMaxLength(100);
-
-                entity.Property(x => x.Version)
-                    .IsRequired()
-                    .HasMaxLength(50);
-
-                entity.Property(x => x.IsActive)
-                    .IsRequired();
-
-                entity.Property(x => x.CreatedAtUtc)
-                    .IsRequired();
-
-                entity.Property(x => x.UpdatedAtUtc)
-                    .IsRequired();
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasQueryFilter(x =>
-                    CurrentTenantId.HasValue &&
-                    x.TenantId == CurrentTenantId.Value);
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.ClientId
-                })
-                .IsUnique();
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.IsActive
-                });
-            });
 
             modelBuilder.Entity<Agent>(entity =>
             {
@@ -306,9 +203,6 @@ namespace IronForge.Infrastructure.Data
                     .IsRequired();
 
                 entity.Property(x => x.AgentId)
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.ClientId)
                     .HasMaxLength(200);
 
                 entity.Property(x => x.ResourceType)
@@ -702,73 +596,6 @@ namespace IronForge.Infrastructure.Data
                 .HasIndex(u => u.Email)
                 .IsUnique();
 
-            // Delegation constraints
-            modelBuilder.Entity<AgentDelegationEntity>(
-            entity =>
-            {
-                entity.HasKey(x => x.DelegationId);
-
-                entity.Property(x => x.AgentId)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.ClientId)
-                    .IsRequired()
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.CreatedAtUtc)
-                    .IsRequired();
-
-                entity.Property(x => x.ExpiresAtUtc)
-                    .IsRequired();
-
-                entity.Property(x => x.Revoked)
-                    .IsRequired();
-
-                entity.HasOne<Tenant>()
-                    .WithMany()
-                    .HasForeignKey(x => x.TenantId)
-                    .OnDelete(DeleteBehavior.Restrict);
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.UserId
-                });
-
-                entity.HasIndex(x => x.AgentId);
-
-                entity.HasIndex(x => x.ExpiresAtUtc);
-
-                entity.HasQueryFilter(x =>
-                    CurrentTenantId.HasValue &&
-                    x.TenantId == CurrentTenantId.Value);
-            });
-
-            modelBuilder.Entity<AgentDelegationScopeEntity>(
-                entity =>
-                {
-                    entity.HasKey(x =>
-                        new
-                        {
-                            x.DelegationId,
-                            x.Scope
-                        });
-
-                    entity.Property(x => x.Scope)
-                        .IsRequired()
-                        .HasMaxLength(200);
-
-                    entity.HasOne(x => x.Delegation)
-                        .WithMany(x => x.Scopes)
-                        .HasForeignKey(x => x.DelegationId)
-                        .OnDelete(DeleteBehavior.Cascade);
-
-                    // Tenant isolation through the owning delegation.
-                    entity.HasQueryFilter(x =>
-                        CurrentTenantId.HasValue &&
-                        x.Delegation.TenantId == CurrentTenantId.Value);
-                });
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using IronForge.Application.Execution;
+﻿using IronForge.Application.Agents.Runtime;
+using IronForge.Application.Execution;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 
@@ -24,6 +25,38 @@ namespace IronForge.Api.Helpers
                .GetRequiredService<IExecutionContextAccessor>();
 
             var context = executionContext.Current;
+
+            // Expected refusals thrown by the agent runtime carry a message
+            // meant for the user.
+            var expected = exception switch
+            {
+                AgentUnavailableException => StatusCodes.Status404NotFound,
+                KeyNotFoundException => StatusCodes.Status404NotFound,
+                UnauthorizedAccessException => StatusCodes.Status403Forbidden,
+                _ => (int?)null
+            };
+
+            if (expected is { } status)
+            {
+                _logger.LogWarning(
+                    "Request refused: {Message}. Method={Method}, Path={Path}, TenantId={TenantId}, UserId={UserId}",
+                    exception.Message,
+                    httpContext.Request.Method,
+                    httpContext.Request.Path,
+                    context?.TenantId,
+                    context?.Actor.UserId);
+
+                httpContext.Response.StatusCode = status;
+
+                await httpContext.Response.WriteAsJsonAsync(
+                    ApiErrorFactory.Create(
+                        status,
+                        exception.Message,
+                        context?.TraceId ?? httpContext.TraceIdentifier),
+                    cancellationToken);
+
+                return true;
+            }
 
             _logger.LogError(
                 exception,

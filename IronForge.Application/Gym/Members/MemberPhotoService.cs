@@ -10,7 +10,7 @@ using IronForge.Shared.Models.Gym;
 namespace IronForge.Application.Gym.Members;
 
 /// <summary>
-/// Member photos for identity checks at the front desk and the kiosk. Staff
+/// Member photos for identity checks at the front desk. Staff
 /// can always set or remove a photo; a member can set their own from the app
 /// until staff set one (a staff photo is the verified one).
 /// </summary>

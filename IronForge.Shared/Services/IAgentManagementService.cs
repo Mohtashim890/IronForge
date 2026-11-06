@@ -15,33 +15,9 @@ namespace IronForge.Shared.Services
             string agentId,
             CancellationToken cancellationToken = default);
 
-        Task<ServiceResult<AgentDto>> CreateAgentAsync(
-            CreateAgentRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<AgentDto>> UpdateAgentAsync(
+        Task<ServiceResult<AgentDto>> SetActiveAsync(
             string agentId,
-            UpdateAgentRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<bool>> DeleteAgentAsync(
-            string agentId,
-            CancellationToken cancellationToken = default);
-
-
-        Task<ServiceResult<List<AgentToolCatalogItemDto>>> GetToolCatalogAsync(
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<AgentDto>> DetachAsync(
-            string agentId,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<AgentDto>> UpdateToolsAsync(
-            string agentId,
-            UpdateAgentToolsRequest request,
-            CancellationToken cancellationToken = default);
-
-        Task<ServiceResult<List<AgentModelProfileDto>>> GetModelProfilesAsync(
+            bool isActive,
             CancellationToken cancellationToken = default);
 
         Task<ServiceResult<AgentUsageSummaryDto>> GetUsageAsync(

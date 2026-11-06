@@ -11,7 +11,7 @@ namespace IronForge.Api.Controllers
     /// The ZKTeco push protocol (ADMS, "iclock"). The paths are fixed by the
     /// terminal firmware: point the terminal's Cloud Server / ADMS setting at
     /// the API host. A terminal identifies itself by its serial number (SN),
-    /// which an admin registered under Check-in devices; the answers are plain
+    /// which an admin registered under Terminals; the answers are plain
     /// text. Every rule lives in <see cref="ITerminalProtocolService"/>.
     /// </summary>
     [ApiController]

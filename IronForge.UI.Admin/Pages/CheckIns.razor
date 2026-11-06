@@ -10,9 +10,6 @@
             <h1>Front desk</h1>
             <p>Scan a member's pass from the IronForge app, or look the member up by name.</p>
         </div>
-        <AuthorizeView Policy="@Permissions.GymSettingsManage">
-            <a class="if-btn" href="/checkin-devices">Check-in devices</a>
-        </AuthorizeView>
     </div>
 
     @if (_error is not null)

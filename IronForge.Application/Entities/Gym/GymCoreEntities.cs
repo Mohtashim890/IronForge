@@ -42,7 +42,7 @@ namespace IronForge.Application.Entities
         /// </summary>
         public string? PaymentInstructions { get; set; }
 
-        /// <summary>Members may check in by showing their rotating pass (staff or kiosk scans it).</summary>
+        /// <summary>Members may check in by showing their rotating pass (staff scan it).</summary>
         public bool MemberPassCheckInEnabled { get; set; } = true;
 
 
@@ -190,7 +190,7 @@ namespace IronForge.Application.Entities
 
         public CheckInMethod Method { get; set; }
 
-        /// <summary>The kiosk that scanned the pass.</summary>
+        /// <summary>The fingerprint terminal that let the member in (or an old kiosk).</summary>
         public int? CheckInDeviceId { get; set; }
 
         public CheckInDevice? CheckInDevice { get; set; }
@@ -233,10 +233,9 @@ namespace IronForge.Application.Entities
     }
 
     /// <summary>
-    /// An unattended check-in device (a tablet or PC at the entrance with a
-    /// camera or a USB scanner). An admin creates it and gets a short pairing
-    /// code; the device exchanges the code for a long secret key that it sends
-    /// with every scan. Only hashes of the code and the key are stored.
+    /// A ZKTeco fingerprint terminal registered by an admin by serial number
+    /// (<see cref="CheckInDeviceKind.ZkTecoTerminal"/>). Rows of kind Kiosk are
+    /// history from the removed kiosk feature and are always revoked.
     /// </summary>
     public class CheckInDevice
     {
@@ -250,7 +249,7 @@ namespace IronForge.Application.Entities
 
         /// <summary>
         /// A ZKTeco terminal identifies itself by serial number (upper-case,
-        /// unique on the platform). Kiosks have none.
+        /// unique on the platform). Old kiosk rows have none.
         /// </summary>
         public string? SerialNumber { get; set; }
 
@@ -260,19 +259,9 @@ namespace IronForge.Application.Entities
         /// <summary>When the terminal's user list was last compared with the memberships.</summary>
         public DateTime? LastSyncedAtUtc { get; set; }
 
-        /// <summary>SHA-256 of the device key; null until paired.</summary>
-        public string? KeyHash { get; set; }
-
-        /// <summary>SHA-256 of the pending pairing code.</summary>
-        public string? PairingCodeHash { get; set; }
-
-        public DateTime? PairingExpiresAtUtc { get; set; }
-
         public int? CreatedByUserId { get; set; }
 
         public DateTime CreatedAtUtc { get; set; }
-
-        public DateTime? PairedAtUtc { get; set; }
 
         public DateTime? LastSeenAtUtc { get; set; }
 

@@ -97,22 +97,6 @@ jobs:
             --no-restore
             --output ./artifacts/platform
             
-      - name: Publish MCP
-        run: >
-            dotnet publish
-            ./IronForge.Mcp/IronForge.Mcp.csproj
-            --configuration Release
-            --no-restore
-            --output ./artifacts/mcp
-            
-      - name: Publish MCP Client
-        run: >
-            dotnet publish
-            ./IronForge.Mcp.Client/IronForge.Mcp.Client.csproj
-            --configuration Release
-            --no-restore
-            --output ./artifacts/mcp-client
-            
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v6
@@ -144,8 +128,6 @@ jobs:
             ironforge-api
             ironforge-web
             ironforge-platform
-            ironforge-mcp
-            ironforge-mcp-client
             ironforge-migrator
             
   # MAUI is built per project and per target framework, never through the

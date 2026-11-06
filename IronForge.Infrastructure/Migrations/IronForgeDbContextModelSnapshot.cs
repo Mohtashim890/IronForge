@@ -182,102 +182,6 @@ namespace IronForge.Api.Migrations
                     b.ToTable("AgentApprovals");
                 });
 
-            modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationEntity", b =>
-                {
-                    b.Property<Guid>("DelegationId")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AgentId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ClientId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime>("ExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("Revoked")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("TenantId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("DelegationId");
-
-                    b.HasIndex("AgentId");
-
-                    b.HasIndex("ExpiresAtUtc");
-
-                    b.HasIndex("TenantId", "UserId");
-
-                    b.ToTable("AgentDelegations");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationScopeEntity", b =>
-                {
-                    b.Property<Guid>("DelegationId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Scope")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.HasKey("DelegationId", "Scope");
-
-                    b.ToTable("AgentDelegationScopes");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.AgentMcpClientAuthorization", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("AgentEntityId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<int>("McpClientEntityId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("TenantId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AgentEntityId");
-
-                    b.HasIndex("McpClientEntityId");
-
-                    b.HasIndex("TenantId", "AgentEntityId", "McpClientEntityId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "McpClientEntityId", "IsActive");
-
-                    b.ToTable("AgentMcpClientAuthorizations");
-                });
-
             modelBuilder.Entity("IronForge.Application.Entities.AgentSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -486,16 +390,9 @@ namespace IronForge.Api.Migrations
                     b.Property<int>("Category")
                         .HasColumnType("integer");
 
-                    b.Property<string>("ClientId")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
                     b.Property<string>("CorrelationId")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
-
-                    b.Property<Guid?>("DelegationId")
-                        .HasColumnType("uuid");
 
                     b.Property<string>("MetadataJson")
                         .HasColumnType("text");
@@ -689,10 +586,6 @@ namespace IronForge.Api.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
 
-                    b.Property<string>("KeyHash")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -709,16 +602,6 @@ namespace IronForge.Api.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<DateTime?>("PairedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PairingCodeHash")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime?>("PairingExpiresAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime?>("RevokedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -730,14 +613,6 @@ namespace IronForge.Api.Migrations
                         .HasColumnType("integer");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("KeyHash")
-                        .IsUnique()
-                        .HasFilter("\"KeyHash\" IS NOT NULL");
-
-                    b.HasIndex("PairingCodeHash")
-                        .IsUnique()
-                        .HasFilter("\"PairingCodeHash\" IS NOT NULL");
 
                     b.HasIndex("SerialNumber")
                         .IsUnique()
@@ -1234,60 +1109,6 @@ namespace IronForge.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("InvoiceReminders");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.McpClient", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("ClientId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<string>("ClientType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<int>("TenantId")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "ClientId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "IsActive");
-
-                    b.ToTable("McpClients");
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.MemberPhoto", b =>
@@ -2276,51 +2097,6 @@ namespace IronForge.Api.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationEntity", b =>
-                {
-                    b.HasOne("IronForge.Application.Entities.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationScopeEntity", b =>
-                {
-                    b.HasOne("IronForge.Application.Entities.AgentDelegationEntity", "Delegation")
-                        .WithMany("Scopes")
-                        .HasForeignKey("DelegationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Delegation");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.AgentMcpClientAuthorization", b =>
-                {
-                    b.HasOne("IronForge.Application.Entities.Agent", "Agent")
-                        .WithMany()
-                        .HasForeignKey("AgentEntityId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("IronForge.Application.Entities.McpClient", "McpClient")
-                        .WithMany()
-                        .HasForeignKey("McpClientEntityId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("IronForge.Application.Entities.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Agent");
-
-                    b.Navigation("McpClient");
-                });
-
             modelBuilder.Entity("IronForge.Application.Entities.AgentSession", b =>
                 {
                     b.HasOne("IronForge.Application.Entities.Tenant", null)
@@ -2538,15 +2314,6 @@ namespace IronForge.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Invoice");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.McpClient", b =>
-                {
-                    b.HasOne("IronForge.Application.Entities.Tenant", null)
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.MemberPhoto", b =>
@@ -2847,11 +2614,6 @@ namespace IronForge.Api.Migrations
             modelBuilder.Entity("IronForge.Application.Entities.Agent", b =>
                 {
                     b.Navigation("ToolBindings");
-                });
-
-            modelBuilder.Entity("IronForge.Application.Entities.AgentDelegationEntity", b =>
-                {
-                    b.Navigation("Scopes");
                 });
 
             modelBuilder.Entity("IronForge.Application.Entities.MemberProfile", b =>

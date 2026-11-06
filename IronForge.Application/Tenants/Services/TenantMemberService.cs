@@ -45,7 +45,6 @@ public sealed class TenantMemberService : ITenantMemberService
 {
     private readonly IRepository<TenantMembership> _memberships;
     private readonly IRepository<User> _users;
-    private readonly IRepository<AgentDelegationEntity> _delegations;
     private readonly IUserAuthorizationService _authorization;
     private readonly IExecutionContextAccessor _executionContext;
     private readonly IAuditService _auditService;
@@ -55,7 +54,6 @@ public sealed class TenantMemberService : ITenantMemberService
     public TenantMemberService(
         IRepository<TenantMembership> memberships,
         IRepository<User> users,
-        IRepository<AgentDelegationEntity> delegations,
         IUserAuthorizationService authorization,
         IExecutionContextAccessor executionContext,
         IAuditService auditService,
@@ -66,7 +64,6 @@ public sealed class TenantMemberService : ITenantMemberService
         _sessions = sessions;
         _memberships = memberships;
         _users = users;
-        _delegations = delegations;
         _authorization = authorization;
         _executionContext = executionContext;
         _auditService = auditService;
@@ -138,9 +135,6 @@ public sealed class TenantMemberService : ITenantMemberService
 
         membership.Role = canonicalRole;
 
-        // Delegations were granted under the old role's permissions; the
-        // member creates new ones under the new role.
-        await RevokeDelegationsAsync(userId, cancellationToken);
         _sessions.Invalidate(userId);
 
         await _memberships.SaveChangesAsync(cancellationToken);
@@ -180,7 +174,6 @@ public sealed class TenantMemberService : ITenantMemberService
 
         if (!isActive)
         {
-            await RevokeDelegationsAsync(userId, cancellationToken);
             await RevokeSessionsAsync(membership, cancellationToken);
         }
 
@@ -213,7 +206,6 @@ public sealed class TenantMemberService : ITenantMemberService
                 400);
         }
 
-        await RevokeDelegationsAsync(userId, cancellationToken);
         await RevokeSessionsAsync(membership!, cancellationToken);
 
         _memberships.Remove(membership!);
@@ -310,25 +302,6 @@ public sealed class TenantMemberService : ITenantMemberService
             cancellationToken);
 
         return activeAdmins <= 1;
-    }
-
-    /// <summary>
-    /// Ends the member's MCP access in this tenant now (on deactivation,
-    /// removal or role change), instead of when the delegations expire. Delegations are tenant-filtered, so only this
-    /// tenant's are affected. Saved with the membership change.
-    /// </summary>
-    private async Task RevokeDelegationsAsync(
-        int userId,
-        CancellationToken cancellationToken)
-    {
-        var delegations = await _delegations.ListTrackedAsync(
-            x => x.UserId == userId && !x.Revoked,
-            cancellationToken);
-
-        foreach (var delegation in delegations)
-        {
-            delegation.Revoked = true;
-        }
     }
 
     private Task RecordAsync(

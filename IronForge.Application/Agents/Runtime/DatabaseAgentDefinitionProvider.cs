@@ -46,8 +46,8 @@ public sealed class DatabaseAgentDefinitionProvider : IAgentDefinitionProvider
             await _agents.FirstOrDefaultAsync(
                 x => x.AgentId == agentId && x.IsActive,
                 cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"Agent '{agentId}' does not exist or is not active.");
+            ?? throw new AgentUnavailableException(
+                "This assistant is turned off for your gym.");
 
         var bindings =
             await _toolBindings.ListAsync(
@@ -62,8 +62,8 @@ public sealed class DatabaseAgentDefinitionProvider : IAgentDefinitionProvider
         if (AgentTemplates.Find(agent.TemplateId) is { } template &&
             !template.IsCoveredBy(enabledModules))
         {
-            throw new InvalidOperationException(
-                $"Agent '{agentId}' is not included in the gym's subscription.");
+            throw new AgentUnavailableException(
+                "This assistant is not included in your gym's plan.");
         }
 
         // Tools missing from the catalogue are kept: the registry skips them

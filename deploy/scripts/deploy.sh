@@ -88,14 +88,14 @@ rollback_on_failure() {
 
         echo "Previous release containers have been restored."
 
-        # Verify API and MCP health after rollback.
+        # Verify API health after rollback.
         local service
         local container_id
         local status
         local attempt
         local rollback_ok=1
 
-        for service in ironforge-api ironforge-mcp; do
+        for service in ironforge-api; do
             container_id=$(
                 docker compose \
                     --env-file "${ENV_FILE}" \
@@ -228,7 +228,7 @@ docker compose \
     -f "${COMPOSE_FILE}" \
     up -d
 
-echo "Waiting for API and MCP health checks..."
+echo "Waiting for API health check..."
 
 wait_for_health() {
     local service="$1"
@@ -276,7 +276,6 @@ wait_for_health() {
 }
 
 wait_for_health ironforge-api
-wait_for_health ironforge-mcp
 
 echo "Checking public Web endpoint through Caddy..."
 

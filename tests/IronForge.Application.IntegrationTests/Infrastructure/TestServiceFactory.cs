@@ -165,7 +165,6 @@ public sealed class TestServiceFactory
         new(
             new EfRepository<TenantMembership>(Db),
             new EfRepository<User>(Db),
-            new EfRepository<AgentDelegationEntity>(Db),
             new UserAuthorizationService(ContextAccessor),
             ContextAccessor,
             Audit,
@@ -195,7 +194,6 @@ public sealed class TestServiceFactory
             new EfRepository<Agent>(Db),
             new EfRepository<AgentToolBindingEntity>(Db),
             ToolRegistry,
-            new TestModelProfiles(),
             null!,
             ContextAccessor,
             new AgentManagementAuthorizationService(
@@ -246,14 +244,6 @@ public sealed class TestServiceFactory
     public DatabaseAgentPermissionRegistry AgentPermissions =>
         new(() => AgentDefinitions, () => ToolRegistry);
 
-    public ExternalAgentToolService ExternalAgentTools =>
-        new(
-            ContextAccessor,
-            AgentDefinitions,
-            ToolRegistry,
-            Governance,
-            Entitlements);
-
     /// <summary>The real catalogue: every gym tool plus the audit tool.</summary>
     public static IAgentTool[] CatalogueTools() =>
         GymAgentToolCatalog.Types
@@ -290,7 +280,6 @@ public sealed class TestServiceFactory
             ContextAccessor,
             new UserAuthorizationService(ContextAccessor),
             new IronForge.Application.Agents.Authorization.AgentAuthorizationService(AgentPermissions),
-            null!,
             new EfRepository<MemberProfile>(Db),
             Entitlements);
 
@@ -505,15 +494,6 @@ public sealed class TestServiceFactory
             new EfRepository<TerminalUserSync>(Db),
             new EfRepository<TerminalCommand>(Db),
             new EfRepository<MemberProfile>(Db),
-            Audit,
-            Clock);
-
-    public KioskService Kiosk =>
-        new(
-            new CheckInDeviceDirectory(Db),
-            new EfRepository<Tenant>(Db),
-            new EfRepository<GymSettings>(Db),
-            ContextAccessor,
             Audit,
             Clock);
 

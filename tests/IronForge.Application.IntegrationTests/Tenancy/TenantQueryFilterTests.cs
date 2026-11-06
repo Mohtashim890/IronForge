@@ -1,6 +1,5 @@
 ﻿using IronForge.Application.Agents.Approvals;
 using IronForge.Application.Agents.Authorization;
-using IronForge.Application.Agents.Delegations;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Auditing.Models;
 using IronForge.Application.Entities;
@@ -48,25 +47,9 @@ public sealed class TenantQueryFilterTests
             Assert.Single(auditEvents);
             Assert.All(auditEvents, x => Assert.Equal(tenantId, x.TenantId));
 
-            var clientAuthorizations =
-                await db.AgentMcpClientAuthorizations.ToListAsync();
-            Assert.Single(clientAuthorizations);
-            Assert.All(clientAuthorizations, x => Assert.Equal(tenantId, x.TenantId));
-
-            var delegations = await db.AgentDelegations.ToListAsync();
-            Assert.Single(delegations);
-            Assert.All(delegations, x => Assert.Equal(tenantId, x.TenantId));
-
-            var scopes = await db.AgentDelegationScopes.ToListAsync();
-            Assert.Single(scopes);
-            Assert.Equal(delegations[0].DelegationId, scopes[0].DelegationId);
-
             // Direct lookups of the other tenant's rows by key find nothing.
             Assert.False(await db.AgentApprovals
                 .AnyAsync(x => x.ApprovalId == seed.ApprovalIdByTenant[other]));
-
-            Assert.False(await db.AgentDelegations
-                .AnyAsync(x => x.DelegationId == seed.DelegationIdByTenant[other]));
         }
     }
 
@@ -86,12 +69,6 @@ public sealed class TenantQueryFilterTests
             () => db.AgentApprovals.ToListAsync());
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => db.AuditEvents.ToListAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => db.AgentMcpClientAuthorizations.ToListAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => db.AgentDelegations.ToListAsync());
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => db.AgentDelegationScopes.ToListAsync());
     }
 
     [Fact]
@@ -111,39 +88,6 @@ public sealed class TenantQueryFilterTests
     }
 
     [Fact]
-    public async Task DelegationStore_CannotReadOtherTenantsDelegations()
-    {
-        var seed = await SeedTwoTenantsAsync();
-
-        await using var db = CreateDbContext(seed.TenantA);
-
-        var store = new DBAgentDelegationStore(
-            new EfRepository<AgentDelegationEntity>(db),
-            new EfRepository<AgentDelegationScopeEntity>(db));
-
-        var own = await store.GetAsync(
-            seed.DelegationIdByTenant[seed.TenantA]);
-
-        Assert.NotNull(own);
-        Assert.Equal(seed.TenantA, own!.TenantId);
-        Assert.Single(own.Scopes);
-
-        Assert.Null(await store.GetAsync(
-            seed.DelegationIdByTenant[seed.TenantB]));
-
-        // The user has a delegation in both tenants; only tenant A's is listed.
-        var listed = await store.GetForUserAsync(seed.UserId);
-
-        Assert.Single(listed);
-        Assert.Equal(seed.TenantA, listed[0].TenantId);
-
-        // Revoking another tenant's delegation is a no-op.
-        Assert.Equal(
-            Guid.Empty,
-            await store.RevokeAsync(seed.DelegationIdByTenant[seed.TenantB]));
-    }
-
-    [Fact]
     public async Task ApprovalStore_CannotReadOtherTenantsApprovals()
     {
         var seed = await SeedTwoTenantsAsync();
@@ -160,45 +104,7 @@ public sealed class TenantQueryFilterTests
             seed.ApprovalIdByTenant[seed.TenantB]));
     }
 
-    [Fact]
-    public async Task McpClientAuthorization_IsOnlyGrantedInsideOwnTenant()
-    {
-        var seed = await SeedTwoTenantsAsync();
-
-        // Both tenants use the same agent and client identifiers, so only
-        // the tenant filter tells their authorizations apart.
-        await using (var dbA = CreateDbContext(seed.TenantA))
-        {
-            Assert.True(await CreateClientAuthorizationService(dbA)
-                .IsAuthorizedAsync(SharedAgentId, SharedClientId));
-        }
-
-        await using (var dbA = CreateDbContext(seed.TenantA))
-        {
-            // Remove tenant A's grant; tenant B's grant must not leak in.
-            var authorization =
-                await dbA.AgentMcpClientAuthorizations.SingleAsync();
-
-            authorization.IsActive = false;
-
-            await dbA.SaveChangesAsync();
-        }
-
-        await using (var dbA = CreateDbContext(seed.TenantA))
-        {
-            Assert.False(await CreateClientAuthorizationService(dbA)
-                .IsAuthorizedAsync(SharedAgentId, SharedClientId));
-        }
-
-        await using (var dbB = CreateDbContext(seed.TenantB))
-        {
-            Assert.True(await CreateClientAuthorizationService(dbB)
-                .IsAuthorizedAsync(SharedAgentId, SharedClientId));
-        }
-    }
-
     private const string SharedAgentId = "shared-agent";
-    private const string SharedClientId = "shared-client";
     private const string PlatformAuditAction = "PlatformEvent";
 
     private sealed record SeedResult(
@@ -206,8 +112,7 @@ public sealed class TenantQueryFilterTests
         int TenantB,
         int UserId,
         Dictionary<int, int> AgentIdByTenant,
-        Dictionary<int, string> ApprovalIdByTenant,
-        Dictionary<int, Guid> DelegationIdByTenant);
+        Dictionary<int, string> ApprovalIdByTenant);
 
     private IronForgeDbContext CreateDbContext(int? tenantId)
     {
@@ -217,15 +122,6 @@ public sealed class TenantQueryFilterTests
                 TenantId = tenantId,
                 Source = ExecutionSource.Web
             });
-    }
-
-    private static AgentMcpClientAuthorizationService
-        CreateClientAuthorizationService(IronForgeDbContext db)
-    {
-        return new AgentMcpClientAuthorizationService(
-            new EfRepository<AgentMcpClientAuthorization>(db),
-            new EfRepository<Agent>(db),
-            new EfRepository<McpClient>(db));
     }
 
     /// <summary>
@@ -257,7 +153,6 @@ public sealed class TenantQueryFilterTests
 
         var agentIdByTenant = new Dictionary<int, int>();
         var approvalIdByTenant = new Dictionary<int, string>();
-        var delegationIdByTenant = new Dictionary<int, Guid>();
 
         foreach (var tenant in new[] { tenantA, tenantB })
         {
@@ -272,32 +167,11 @@ public sealed class TenantQueryFilterTests
                 UpdatedAtUtc = now
             };
 
-            var client = new McpClient
-            {
-                TenantId = tenant.Id,
-                ClientId = SharedClientId,
-                Name = $"Client {tenant.Slug}",
-                IsActive = true,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now
-            };
-
             db.Agents.Add(agent);
-            db.McpClients.Add(client);
 
             await db.SaveChangesAsync();
 
             agentIdByTenant[tenant.Id] = agent.Id;
-
-            db.AgentMcpClientAuthorizations.Add(new AgentMcpClientAuthorization
-            {
-                TenantId = tenant.Id,
-                AgentEntityId = agent.Id,
-                McpClientEntityId = client.Id,
-                IsActive = true,
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now
-            });
 
             var approvalId = $"approval-{tenant.Slug}";
             approvalIdByTenant[tenant.Id] = approvalId;
@@ -330,27 +204,6 @@ public sealed class TenantQueryFilterTests
                 UserId = user.Id
             });
 
-            var delegationId = Guid.NewGuid();
-            delegationIdByTenant[tenant.Id] = delegationId;
-
-            db.AgentDelegations.Add(new AgentDelegationEntity
-            {
-                DelegationId = delegationId,
-                TenantId = tenant.Id,
-                UserId = user.Id,
-                AgentId = SharedAgentId,
-                ClientId = SharedClientId,
-                CreatedAtUtc = now,
-                ExpiresAtUtc = now.AddMinutes(30),
-                Scopes =
-                {
-                    new AgentDelegationScopeEntity
-                    {
-                        DelegationId = delegationId,
-                        Scope = "gym.members.read"
-                    }
-                }
-            });
         }
 
         // A platform-level event (for example a failed sign-in) has no tenant.
@@ -371,7 +224,6 @@ public sealed class TenantQueryFilterTests
             tenantB.Id,
             user.Id,
             agentIdByTenant,
-            approvalIdByTenant,
-            delegationIdByTenant);
+            approvalIdByTenant);
     }
 }

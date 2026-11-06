@@ -144,11 +144,12 @@ public sealed class AgentRuntime : IAgentRuntime
 
             AgentSession session;
 
-            if (sessionId.HasValue)
+            // No id (or the empty default) starts a new conversation.
+            if (sessionId is { } id && id != Guid.Empty)
             {
                 session = await GetSessionForAgentAsync(
                     definition,
-                    sessionId.Value,
+                    id,
                     cancellationToken);
             }
             else
@@ -531,7 +532,7 @@ public sealed class AgentRuntime : IAgentRuntime
             await _conversationService.GetSessionAsync(
                 sessionId,
                 cancellationToken)
-            ?? throw new InvalidOperationException(
+            ?? throw new AgentUnavailableException(
                 "Conversation session was not found.");
 
         EnsureSessionBelongsToAgent(definition, session);
@@ -558,7 +559,7 @@ public sealed class AgentRuntime : IAgentRuntime
             session.AgentId,
             definition.AgentId);
 
-        throw new InvalidOperationException(
+        throw new AgentUnavailableException(
             "Conversation session was not found.");
     }
 

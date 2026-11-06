@@ -155,8 +155,6 @@ namespace IronForge.Infrastructure.Data
             {
                 entity.HasKey(x => x.Id);
                 entity.Property(x => x.Name).IsRequired().HasMaxLength(100);
-                entity.Property(x => x.KeyHash).HasMaxLength(100);
-                entity.Property(x => x.PairingCodeHash).HasMaxLength(100);
                 entity.Property(x => x.Kind).HasConversion<string>().HasMaxLength(20);
                 entity.Property(x => x.SerialNumber).HasMaxLength(40);
                 entity.Property(x => x.AllowedIp).HasMaxLength(45);
@@ -166,14 +164,6 @@ namespace IronForge.Infrastructure.Data
                 entity.HasIndex(x => x.SerialNumber)
                     .IsUnique()
                     .HasFilter("\"SerialNumber\" IS NOT NULL");
-
-                // Looked up across tenants by the device itself (ICheckInDeviceDirectory).
-                entity.HasIndex(x => x.KeyHash)
-                    .IsUnique()
-                    .HasFilter("\"KeyHash\" IS NOT NULL");
-                entity.HasIndex(x => x.PairingCodeHash)
-                    .IsUnique()
-                    .HasFilter("\"PairingCodeHash\" IS NOT NULL");
 
                 TenantOwned(entity);
                 entity.HasQueryFilter(x => CurrentTenantId.HasValue && x.TenantId == CurrentTenantId.Value);

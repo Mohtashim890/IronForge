@@ -137,44 +137,7 @@ public sealed class TenantSubscriptionTests
         Assert.Equal(403, result.StatusCode);
     }
 
-    // ---- Catalogue, tool editor and runtime ------------------------------
-
-    [Fact]
-    public async Task ToolCatalogue_OnlyListsToolsOfEnabledModules()
-    {
-        var starter = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        var professional = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-
-        var starterCatalogue = await AsTenantAdmin(starter, s => s.AgentManagement.GetToolCatalogAsync());
-        var professionalCatalogue = await AsTenantAdmin(professional, s => s.AgentManagement.GetToolCatalogAsync());
-
-        Assert.DoesNotContain(starterCatalogue.Data!, x => x.Name == AuditTool);
-        Assert.All(starterCatalogue.Data!, x => Assert.Contains(x.Module, SubscriptionPlans.Starter.Modules));
-        Assert.DoesNotContain(starterCatalogue.Data!, x => x.Name == "log_workout");
-
-        Assert.Contains(professionalCatalogue.Data!, x => x.Name == AuditTool);
-    }
-
-    [Fact]
-    public async Task ToolEditor_RejectsToolOutsideTheSubscription()
-    {
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, "analyst", "search_members");
-
-        var result = await AsTenantAdmin(tenantId, s => s.AgentManagement.UpdateToolsAsync(
-            "analyst",
-            new UpdateAgentToolsRequest
-            {
-                Tools =
-                [
-                    new AgentToolBindingDto { ToolName = "search_members" },
-                    new AgentToolBindingDto { ToolName = AuditTool }
-                ]
-            }));
-
-        Assert.Equal(400, result.StatusCode);
-        Assert.Contains("not included in this workspace's subscription", result.ErrorMessage);
-    }
+    // ---- Runtime ------------------------------
 
     [Fact]
     public async Task AgentDefinition_DropsToolsOfDisabledModules_UntilTheModuleIsEnabled()
@@ -242,7 +205,7 @@ public sealed class TenantSubscriptionTests
             }));
 
         Assert.Empty(await AvailableAgentsAsync(tenantId, TenantRoles.Member));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => AsRole(tenantId, TenantRoles.Member, s =>
+        await Assert.ThrowsAsync<AgentUnavailableException>(() => AsRole(tenantId, TenantRoles.Member, s =>
             s.AgentDefinitions.GetRequiredAsync(AgentIds.FitnessCoach)));
     }
 

@@ -29,8 +29,5 @@ namespace IronForge.Application.Observablity.Tracing
 
         public string? AgentId =>
             _executionContext.Current?.Actor.Agent?.AgentId;
-
-        public string? ClientId =>
-            _executionContext.Current?.Actor.ClientId;
     }
 }

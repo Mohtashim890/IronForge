@@ -125,7 +125,7 @@ public sealed class TerminalProtocolService : ITerminalProtocolService
         // registered it, and it can be held to the gym's fixed IP address.
         if (device is null || device.RevokedAtUtc is not null)
         {
-            return ServiceResult<bool>.Fail("Unknown terminal. Register its serial number under Check-in devices.", 401);
+            return ServiceResult<bool>.Fail("Unknown terminal. Register its serial number under Fingerprint check-in → Terminals.", 401);
         }
 
         if (!string.IsNullOrWhiteSpace(device.AllowedIp) &&

@@ -22,10 +22,6 @@ namespace IronForge.Application.Entities
 
         public string? AgentId { get; set; }
 
-        public string? ClientId { get; set; }
-
-        public Guid? DelegationId { get; set; }
-
         public string? ResourceType { get; set; }
 
         public string? ResourceId { get; set; }

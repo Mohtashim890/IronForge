@@ -37,14 +37,6 @@ namespace IronForge.Application.Observablity.Tracing
             }
 
             if (!string.IsNullOrWhiteSpace(
-                context.Actor.ClientId))
-            {
-                activity.SetTag(
-                    "ironforge.client.id",
-                    context.Actor.ClientId);
-            }
-
-            if (!string.IsNullOrWhiteSpace(
                 context.CorrelationId))
             {
                 activity.SetTag(
