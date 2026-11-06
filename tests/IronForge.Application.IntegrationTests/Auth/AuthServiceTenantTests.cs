@@ -48,7 +48,6 @@ public sealed class AuthServiceTenantTests
 
         // No leftover test identities in user tokens.
         Assert.DoesNotContain(token.Claims, x => x.Type == CustomClaimTypes.AgentId);
-        Assert.DoesNotContain(token.Claims, x => x.Type == CustomClaimTypes.ClientId);
     }
 
     [Fact]
@@ -89,7 +88,7 @@ public sealed class AuthServiceTenantTests
 
         Assert.NotNull(inA);
         AssertTenantToken(inA!.AccessToken, seed.TenantA, "Member");
-        Assert.DoesNotContain(PermissionsOf(inA.AccessToken), x => x == Permissions.AgentsCreate);
+        Assert.DoesNotContain(PermissionsOf(inA.AccessToken), x => x == Permissions.AgentsUpdate);
         Assert.Contains(PermissionsOf(inA.AccessToken), x => x == Permissions.GymSelfRead);
 
         // Switching tenant with the rotated refresh token picks up that tenant's role.
@@ -97,7 +96,7 @@ public sealed class AuthServiceTenantTests
 
         Assert.NotNull(inB);
         AssertTenantToken(inB!.AccessToken, seed.TenantB, "Admin");
-        Assert.Contains(PermissionsOf(inB.AccessToken), x => x == Permissions.AgentsCreate);
+        Assert.Contains(PermissionsOf(inB.AccessToken), x => x == Permissions.AgentsUpdate);
     }
 
     [Fact]
@@ -125,7 +124,7 @@ public sealed class AuthServiceTenantTests
 
         Assert.NotNull(refreshed);
         AssertTenantToken(refreshed!.AccessToken, seed.TenantA, "Admin");
-        Assert.Contains(PermissionsOf(refreshed.AccessToken), x => x == Permissions.AgentsCreate);
+        Assert.Contains(PermissionsOf(refreshed.AccessToken), x => x == Permissions.AgentsUpdate);
     }
 
     [Fact]

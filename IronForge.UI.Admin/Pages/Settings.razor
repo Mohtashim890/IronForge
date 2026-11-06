@@ -65,11 +65,10 @@
         <div class="if-card" style="margin-top: 16px">
             <div class="if-card-head">
                 <h2>Check-in methods</h2>
-                <a class="if-small" href="/checkin-devices">Check-in devices →</a>
             </div>
             <p class="if-muted if-small" style="margin-top: 0">
-                Staff can always check a member in by name at the front desk. Fingerprint terminals are set up under
-                <a href="/checkin-devices">Check-in devices</a>. Changes here apply at once, in the app, at the front desk and on every kiosk.
+                Staff can always check a member in by name at the front desk. Fingerprint terminals (an add-on) are set up under
+                Fingerprint check-in. Changes here apply at once, in the app and at the front desk.
             </p>
 
             <label class="if-check-option">
@@ -77,8 +76,8 @@
                 <span>
                     <strong>Member pass (QR code in the app)</strong>
                     <span class="if-small if-muted">
-                        Members show a QR code from the app that changes every 30 seconds. Staff at the front desk or a kiosk scan it,
-                        and staff see the member's photo. Works without internet on the phone. Off: the Pass tab and the kiosk are switched off.
+                        Members show a QR code from the app that changes every 30 seconds. Staff at the front desk scan it
+                        and see the member's photo. Works without internet on the phone. Off: the Pass tab is hidden in the app.
                     </span>
                 </span>
             </label>
@@ -110,8 +109,25 @@
                 <div class="if-field"><label>Address</label><input @bind="_form.Address" /></div>
                 <div class="if-field"><label>Phone</label><input @bind="_form.Phone" /></div>
                 <div class="if-field"><label>Contact email</label><input type="email" @bind="_form.ContactEmail" /></div>
-                <div class="if-field"><label>Currency</label><input @bind="_form.Currency" maxlength="3" /></div>
-                <div class="if-field"><label>Time zone</label><input @bind="_form.TimeZoneId" placeholder="Asia/Karachi" /></div>
+                <div class="if-field">
+                    <label>Currency</label>
+                    <select @bind="_form.Currency">
+                        @foreach (var currency in GymCurrencies.All)
+                        {
+                            <option value="@currency">@currency</option>
+                        }
+                    </select>
+                </div>
+                <div class="if-field">
+                    <label>Time zone</label>
+                    <input @bind="_form.TimeZoneId" list="gym-time-zones" placeholder="Asia/Karachi" />
+                    <datalist id="gym-time-zones">
+                        @foreach (var zone in GymTimeZones.Common)
+                        {
+                            <option value="@zone"></option>
+                        }
+                    </datalist>
+                </div>
             </div>
 
             <div class="if-form-grid">

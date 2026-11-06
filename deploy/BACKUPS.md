@@ -59,7 +59,7 @@ The dumps contain members' personal data: keep the remote private (and encrypted
 ## Restore production (an emergency)
 
 1. Stop the apps so nothing writes meanwhile:
-   `docker compose --env-file ../env/production.env -f compose.production.yml stop ironforge-api ironforge-mcp ironforge-web ironforge-platform`
+   `docker compose --env-file ../env/production.env -f compose.production.yml stop ironforge-api ironforge-web ironforge-platform`
 2. Prefer restoring into a **new** Supabase project (or a new database), check it with the row counts, then point `ConnectionStrings__DefaultConnection` at it.
 3. Restore (from the VPS, with the target's direct connection URL):
    ```bash

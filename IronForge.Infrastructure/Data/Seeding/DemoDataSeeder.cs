@@ -223,29 +223,14 @@ public sealed class DemoDataSeeder
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // An entrance kiosk paired two months ago. Its key was never kept, so
-        // to use the kiosk an admin issues a new pairing code (Check-in devices).
-        var kiosk = new CheckInDevice
-        {
-            TenantId = tenant.Id,
-            Name = "Front entrance kiosk",
-            KeyHash = CheckInDeviceSecrets.HashKey(CheckInDeviceSecrets.NewDeviceKey()),
-            CreatedByUserId = admin.Id,
-            CreatedAtUtc = _now.AddDays(-60),
-            PairedAtUtc = _now.AddDays(-60),
-            LastSeenAtUtc = _now.AddMinutes(-5)
-        };
-
-        _db.CheckInDevices.Add(kiosk);
-
-        // A fingerprint terminal registered but not connected yet: open the
-        // terminal simulator, power it on and load the "existing" fingerprints.
+        // A fingerprint terminal registered but not connected yet: it shows as
+        // "Waiting for the terminal" until a real ZKTeco with this serial calls in.
         if (tenant.GetEnabledModules().Contains(PlatformModules.GymAccess) && spec.Slug == "ironparadise")
         {
             _db.CheckInDevices.Add(new CheckInDevice
             {
                 TenantId = tenant.Id,
-                Name = "Main door (simulated ZKTeco)",
+                Name = "Main door (ZKTeco)",
                 Kind = CheckInDeviceKind.ZkTecoTerminal,
                 SerialNumber = "SIMPARADISE01",
                 CreatedByUserId = admin.Id,
@@ -256,7 +241,7 @@ public sealed class DemoDataSeeder
         await _db.SaveChangesAsync(cancellationToken);
 
         var coaching = enabled.Contains(PlatformModules.GymCoaching);
-        var context = new GymContext(tenant, settings, plans, coaching, trainer1.Id, kiosk.Id);
+        var context = new GymContext(tenant, settings, plans, coaching, trainer1.Id);
         var invoiceCounter = 0;
         var members = new List<(MemberProfile Profile, double Activity)>();
 
@@ -299,8 +284,7 @@ public sealed class DemoDataSeeder
         GymSettings Settings,
         List<MembershipPlan> Plans,
         bool Coaching,
-        int TrainerUserId,
-        int KioskDeviceId)
+        int TrainerUserId)
     {
         public int TenantId => Tenant.Id;
     }
@@ -587,27 +571,24 @@ public sealed class DemoDataSeeder
             if (at > _now)
                 continue;
 
-            // Staff at the desk (by name or by scanning the pass) or the kiosk.
-            var byStaff = _random.NextDouble() < 0.7;
+            // Staff at the desk scanned the pass or picked the name. (The draw
+            // stays so the rest of the deterministic data does not shift.)
+            _ = _random.NextDouble();
 
             _db.CheckIns.Add(new CheckIn
             {
                 TenantId = gym.TenantId,
                 MemberProfileId = profile.Id,
                 CheckedInAtUtc = at,
-                RecordedByUserId = byStaff ? gym.TrainerUserId : null,
-                // Self check-ins at the kiosk; staff either scanned the pass or picked the name.
-                Method = !byStaff
-                    ? CheckInMethod.Kiosk
-                    : _checkInRandom.NextDouble() < 0.5 ? CheckInMethod.PassScan : CheckInMethod.FrontDesk,
-                CheckInDeviceId = byStaff ? null : gym.KioskDeviceId
+                RecordedByUserId = gym.TrainerUserId,
+                Method = _checkInRandom.NextDouble() < 0.6 ? CheckInMethod.PassScan : CheckInMethod.FrontDesk
             });
         }
     }
 
     /// <summary>
     /// Refused entries for the "Refused attempts" list: members who are
-    /// frozen or expired trying the kiosk, and the odd screenshot of a pass.
+    /// frozen or expired showing their pass, and the odd screenshot of a pass.
     /// </summary>
     private void SeedCheckInDenials(GymContext gym, MemberProfile profile)
     {
@@ -642,8 +623,8 @@ public sealed class DemoDataSeeder
         {
             TenantId = gym.TenantId,
             MemberProfileId = profile.Id,
-            Method = CheckInMethod.Kiosk,
-            CheckInDeviceId = gym.KioskDeviceId,
+            Method = CheckInMethod.PassScan,
+            RecordedByUserId = gym.TrainerUserId,
             Reason = reason.Value,
             Message = message,
             AttemptedAtUtc = at

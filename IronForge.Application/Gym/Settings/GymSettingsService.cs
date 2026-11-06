@@ -94,11 +94,6 @@ public sealed class GymSettingsFactory : IGymSettingsFactory
 
 public sealed class GymSettingsService : IGymSettingsService
 {
-    private static readonly HashSet<string> KnownCurrencies = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "USD", "EUR", "GBP", "PKR", "INR", "AED", "SAR", "CAD", "AUD", "NZD", "SGD", "MYR", "ZAR", "CHF", "SEK", "NOK", "DKK", "JPY"
-    };
-
     private readonly IGymAccessService _access;
     private readonly IRepository<GymSettings> _settings;
     private readonly IRepository<Tenant> _tenants;
@@ -157,10 +152,10 @@ public sealed class GymSettingsService : IGymSettingsService
 
         var currency = request.Currency.Trim().ToUpperInvariant();
 
-        if (!KnownCurrencies.Contains(currency))
+        if (!GymCurrencies.IsKnown(currency))
         {
             return GymResults.Invalid<GymSettingsDto>(
-                $"Currency must be one of: {string.Join(", ", KnownCurrencies.Order())}.");
+                $"Currency must be one of: {string.Join(", ", GymCurrencies.All)}.");
         }
 
         if (!GymCalendar.IsValidTimeZone(request.TimeZoneId))

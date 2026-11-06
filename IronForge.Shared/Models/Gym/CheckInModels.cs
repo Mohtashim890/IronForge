@@ -5,7 +5,7 @@ namespace IronForge.Shared.Models.Gym
     /// <summary>
     /// The answer to a check-in attempt, for every method. A refused entry
     /// is a normal outcome (<see cref="CheckInOutcome.Denied"/>), not an
-    /// error, so the front desk and the kiosk can show who was refused and why.
+    /// error, so the front desk can show who was refused and why.
     /// </summary>
     public sealed class CheckInResultDto
     {
@@ -115,7 +115,7 @@ namespace IronForge.Shared.Models.Gym
         public string Data { get; set; } = "";
     }
 
-    // ---- Check-in devices (kiosks) -------------------------------------------
+    // ---- Fingerprint terminals ------------------------------------------------
 
     public sealed class CheckInDeviceDto
     {
@@ -140,59 +140,11 @@ namespace IronForge.Shared.Models.Gym
 
         public bool IsRevoked { get; set; }
 
-        /// <summary>A pairing code is waiting to be entered on the device.</summary>
-        public DateTime? PairingExpiresAtUtc { get; set; }
-
         public DateTime CreatedAtUtc { get; set; }
-
-        public DateTime? PairedAtUtc { get; set; }
 
         public DateTime? LastSeenAtUtc { get; set; }
 
         public int CheckInsToday { get; set; }
     }
 
-    public sealed class CreateCheckInDeviceRequest
-    {
-        [Required]
-        [MaxLength(100)]
-        public string Name { get; set; } = "";
-    }
-
-    /// <summary>Shown once to the admin, who types the code on the kiosk.</summary>
-    public sealed class CheckInDevicePairingDto
-    {
-        public CheckInDeviceDto Device { get; set; } = new();
-
-        public string PairingCode { get; set; } = "";
-
-        public DateTime ExpiresAtUtc { get; set; }
-    }
-
-    public sealed class PairKioskRequest
-    {
-        [Required]
-        [MaxLength(20)]
-        public string PairingCode { get; set; } = "";
-    }
-
-    /// <summary>The kiosk keeps <see cref="DeviceKey"/> and sends it with every scan.</summary>
-    public sealed class KioskPairingResultDto
-    {
-        public string DeviceKey { get; set; } = "";
-
-        public string DeviceName { get; set; } = "";
-
-        public string GymName { get; set; } = "";
-    }
-
-    public sealed class KioskInfoDto
-    {
-        public string DeviceName { get; set; } = "";
-
-        public string GymName { get; set; } = "";
-
-        /// <summary>The kiosk scans members' passes; when false it sends members to the front desk.</summary>
-        public bool MemberPassEnabled { get; set; }
-    }
 }

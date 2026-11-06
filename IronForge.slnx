@@ -3,8 +3,6 @@
     <Project Path="IronForge.Api/IronForge.Api.csproj" />
     <Project Path="IronForge.Application/IronForge.Application.csproj" />
     <Project Path="IronForge.Infrastructure/IronForge.Infrastructure.csproj" />
-    <Project Path="IronForge.Mcp.Client/IronForge.Mcp.Client.csproj" />
-    <Project Path="IronForge.Mcp/IronForge.Mcp.csproj" />
     <Project Path="IronForge.Migrator/IronForge.Migrator.csproj" />
     <Project Path="IronForge.Payments/IronForge.Payments.csproj" />
     <Project Path="IronForge.Shared/IronForge.Shared.csproj" />

@@ -10,6 +10,6 @@ public enum ExecutionSource
     /// <summary>Background jobs and anonymous system callbacks (payment webhooks).</summary>
     Background,
 
-    /// <summary>A paired check-in device (kiosk) authenticated by its device key.</summary>
+    /// <summary>A registered fingerprint terminal, identified by its serial number.</summary>
     Device
 }

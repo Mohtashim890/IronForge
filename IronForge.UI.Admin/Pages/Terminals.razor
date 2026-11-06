@@ -1,0 +1,218 @@
+@page "/access/terminals"
+@attribute [Authorize(Policy = Permissions.GymSettingsManage)]
+@inject GymApiClient Gym
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+
+<PageTitle>Fingerprint terminals | IronForge</PageTitle>
+
+<div class="if-page">
+    <p><a href="/access/terminal-users" class="if-small">← Fingerprint check-in</a></p>
+
+    <div class="if-page-head">
+        <div>
+            <h1>Fingerprint terminals</h1>
+            <p>The ZKTeco terminals at your doors. Fingerprints never leave the terminal.</p>
+        </div>
+        @if (_settings?.AccessControlEnabled == true)
+        {
+            <button class="if-btn primary" @onclick="() => _adding = true">Add terminal</button>
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="if-alert error">@_error</div>
+    }
+
+    @if (_message is not null)
+    {
+        <div class="if-alert success">@_message</div>
+    }
+
+    @if (_settings is not null && !_settings.AccessControlEnabled)
+    {
+        <div class="if-alert info">
+            Fingerprint terminals are an add-on to your plan. Contact IronForge support to enable it.
+        </div>
+    }
+    else
+    {
+        <div class="if-card" style="margin-bottom: 16px">
+            <div class="if-card-head"><h2>How to connect a terminal</h2></div>
+            <ol style="margin: 0; padding-left: 20px; line-height: 1.7">
+                <li>On the terminal, read its serial number (Menu → System Info → Device Info).</li>
+                <li>Click <strong>Add terminal</strong> and enter that serial number. Optionally restrict it to the gym's fixed IP address.</li>
+                <li>On the terminal: Menu → Comm. → Cloud Server Setting (ADMS). Server address <code>@ServerAddress</code>, port 443 with HTTPS on if your model offers it, otherwise port 80.</li>
+                <li>The terminal sends its list of enrolled people. Link them to members under <a href="/access/terminal-users">Fingerprint check-in</a>.</li>
+            </ol>
+            <p class="if-small if-muted" style="margin: 10px 0 0">
+                IronForge only tells the terminal who may enter and until when, so it keeps deciding at the door
+                when the internet is down, and it sends every entry back here as a visit.
+            </p>
+        </div>
+    }
+
+    @if (_devices is null)
+    {
+        <div class="if-loading">Loading…</div>
+    }
+    else if (_devices.Count > 0)
+    {
+        <div class="if-card">
+            <table class="if-table">
+                <thead>
+                    <tr>
+                        <th>Terminal</th>
+                        <th>Status</th>
+                        <th>Last seen</th>
+                        <th>Entries today</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var device in _devices)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@device.Name</strong>
+                                <div class="if-small if-muted">SN <span class="if-mono">@device.SerialNumber</span>@(device.AllowedIp is null ? "" : $" · only from {device.AllowedIp}")</div>
+                                @if (!device.IsRevoked && device.IsPaired)
+                                {
+                                    <div class="if-small if-muted">@device.UsersInSync users in step@(device.UsersPending > 0 ? $", {device.UsersPending} waiting to be sent" : "")</div>
+                                }
+                            </td>
+                            <td>
+                                @if (device.IsRevoked)
+                                {
+                                    <Badge>Removed</Badge>
+                                }
+                                else if (device.IsPaired)
+                                {
+                                    <Badge Tone="success">Connected</Badge>
+                                }
+                                else
+                                {
+                                    <Badge Tone="warning">Waiting for the terminal</Badge>
+                                }
+                            </td>
+                            <td>@(device.LastSeenAtUtc is { } seen ? GymFormat.Ago(seen) : "—")</td>
+                            <td>@device.CheckInsToday</td>
+                            <td style="text-align: right; white-space: nowrap">
+                                @if (!device.IsRevoked)
+                                {
+                                    <button class="if-btn sm" disabled="@_busy" title="The terminal uploads its enrolled people again" @onclick="() => FetchUsersAsync(device)">Fetch users</button>
+                                    <button class="if-btn sm" disabled="@_busy" title="Send every member's access again, e.g. after a reset" @onclick="() => ResendAsync(device)">Resend</button>
+                                    <button class="if-btn sm danger" disabled="@_busy" @onclick="() => _removing = device">Remove</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<Modal @bind-Open="_adding" Title="Add a fingerprint terminal">
+    <ChildContent>
+        <div class="if-field">
+            <label for="terminal-name">Name</label>
+            <input id="terminal-name" @bind="_terminal.Name" maxlength="100" placeholder="Turnstile, main door" />
+        </div>
+        <div class="if-field">
+            <label for="terminal-serial">Serial number</label>
+            <input id="terminal-serial" class="if-mono" @bind="_terminal.SerialNumber" maxlength="40" placeholder="CJDE212460012" />
+        </div>
+        <div class="if-field">
+            <label for="terminal-ip">Only accept it from this IP address (optional)</label>
+            <input id="terminal-ip" class="if-mono" @bind="_terminal.AllowedIp" maxlength="45" placeholder="203.0.113.10" />
+        </div>
+        <p class="if-small if-muted">A terminal proves who it is only by its serial number, so a fixed IP address makes it much harder to impersonate.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _adding = false">Cancel</button>
+        <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_terminal.Name) || string.IsNullOrWhiteSpace(_terminal.SerialNumber))" @onclick="RegisterAsync">Add terminal</button>
+    </Footer>
+</Modal>
+
+<Modal Open="@(_removing is not null)" OpenChanged="open => { if (!open) _removing = null; }" Title="Remove terminal?">
+    <ChildContent>
+        <p>IronForge stops accepting entries from <strong>@_removing?.Name</strong> at once. Its fingerprints stay on the terminal. Add it again to reconnect it.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _removing = null">Cancel</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="RevokeAsync">Remove</button>
+    </Footer>
+</Modal>
+
+@code {
+    private List<CheckInDeviceDto>? _devices;
+    private CheckInDeviceDto? _removing;
+    private GymSettingsDto? _settings;
+    private RegisterTerminalRequest _terminal = new();
+    private bool _adding;
+    private bool _busy;
+    private string? _error;
+    private string? _message;
+
+    private string ServerAddress => Configuration["Terminals:ServerAddress"] ?? "your IronForge API address";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = (await Gym.GetSettingsAsync()).Data;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await Gym.GetCheckInDevicesAsync();
+        _devices = result.Data ?? [];
+        _error = result.Success ? null : result.ErrorMessage;
+    }
+
+    private async Task RegisterAsync()
+    {
+        _busy = true;
+        var result = await Gym.RegisterTerminalAsync(_terminal);
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        _adding = false;
+        _terminal = new RegisterTerminalRequest();
+        _message = $"{result.Data!.Name} added. Point the terminal at {ServerAddress}; it shows as connected when it calls in.";
+        await LoadAsync();
+    }
+
+    private Task FetchUsersAsync(CheckInDeviceDto device) =>
+        TerminalActionAsync(Gym.RequestTerminalUsersAsync(device.Id), "The terminal will send its users at its next poll.");
+
+    private Task ResendAsync(CheckInDeviceDto device) =>
+        TerminalActionAsync(Gym.ResyncTerminalAsync(device.Id), "Everything is sent again at the terminal's next poll.");
+
+    private async Task TerminalActionAsync(Task<ServiceResult<bool>> action, string success)
+    {
+        _busy = true;
+        var result = await action;
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _message = result.Success ? success : null;
+        await LoadAsync();
+    }
+
+    private async Task RevokeAsync()
+    {
+        _busy = true;
+        var result = await Gym.RevokeCheckInDeviceAsync(_removing!.Id);
+        _busy = false;
+
+        _error = result.Success ? null : result.ErrorMessage;
+        _removing = null;
+        await LoadAsync();
+    }
+}

@@ -209,13 +209,10 @@ namespace IronForge.Shared.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var error =
-                        await response.Content.ReadAsStringAsync();
-
                     return ServiceResult<AgentRunResultDto>.Fail(
-                        string.IsNullOrWhiteSpace(error)
-                            ? "Unable to run the agent."
-                            : error,
+                        await ApiResponseReader.ErrorMessageAsync(
+                            response,
+                            "The assistant could not answer. Please try again."),
                         (int)response.StatusCode);
                 }
 
@@ -251,14 +248,11 @@ namespace IronForge.Shared.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    var error =
-                        await response.Content.ReadAsStringAsync();
-
                     return ServiceResult<AgentApprovalDecisionResultDto>
                         .Fail(
-                            string.IsNullOrWhiteSpace(error)
-                                ? "Unable to process the approval decision."
-                                : error,
+                            await ApiResponseReader.ErrorMessageAsync(
+                                response,
+                                "Unable to process the approval decision."),
                             (int)response.StatusCode);
                 }
 

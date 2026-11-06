@@ -49,11 +49,12 @@ public sealed class DemoDataSeederTests
         Assert.True(await check.Invoices.IgnoreQueryFilters().AnyAsync(x => x.Status == InvoiceStatus.Overdue));
         Assert.True(await check.CheckIns.IgnoreQueryFilters().CountAsync() > 500);
 
-        // Every gym has an entrance kiosk, Iron Paradise also a fingerprint terminal; visits use every self check-in method.
-        Assert.Equal(5, await check.CheckInDevices.IgnoreQueryFilters().CountAsync());
+        // Iron Paradise has a registered fingerprint terminal; staff check members in by pass scan or by name.
+        Assert.Equal(1, await check.CheckInDevices.IgnoreQueryFilters().CountAsync());
         Assert.True(await check.CheckInDevices.IgnoreQueryFilters().AnyAsync(x => x.SerialNumber == "SIMPARADISE01"));
-        Assert.Equal(3, await check.CheckIns.IgnoreQueryFilters().Select(x => x.Method).Distinct().CountAsync());
-        Assert.True(await check.CheckIns.IgnoreQueryFilters().AnyAsync(x => x.CheckInDeviceId != null));
+        Assert.Equal(
+            [CheckInMethod.FrontDesk, CheckInMethod.PassScan],
+            await check.CheckIns.IgnoreQueryFilters().Select(x => x.Method).Distinct().OrderBy(x => x).ToListAsync());
         Assert.True(await check.CheckInDenials.IgnoreQueryFilters().AnyAsync());
 
         // Each gym's invoice counter continues after the seeded invoices.

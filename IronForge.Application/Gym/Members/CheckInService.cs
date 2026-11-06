@@ -21,7 +21,7 @@ public interface ICheckInService
 
     /// <summary>
     /// A scanned member pass, from staff at the front desk or from a paired
-    /// check-in device (the caller decides which). A refused entry is a
+    /// fingerprint terminal (the caller decides which). A refused entry is a
     /// successful call with <see cref="CheckInOutcome.Denied"/>.
     /// </summary>
     Task<ServiceResult<CheckInResultDto>> ScanPassAsync(
@@ -122,11 +122,8 @@ public sealed class CheckInService : ICheckInService
         string code,
         CancellationToken cancellationToken = default)
     {
-        var isDevice = _access.DeviceId.HasValue;
-        var method = isDevice ? CheckInMethod.Kiosk : CheckInMethod.PassScan;
-
         var authorization = await _access.AuthorizeAsync(
-            isDevice ? Permissions.GymCheckInsDevice : Permissions.GymCheckInsManage,
+            Permissions.GymCheckInsManage,
             cancellationToken);
 
         if (!authorization.Allowed)
@@ -142,7 +139,7 @@ public sealed class CheckInService : ICheckInService
                 "Check-in with the member pass is turned off for this gym. An admin can turn it on in Gym settings.");
         }
 
-        var attempt = new Attempt(method, _access.DeviceId, _access.UserId);
+        var attempt = new Attempt(CheckInMethod.PassScan, null, _access.UserId);
 
         if (!MemberPassCode.TryParse(code, out var pass))
         {
@@ -474,8 +471,7 @@ public sealed class CheckInService : ICheckInService
 
         await _denials.SaveChangesAsync(cancellationToken);
 
-        // An unattended device must not show who owns a copied or forged pass.
-        var identify = member is not null && (!_access.DeviceId.HasValue || !IsPassProblem(reason));
+        var identify = member is not null;
 
         var result = identify
             ? await DescribeAsync(member!, cancellationToken)
@@ -483,13 +479,7 @@ public sealed class CheckInService : ICheckInService
 
         result.Outcome = CheckInOutcome.Denied;
         result.DenialReason = reason;
-        result.Message = identify || member is null ? message : PassProblemMessage(reason);
-
-        if (_access.DeviceId.HasValue)
-        {
-            // The kiosk screen faces the public: no photo of a refused member.
-            result.PhotoDataUrl = null;
-        }
+        result.Message = message;
 
         return result;
     }
@@ -520,20 +510,6 @@ public sealed class CheckInService : ICheckInService
                 : await MemberPhotoService.LoadDataUrlAsync(_photos, member.Id, cancellationToken)
         };
     }
-
-    private static bool IsPassProblem(CheckInDenialReason reason) =>
-        reason is CheckInDenialReason.InvalidPass
-            or CheckInDenialReason.ExpiredPass
-            or CheckInDenialReason.ReusedPass
-            or CheckInDenialReason.RevokedPass;
-
-    private static string PassProblemMessage(CheckInDenialReason reason) => reason switch
-    {
-        CheckInDenialReason.ExpiredPass => "This code has expired. Show the live pass in the IronForge app.",
-        CheckInDenialReason.ReusedPass => "This code was already used. Show the live pass in the IronForge app.",
-        CheckInDenialReason.RevokedPass => "This pass was reset. Open the IronForge app to show the current pass.",
-        _ => "This pass is not valid. Please see the front desk."
-    };
 
     private static CheckInDto Map(CheckIn checkIn, string memberName) => new()
     {

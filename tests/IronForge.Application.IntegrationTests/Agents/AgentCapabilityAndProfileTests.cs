@@ -1,5 +1,4 @@
-﻿using IronForge.Application.Agents.Delegations;
-using IronForge.Application.Agents.DTOs;
+﻿using IronForge.Application.Agents.DTOs;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.Models;
 using IronForge.Application.Auth.Services;
@@ -81,74 +80,7 @@ public sealed class AgentCapabilityAndProfileTests
             agent.Data!.Permissions);
     }
 
-    [Fact]
-    public async Task Delegation_ScopeOutsideTheAgentsTools_IsRejected()
-    {
-        // The user (an Admin) holds gym.billing.manage, but the agent has no billing tool.
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, "reader", "standard", "search_members");
-
-        var exception = await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
-            AsAdmin(tenantId, s =>
-                new AgentDelegationService(
-                    s.ContextAccessor,
-                    new UserAuthorizationService(s.ContextAccessor),
-                    s.AgentPermissions,
-                    store: null!,
-                    s.Audit,
-                    agentMcpClientAuthorizationService: null!)
-                .CreateAsync(
-                    "reader",
-                    "mcp-client",
-                    [Permissions.GymBillingManage],
-                    TimeSpan.FromMinutes(30))));
-
-        Assert.Equal(
-            "Agent 'reader' is not allowed to use permission 'gym.billing.manage'.",
-            exception.Message);
-    }
-
     // ---- Model profiles per tenant -------------------------------------------
-
-    [Theory]
-    [InlineData("starter", new string[0], new[] { "economy" })]
-    [InlineData("professional", new string[0], new[] { "economy", "standard" })]
-    [InlineData("starter", new[] { "premium" }, new[] { "economy", "premium" })]
-    public async Task ModelProfileList_FollowsPlanAndAddOns(
-        string plan,
-        string[] addOns,
-        string[] expected)
-    {
-        var tenantId = await SeedTenantAsync(plan, addOns);
-
-        var profiles = await AsAdmin(tenantId, s => s.AgentManagement.GetModelProfilesAsync());
-
-        Assert.Equal(expected, profiles.Data!.Select(x => x.Name).Order());
-    }
-
-    [Fact]
-    public async Task CreateAgent_WithProfileOutsideTheSubscription_IsRejected()
-    {
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-
-        var result = await AsAdmin(tenantId, s => s.AgentManagement.CreateAgentAsync(
-            NewAgent("helper", ModelProfileNames.Standard)));
-
-        Assert.Equal(400, result.StatusCode);
-        Assert.Contains("not included in this workspace's subscription", result.ErrorMessage);
-    }
-
-    [Fact]
-    public async Task CreateAgent_WithoutProfile_UsesTheSubscriptionDefault()
-    {
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-
-        var result = await AsAdmin(tenantId, s => s.AgentManagement.CreateAgentAsync(
-            NewAgent("helper", modelProfile: null)));
-
-        Assert.True(result.Success, result.ErrorMessage);
-        Assert.Equal(ModelProfileNames.Economy, result.Data!.ModelProfile);
-    }
 
     [Fact]
     public async Task Runtime_AgentOnAProfileNoLongerIncluded_FallsBackToTheDefault()
@@ -219,16 +151,6 @@ public sealed class AgentCapabilityAndProfileTests
     }
 
     // ---- Helpers ---------------------------------------------------------------
-
-    private static CreateAgentRequest NewAgent(string agentId, string? modelProfile) =>
-        new()
-        {
-            AgentId = agentId,
-            Name = agentId,
-            Version = "1.0",
-            Instructions = "Test agent.",
-            ModelProfile = modelProfile
-        };
 
     private async Task<T> AsAdmin<T>(int tenantId, Func<TestServiceFactory, Task<T>> action)
     {

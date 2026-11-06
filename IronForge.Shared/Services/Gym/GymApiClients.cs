@@ -170,16 +170,11 @@ public sealed class GymApiClient : ApiClientBase
         GetAsync<List<CheckInDenialDto>>(Query("api/gym/checkins/denials", ("take", take)), "Unable to load refused check-ins.", ct);
 
     public Task<ServiceResult<List<CheckInDeviceDto>>> GetCheckInDevicesAsync(CancellationToken ct = default) =>
-        GetAsync<List<CheckInDeviceDto>>("api/gym/checkin-devices", "Unable to load check-in devices.", ct);
+        GetAsync<List<CheckInDeviceDto>>("api/gym/checkin-devices", "Unable to load terminals.", ct);
 
-    public Task<ServiceResult<CheckInDevicePairingDto>> CreateCheckInDeviceAsync(string name, CancellationToken ct = default) =>
-        PostAsync<CheckInDevicePairingDto>("api/gym/checkin-devices", new CreateCheckInDeviceRequest { Name = name }, "Unable to add the device.", ct);
-
-    public Task<ServiceResult<CheckInDevicePairingDto>> NewDevicePairingCodeAsync(int deviceId, CancellationToken ct = default) =>
-        PostAsync<CheckInDevicePairingDto>($"api/gym/checkin-devices/{deviceId}/pairing-code", null, "Unable to create a pairing code.", ct);
 
     public Task<ServiceResult<CheckInDeviceDto>> RevokeCheckInDeviceAsync(int deviceId, CancellationToken ct = default) =>
-        PostAsync<CheckInDeviceDto>($"api/gym/checkin-devices/{deviceId}/revoke", null, "Unable to remove the device.", ct);
+        PostAsync<CheckInDeviceDto>($"api/gym/checkin-devices/{deviceId}/revoke", null, "Unable to remove the terminal.", ct);
 
     public Task<ServiceResult<MemberPhotoDto?>> GetMemberPhotoAsync(int memberId, CancellationToken ct = default) =>
         GetOptionalAsync<MemberPhotoDto>($"api/gym/members/{memberId}/photo", "Unable to load the photo.", ct);
@@ -345,55 +340,6 @@ public sealed class MemberApiClient : ApiClientBase
 
     public Task<ServiceResult<ProgressSummaryDto>> GetProgressAsync(CancellationToken ct = default) =>
         GetAsync<ProgressSummaryDto>("api/me/progress", "Unable to load progress.", ct);
-}
-
-/// <summary>
-/// A check-in device (kiosk). It has no user session: it pairs with a code
-/// from an admin, then sends its device key with every call.
-/// </summary>
-public sealed class KioskApiClient : ApiClientBase
-{
-    public KioskApiClient(HttpClient http) : base(http)
-    {
-    }
-
-    public Task<ServiceResult<KioskPairingResultDto>> PairAsync(string pairingCode, CancellationToken ct = default) =>
-        PostAsync<KioskPairingResultDto>("api/kiosk/pair", new PairKioskRequest { PairingCode = pairingCode }, "Unable to pair this device.", ct);
-
-    public async Task<ServiceResult<KioskInfoDto>> GetInfoAsync(string deviceKey, CancellationToken ct = default)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "api/kiosk/me");
-            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
-
-            using var response = await Http.SendAsync(request, ct);
-            return await ApiResponseReader.ReadAsync<KioskInfoDto>(response, "Unable to reach the gym.", ct);
-        }
-        catch (HttpRequestException)
-        {
-            return ServiceResult<KioskInfoDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
-        }
-    }
-
-    public async Task<ServiceResult<CheckInResultDto>> CheckInAsync(string deviceKey, string code, CancellationToken ct = default)
-    {
-        try
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "api/kiosk/check-ins")
-            {
-                Content = JsonContent.Create(new ScanPassRequest { Code = code })
-            };
-            request.Headers.Add(KioskHeaders.DeviceKey, deviceKey);
-
-            using var response = await Http.SendAsync(request, ct);
-            return await ApiResponseReader.ReadAsync<CheckInResultDto>(response, "Unable to check in.", ct);
-        }
-        catch (HttpRequestException)
-        {
-            return ServiceResult<CheckInResultDto>.Fail("Cannot reach the IronForge server. Check the connection.", 503);
-        }
-    }
 }
 
 /// <summary>Calls made before signing in: joining a gym and resetting a password.</summary>

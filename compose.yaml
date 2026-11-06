@@ -45,36 +45,6 @@ services:
         retries: 3
         start_period: 10s
 
-  ironforge-mcp:
-    build:
-      context: .
-      dockerfile: IronForge.Mcp/Dockerfile
-    container_name: ironforge-mcp
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-
-      ConnectionStrings__DefaultConnection: ${CONNECTIONSTRINGS__DEFAULTCONNECTION}
-      JwtSettings__Key: ${JWTSETTINGS__KEY}
-      OpenTelemetry__Otlp__Headers: ${OPENTELEMETRY__OTLP__HEADERS}
-
-    networks:
-      - ironforge-network
-      
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "curl",
-          "--fail",
-          "--silent",
-          "--show-error",
-          "http://localhost:8080/health/ready"
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-
   ironforge-web:
     build:
       context: .
@@ -125,24 +95,6 @@ services:
     networks:
       - ironforge-network
 
-  ironforge-mcp-client:
-    build:
-      context: .
-      dockerfile: IronForge.Mcp.Client/Dockerfile
-    container_name: ironforge-mcp-client
-    environment:
-      ASPNETCORE_ENVIRONMENT: Production
-
-      AISettings__ApiKey: ${AISETTINGS__APIKEY}
-      McpSettings__ServerUrl: http://ironforge-mcp:8080
-
-    networks:
-      - ironforge-network
-      
-    depends_on:
-      ironforge-mcp:
-        condition: service_healthy
-        
   ironforge-migrator:
     profiles:
       - migration
@@ -182,10 +134,6 @@ services:
             condition: service_started
         ironforge-api:
             condition: service_healthy
-        ironforge-mcp:
-            condition: service_healthy
-        ironforge-mcp-client:
-            condition: service_started
 
 volumes:
   caddy_data:

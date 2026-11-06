@@ -35,16 +35,6 @@ platform.mohtashim.dev {
     reverse_proxy ironforge-platform:8080
 }
 
-mcp-client.mohtashim.dev {
-    import security_headers
-    reverse_proxy ironforge-mcp-client:8080
-}
-
-mcp.mohtashim.dev {
-    import security_headers
-    reverse_proxy ironforge-mcp:8080
-}
-
 # ZKTeco fingerprint terminals (push protocol). Many models speak plain HTTP
 # only, so their fixed paths are served on port 80 too; everything else on
 # this host still redirects to HTTPS. Prefer terminals with HTTPS (port 443).

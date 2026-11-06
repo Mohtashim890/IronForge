@@ -8,7 +8,6 @@ IronForge is a multi-tenant SaaS for gyms. Each gym (tenant) manages members, me
 | Member app (mobile) | Gym members | `IronForge` (MAUI) + `IronForge.UI.Member` | Android / Windows |
 | Platform console (web) | IronForge operators | `IronForge.Platform` + `IronForge.UI.Platform` | https://localhost:7090 |
 | API | All apps, payment provider webhooks | `IronForge.Api` | https://localhost:7226 |
-| MCP server | External agents | `IronForge.Mcp` | |
 
 ## Architecture
 
@@ -28,7 +27,8 @@ IronForge.Migrator       migrations and demo seeding
 - **Billing:** `BillingBackgroundService` runs hourly, one instance at a time (a PostgreSQL advisory lock). Each run issues invoices ahead of each billing date, marks late invoices overdue, expires memberships after the grace period, and sends reminders before and after the due date. Every step is idempotent.
 - **Payments:** each gym connects its own **HitPay** (Malaysia: FPX, DuitNow, Touch 'n Go, cards) or **Safepay** (Pakistan) account under *Settings → Online payments*, and members pay invoices in the app straight into it. An invoice is marked paid only on what the provider's API reports (webhook, return page or "I've paid"), idempotently. Without a provider, members pay at the desk or by bank transfer; demo deployments can offer a **simulated checkout** (`Payments:AllowSimulated`) where no money moves.
 - **Email:** emails are written to an outbox in the same transaction as the change that caused them. `EmailOutboxProcessor` delivers them with retries and backoff.
-- **AI agents:** each agent is a database definition with governed tools (Microsoft.Extensions.AI on OpenAI). An agent never has more authority than the user it acts for. Risky actions require human approval, and High-risk ones require a second admin (four-eyes).
+- **Check-in:** staff check members in at the front desk by scanning the member's pass from the app (rotating QR, works offline) or by name. With the Access control module, ZKTeco fingerprint terminals let members in by themselves and report each entry.
+- **AI agents:** the three built-in agents below are installed per gym from platform templates; gym admins can turn each one on or off (AI agents page). Each agent has governed tools (Microsoft.Extensions.AI on OpenAI). An agent never has more authority than the user it acts for. Risky actions require human approval, and High-risk ones require a second admin (four-eyes).
   - **Gym Admin Agent** (Admin, Trainer): searches members, attendance, revenue and overdue invoices. With approval, it can send payment reminders, freeze memberships, record cash payments (capped at 2,000) and send announcements.
   - **Fitness Coach** (Member): reads the member's own profile, routines, workouts and progress. It can log workouts and measurements, set goals and design routines. It only ever sees the signed-in member's data.
   - **Insights Agent** (Admin): read-only analysis of the activity log and key numbers.
@@ -39,7 +39,7 @@ IronForge.Migrator       migrations and demo seeding
 |---|---|---|
 | Starter | Gym core, Billing, Engagement (Gym Admin Agent) | 500k |
 | Professional | + Coaching (routines, progress, Fitness Coach) + Activity insights | 2M |
-| Enterprise | Same as Professional | 10M |
+| Enterprise | Professional + Access control (ZKTeco fingerprint terminals) | 10M |
 
 ### Roles
 
@@ -120,9 +120,20 @@ The integration tests cover:
 - the demo seeder
 - the platform operator views
 
+## Onboarding a gym (operator checklist)
+
+1. **Platform console → Gyms → Onboard a client**: name, slug, the owner's email, plan, trial days, currency and time zone. The owner gets an invitation email (the link is also shown to copy).
+2. The owner accepts the invitation, signs in to the gym dashboard and:
+   - creates at least one **membership plan** (members cannot be added before that);
+   - checks **Gym settings** (contact details, billing rules, check-in methods);
+   - optionally connects **Online payments** (HitPay or Safepay, sandbox keys first; members then see "Pay now"), otherwise fills in payment instructions for cash or bank transfer;
+   - adds members (one by one or **Import members** from CSV) and invites **Staff** (trainers).
+3. Members install the app and join with the gym's **join code** (Gym settings) or the invitation link they were emailed.
+4. Enterprise gyms with fingerprint terminals register each terminal under **Fingerprint check-in → Terminals** and link the terminal's users to members.
+
 ## Production notes
 
-- Gyms connect their own payment provider in the dashboard (live keys) and register the webhook URL it shows. Keep `Payments__AllowSimulated=false`; optionally set `Payments__EncryptionKey`.
+- Gyms connect their own payment provider in the dashboard (sandbox keys while testing, live keys before members pay) and register the webhook URL it shows. Keep `Payments__AllowSimulated=false`; optionally set `Payments__EncryptionKey`.
 - Set `Email__Host`, `Email__Username`, `Email__Password` and `Email__FromAddress`; otherwise emails are only logged.
 - The web apps persist their Data Protection keys in the `/keys` volume so sign-ins survive deployments.
 - CORS allows only the web origins in `appsettings.Production.json`.

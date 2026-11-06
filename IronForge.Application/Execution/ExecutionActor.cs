@@ -14,9 +14,6 @@ public class ExecutionActor
 
     public AgentIdentity? Agent { get; set; }
 
-    public string? ClientId { get; init; }
-
-    /// <summary>A paired check-in device (kiosk) acting without a user.</summary>
+    /// <summary>A registered access terminal acting without a user.</summary>
     public int? DeviceId { get; init; }
-    public Guid? DelegationId { get; set; }
 }

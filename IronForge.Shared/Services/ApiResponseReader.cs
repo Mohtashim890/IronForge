@@ -41,11 +41,44 @@ internal static class ApiResponseReader
         HttpResponseMessage response,
         string fallbackMessage)
     {
-        var text = (await response.Content.ReadAsStringAsync()).Trim().Trim('"');
+        return ServiceResult<T>.Fail(
+            await ErrorMessageAsync(response, fallbackMessage),
+            (int)response.StatusCode);
+    }
 
-        // The API returns plain-text messages; ignore HTML and problem+json bodies.
-        var message =
-            !string.IsNullOrWhiteSpace(text) &&
+    /// <summary>
+    /// The user-facing message of a failed response: the API's plain-text
+    /// message, or the "message" of its JSON error body. HTML and
+    /// problem+json bodies fall back to a message per status code.
+    /// </summary>
+    public static async Task<string> ErrorMessageAsync(
+        HttpResponseMessage response,
+        string fallbackMessage)
+    {
+        var text = (await response.Content.ReadAsStringAsync()).Trim();
+
+        if (text.StartsWith('{'))
+        {
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(text);
+
+                if (json.RootElement.TryGetProperty("message", out var property) &&
+                    property.GetString() is { Length: > 0 } fromJson &&
+                    response.StatusCode != HttpStatusCode.InternalServerError)
+                {
+                    return fromJson;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Not our error body: fall through.
+            }
+        }
+
+        text = text.Trim('"');
+
+        return !string.IsNullOrWhiteSpace(text) &&
             !text.StartsWith('<') &&
             !text.StartsWith('{')
                 ? text
@@ -54,9 +87,8 @@ internal static class ApiResponseReader
                     HttpStatusCode.Unauthorized => "Authentication is required.",
                     HttpStatusCode.Forbidden => "You are not authorized to perform this operation.",
                     HttpStatusCode.NotFound => "The item was not found.",
+                    HttpStatusCode.TooManyRequests => "Too many requests. Please wait a minute and try again.",
                     _ => fallbackMessage
                 };
-
-        return ServiceResult<T>.Fail(message, (int)response.StatusCode);
     }
 }

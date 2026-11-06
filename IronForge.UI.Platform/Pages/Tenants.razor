@@ -131,19 +131,29 @@
 
                         <div>
                             <label class="form-label" for="tenant-currency">Currency</label>
-                            <InputText id="tenant-currency"
-                                       class="form-control"
-                                       maxlength="3"
-                                       @bind-Value="provisionModel.Currency"
-                                       placeholder="USD" />
+                            <InputSelect id="tenant-currency"
+                                         class="form-select"
+                                         @bind-Value="provisionModel.Currency">
+                                @foreach (var currency in IronForge.Shared.Models.Gym.GymCurrencies.All)
+                                {
+                                    <option value="@currency">@currency</option>
+                                }
+                            </InputSelect>
                         </div>
 
                         <div>
                             <label class="form-label" for="tenant-timezone">Time zone</label>
                             <InputText id="tenant-timezone"
                                        class="form-control"
+                                       list="tenant-time-zones"
                                        @bind-Value="provisionModel.TimeZoneId"
                                        placeholder="Asia/Karachi" />
+                            <datalist id="tenant-time-zones">
+                                @foreach (var zone in IronForge.Shared.Models.Gym.GymTimeZones.Common)
+                                {
+                                    <option value="@zone"></option>
+                                }
+                            </datalist>
                         </div>
                     </div>
 

@@ -45,16 +45,6 @@ public sealed class InMemoryMemberPassStore : IMemberPassStore
     }
 }
 
-/// <summary>Where a check-in device (kiosk) keeps its device key between restarts.</summary>
-public interface IKioskKeyStore
-{
-    Task<string?> GetAsync();
-
-    Task SaveAsync(string deviceKey);
-
-    Task ClearAsync();
-}
-
 public enum PhoneUnlockResult
 {
     Unlocked,

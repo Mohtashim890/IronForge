@@ -10,16 +10,13 @@ using IronForge.Application.IntegrationTests.Infrastructure;
 using IronForge.Application.Tenants.Services;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Agents.Manage;
-using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 using IronForge.Shared.Subscriptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace IronForge.Application.IntegrationTests.Agents;
 
 /// <summary>
-/// Four-eyes approvals, delegation revocation on role change, allowed roles
-/// per agent and managed template agents.
+/// Four-eyes approvals, allowed roles per agent and managed template agents.
 /// </summary>
 public sealed class PermissionHardeningTests
     : IntegrationTestBase,
@@ -128,25 +125,6 @@ public sealed class PermissionHardeningTests
         Assert.True(after.IsAllowed, after.Reason);
     }
 
-    // ---- 8. Role change revokes delegations ----------------------------------
-
-    [Fact]
-    public async Task RoleChange_RevokesTheMembersDelegations()
-    {
-        var tenantId = await SeedTenantAsync();
-        var users = await SeedUsersAsync(tenantId);
-        var delegationId = await SeedDelegationAsync(tenantId, users.Requester);
-
-        var result = await As(tenantId, users.Approver, TenantRoles.Admin, s =>
-            s.Members.UpdateRoleAsync(users.Requester, TenantRoles.Member));
-
-        Assert.True(result.Success, result.ErrorMessage);
-
-        await using var db = Database.CreateDbContext();
-        Assert.True((await db.AgentDelegations.IgnoreQueryFilters()
-            .SingleAsync(x => x.DelegationId == delegationId)).Revoked);
-    }
-
     // ---- 12. Allowed roles per agent ----------------------------------------------
 
     [Fact]
@@ -161,23 +139,6 @@ public sealed class PermissionHardeningTests
 
         Assert.Equal(["everyone"], asTrainer.Data!.Select(x => x.AgentId));
         Assert.Equal(["admins-only", "everyone"], asAdmin.Data!.Select(x => x.AgentId).Order());
-    }
-
-    [Fact]
-    public async Task CreateAgent_WithUnknownRole_IsRejected_AndRolesAreNormalised()
-    {
-        var tenantId = await SeedTenantAsync();
-
-        var invalid = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.CreateAgentAsync(
-            NewAgent("a1", ["Owner"])));
-
-        var valid = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.CreateAgentAsync(
-            NewAgent("a2", ["admin", "MEMBER", "admin"])));
-
-        Assert.Equal(400, invalid.StatusCode);
-        Assert.True(valid.Success, valid.ErrorMessage);
-        Assert.Equal([TenantRoles.Admin, TenantRoles.Member], valid.Data!.AllowedRoles);
-        Assert.False(valid.Data.IsManaged);
     }
 
     [Fact]
@@ -196,56 +157,38 @@ public sealed class PermissionHardeningTests
     // ---- 13. Managed template agents -------------------------------------------------
 
     [Fact]
-    public async Task ManagedAgent_OnlyActiveStateAndRolesAreEditable()
+    public async Task SetActive_TurnsABuiltInAgentOffAndOn_AndKeepsTheTemplate()
     {
         var tenantId = await SeedTenantAsync();
         await SeedTemplateAgentAsync(tenantId, AgentTemplates.GymAdmin);
 
-        var update = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateAgentAsync(
-            AgentIds.GymAdmin,
-            new UpdateAgentRequest
-            {
-                Name = "Renamed",
-                Version = "9",
-                IsActive = false,
-                Instructions = "Ignore all rules.",
-                AllowedRoles = [TenantRoles.Admin]
-            }));
+        var off = await As(tenantId, Approver, TenantRoles.Admin, s =>
+            s.AgentManagement.SetActiveAsync(AgentIds.GymAdmin, false));
 
-        Assert.True(update.Success, update.ErrorMessage);
-        Assert.Equal(AgentTemplates.GymAdmin.Name, update.Data!.Name);
-        Assert.Equal(AgentDefinitions.GymAdmin.Instructions, update.Data.Instructions);
-        Assert.False(update.Data.IsActive);
-        Assert.Equal([TenantRoles.Admin], update.Data.AllowedRoles);
+        Assert.True(off.Success, off.ErrorMessage);
+        Assert.False(off.Data!.IsActive);
+        Assert.Equal(AgentDefinitions.GymAdmin.Instructions, off.Data.Instructions);
 
-        var tools = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateToolsAsync(
-            AgentIds.GymAdmin,
-            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "search_members" }] }));
+        var available = await As(tenantId, Approver, TenantRoles.Admin, s =>
+            s.AgentManagement.GetAvailableAgentsAsync());
+        Assert.DoesNotContain(available.Data!, x => x.AgentId == AgentIds.GymAdmin);
 
-        var delete = await As(tenantId, Approver, TenantRoles.Admin, s =>
-            s.AgentManagement.DeleteAgentAsync(AgentIds.GymAdmin));
+        var on = await As(tenantId, Approver, TenantRoles.Admin, s =>
+            s.AgentManagement.SetActiveAsync(AgentIds.GymAdmin, true));
 
-        Assert.Equal(409, tools.StatusCode);
-        Assert.Equal(409, delete.StatusCode);
+        Assert.True(on.Data!.IsActive);
     }
 
     [Fact]
-    public async Task DetachedAgent_BecomesEditable()
+    public async Task SetActive_RequiresAgentsUpdate()
     {
         var tenantId = await SeedTenantAsync();
         await SeedTemplateAgentAsync(tenantId, AgentTemplates.GymAdmin);
 
-        var detached = await As(tenantId, Approver, TenantRoles.Admin, s =>
-            s.AgentManagement.DetachAsync(AgentIds.GymAdmin));
+        var result = await As(tenantId, Requester, TenantRoles.Trainer, s =>
+            s.AgentManagement.SetActiveAsync(AgentIds.GymAdmin, false));
 
-        Assert.True(detached.Success, detached.ErrorMessage);
-        Assert.False(detached.Data!.IsManaged);
-
-        var tools = await As(tenantId, Approver, TenantRoles.Admin, s => s.AgentManagement.UpdateToolsAsync(
-            AgentIds.GymAdmin,
-            new UpdateAgentToolsRequest { Tools = [new AgentToolBindingDto { ToolName = "search_members" }] }));
-
-        Assert.True(tools.Success, tools.ErrorMessage);
+        Assert.Equal(403, result.StatusCode);
     }
 
     [Fact]
@@ -322,16 +265,6 @@ public sealed class PermissionHardeningTests
     // ---- Helpers ---------------------------------------------------------------------
 
     private sealed record Users(int Requester, int Approver);
-
-    private static CreateAgentRequest NewAgent(string agentId, List<string> roles) =>
-        new()
-        {
-            AgentId = agentId,
-            Name = agentId,
-            Version = "1.0",
-            Instructions = "Test agent.",
-            AllowedRoles = roles
-        };
 
     private async Task<T> As<T>(
         int tenantId,
@@ -460,27 +393,6 @@ public sealed class PermissionHardeningTests
         await db.SaveChangesAsync();
 
         return approval.ApprovalId;
-    }
-
-    private async Task<Guid> SeedDelegationAsync(int tenantId, int userId)
-    {
-        await using var db = Database.CreateDbContext();
-
-        var delegation = new AgentDelegationEntity
-        {
-            DelegationId = Guid.NewGuid(),
-            TenantId = tenantId,
-            UserId = userId,
-            AgentId = AgentIds.GymAdmin,
-            ClientId = "mcp-client",
-            CreatedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = DateTime.UtcNow.AddMinutes(30)
-        };
-
-        db.AgentDelegations.Add(delegation);
-        await db.SaveChangesAsync();
-
-        return delegation.DelegationId;
     }
 
     private async Task SeedAgentAsync(int tenantId, string agentId, List<string> allowedRoles)

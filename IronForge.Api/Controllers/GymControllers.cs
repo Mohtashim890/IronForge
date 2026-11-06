@@ -322,14 +322,6 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> List(CancellationToken cancellationToken) =>
             this.ToActionResult(await _devices.ListAsync(cancellationToken));
 
-        [HttpPost]
-        public async Task<IActionResult> Create(CreateCheckInDeviceRequest request, CancellationToken cancellationToken) =>
-            this.ToActionResult(await _devices.CreateAsync(request, cancellationToken));
-
-        [HttpPost("{deviceId:int}/pairing-code")]
-        public async Task<IActionResult> NewPairingCode(int deviceId, CancellationToken cancellationToken) =>
-            this.ToActionResult(await _devices.NewPairingCodeAsync(deviceId, cancellationToken));
-
         [HttpPost("{deviceId:int}/revoke")]
         public async Task<IActionResult> Revoke(int deviceId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _devices.RevokeAsync(deviceId, cancellationToken));

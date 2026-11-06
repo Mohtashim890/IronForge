@@ -192,141 +192,19 @@ public sealed class CheckInTests
         Assert.Equal(403, scan.StatusCode);
     }
 
-    // ---- Check-in devices -------------------------------------------------------
+    // ---- Terminals ----------------------------------------------------------------
 
     [Fact]
-    public async Task PairedDevice_ChecksMembersIn_AndCanDoNothingElse()
-    {
-        var gym = await SeedGymAsync();
-        var ali = await SeedMemberAsync(gym, "ali@example.com");
-        var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
-
-        var created = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Front entrance" }));
-        Assert.True(created.Success, created.ErrorMessage);
-
-        var paired = await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode.ToLowerInvariant()));
-        Assert.True(paired.Success, paired.ErrorMessage);
-        Assert.StartsWith("ifk_", paired.Data!.DeviceKey);
-
-        // The pairing code works once.
-        var reused = await AsDevice(s => s.Kiosk.PairAsync(created.Data.PairingCode));
-        Assert.Equal(400, reused.StatusCode);
-
-        var key = paired.Data.DeviceKey;
-
-        var scan = await AsDevice(async s =>
-        {
-            var device = await s.Kiosk.AuthenticateAsync(key);
-            Assert.True(device.Success, device.ErrorMessage);
-
-            return await s.CheckIns.ScanPassAsync(Code(pass));
-        });
-
-        Assert.Equal(CheckInOutcome.Allowed, scan.Data!.Outcome);
-        Assert.Equal(CheckInMethod.Kiosk, scan.Data.CheckIn!.Method);
-        Assert.True(scan.Data.CheckIn.SelfCheckIn);
-
-        // The device key grants nothing beyond scanning.
-        var members = await AsDevice(async s =>
-        {
-            await s.Kiosk.AuthenticateAsync(key);
-            return await s.GymMembers.ListAsync(new MemberQuery());
-        });
-        var manual = await AsDevice(async s =>
-        {
-            await s.Kiosk.AuthenticateAsync(key);
-            return await s.CheckIns.CheckInAsync(ali.MemberId);
-        });
-
-        Assert.Equal(403, members.StatusCode);
-        Assert.Equal(403, manual.StatusCode);
-
-        var devices = await AsAdmin(gym, s => s.CheckInDevices.ListAsync());
-        Assert.True(devices.Data!.Single().IsPaired);
-        Assert.Equal(1, devices.Data!.Single().CheckInsToday);
-
-        await using var db = Database.CreateDbContext();
-        var checkIn = await db.CheckIns.IgnoreQueryFilters().SingleAsync();
-        Assert.Equal(created.Data.Device.Id, checkIn.CheckInDeviceId);
-        Assert.Null(checkIn.RecordedByUserId);
-    }
-
-    [Fact]
-    public async Task RemovedDevice_IsRejected_AndExpiredPairingCodesDoNotWork()
-    {
-        var gym = await SeedGymAsync();
-
-        var created = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Side door" }));
-        var key = (await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode))).Data!.DeviceKey;
-
-        var revoked = await AsAdmin(gym, s => s.CheckInDevices.RevokeAsync(created.Data!.Device.Id));
-        Assert.True(revoked.Data!.IsRevoked);
-
-        var rejected = await AsDevice(s => s.Kiosk.AuthenticateAsync(key));
-        Assert.Equal(401, rejected.StatusCode);
-
-        var other = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Back door" }));
-        _clock.Now = _clock.Now.AddMinutes(16);
-
-        var late = await AsDevice(s => s.Kiosk.PairAsync(other.Data!.PairingCode));
-        Assert.Equal(400, late.StatusCode);
-    }
-
-    [Fact]
-    public async Task DeviceOfOneGym_CannotCheckInMembersOfAnother_NorSeeItsDevices()
-    {
-        var gymA = await SeedGymAsync();
-        var gymB = await SeedGymAsync();
-        var bea = await SeedMemberAsync(gymB, "bea@example.com");
-        var pass = (await AsMember(gymB, bea, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
-
-        var created = await AsAdmin(gymA, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "A entrance" }));
-        var key = (await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode))).Data!.DeviceKey;
-
-        var scan = await AsDevice(async s =>
-        {
-            await s.Kiosk.AuthenticateAsync(key);
-            return await s.CheckIns.ScanPassAsync(Code(pass));
-        });
-
-        Assert.Equal(CheckInDenialReason.UnknownMember, scan.Data!.DenialReason);
-
-        var devicesB = await AsAdmin(gymB, s => s.CheckInDevices.ListAsync());
-        Assert.Empty(devicesB.Data!);
-
-        var revokeFromB = await AsAdmin(gymB, s => s.CheckInDevices.RevokeAsync(created.Data!.Device.Id));
-        Assert.Equal(404, revokeFromB.StatusCode);
-    }
-
-    [Fact]
-    public async Task DeviceOfASuspendedGym_IsRejected()
-    {
-        var gym = await SeedGymAsync();
-        var created = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Front" }));
-        var key = (await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode))).Data!.DeviceKey;
-
-        await using (var db = Database.CreateDbContext())
-        {
-            var tenant = await db.Tenants.SingleAsync(x => x.Id == gym.TenantId);
-            tenant.IsActive = false;
-            await db.SaveChangesAsync();
-        }
-
-        var result = await AsDevice(s => s.Kiosk.AuthenticateAsync(key));
-
-        Assert.Equal(403, result.StatusCode);
-    }
-
-    [Fact]
-    public async Task Trainer_CannotManageDevices()
+    public async Task Trainer_CannotListOrRemoveTerminals()
     {
         var gym = await SeedGymAsync();
         var trainer = await SeedUserAsync(gym, "trainer@gym.test", TenantRoles.Trainer);
 
-        var result = await AsUser(gym, trainer, TenantRoles.Trainer,
-            s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = "Front" }));
+        var list = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.CheckInDevices.ListAsync());
+        var revoke = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.CheckInDevices.RevokeAsync(1));
 
-        Assert.Equal(403, result.StatusCode);
+        Assert.Equal(403, list.StatusCode);
+        Assert.Equal(403, revoke.StatusCode);
     }
 
     // ---- Photos -----------------------------------------------------------------
@@ -403,27 +281,17 @@ public sealed class CheckInTests
         var gym = await SeedGymAsync();
         var ali = await SeedMemberAsync(gym, "ali@example.com");
         var pass = (await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone))).Data!;
-        var (_, key) = await PairDeviceAsync(gym, "Entrance");
 
         await SetMethodsAsync(gym, memberPass: false);
 
         var getPass = await AsMember(gym, ali, s => s.MemberPasses.GetMyPassAsync(Phone));
         var staffScan = await AsAdmin(gym, s => s.CheckIns.ScanPassAsync(Code(pass)));
-        var kioskScan = await AsDevice(async s =>
-        {
-            await s.Kiosk.AuthenticateAsync(key);
-            return await s.CheckIns.ScanPassAsync(Code(pass));
-        });
 
         Assert.Equal(409, getPass.StatusCode);
         Assert.Equal(409, staffScan.StatusCode);
-        Assert.Equal(409, kioskScan.StatusCode);
 
         var frontDesk = await AsAdmin(gym, s => s.CheckIns.CheckInAsync(ali.MemberId));
         Assert.Equal(CheckInOutcome.Allowed, frontDesk.Data!.Outcome);
-
-        var info = await AsDevice(s => s.Kiosk.AuthenticateAsync(key));
-        Assert.False(info.Data!.MemberPassEnabled);
     }
 
     [Fact]
@@ -453,15 +321,6 @@ public sealed class CheckInTests
 
         Assert.True(result.Success, result.ErrorMessage);
         return result.Data!;
-    }
-
-    private async Task<(int DeviceId, string Key)> PairDeviceAsync(SeededGym gym, string name)
-    {
-        var created = await AsAdmin(gym, s => s.CheckInDevices.CreateAsync(new CreateCheckInDeviceRequest { Name = name }));
-        var paired = await AsDevice(s => s.Kiosk.PairAsync(created.Data!.PairingCode));
-
-        Assert.True(paired.Success, paired.ErrorMessage);
-        return (created.Data!.Device.Id, paired.Data!.DeviceKey);
     }
 
     private string Code(MemberPassDto pass, DateTimeOffset? at = null) =>
@@ -627,13 +486,4 @@ public sealed class CheckInTests
         return await action(new TestServiceFactory(db, context) { Clock = _clock });
     }
 
-    /// <summary>An anonymous request: the device establishes its own context with its key.</summary>
-    private async Task<T> AsDevice<T>(Func<TestServiceFactory, Task<T>> action)
-    {
-        var accessor = new TestExecutionContextAccessor();
-
-        await using var db = Database.CreateDbContext(accessor);
-
-        return await action(new TestServiceFactory(db, accessor) { Clock = _clock });
-    }
 }

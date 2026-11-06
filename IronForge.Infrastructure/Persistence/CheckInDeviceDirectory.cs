@@ -9,7 +9,7 @@ namespace IronForge.Infrastructure.Persistence;
 /// <summary>
 /// See <see cref="ICheckInDeviceDirectory"/>. The device is not yet known to
 /// belong to a tenant, so the tenant query filter is bypassed; every lookup
-/// is by the hash of a random secret, which identifies one device only.
+/// is by the serial number, which is unique on the platform.
 /// </summary>
 public sealed class CheckInDeviceDirectory : ICheckInDeviceDirectory
 {
@@ -20,25 +20,6 @@ public sealed class CheckInDeviceDirectory : ICheckInDeviceDirectory
     public CheckInDeviceDirectory(IronForgeDbContext dbContext)
     {
         _dbContext = dbContext;
-    }
-
-    public Task<CheckInDevice?> FindByPairingCodeHashTrackedAsync(
-        string pairingCodeHash,
-        CancellationToken cancellationToken = default)
-    {
-        return _dbContext.CheckInDevices
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(x => x.PairingCodeHash == pairingCodeHash, cancellationToken);
-    }
-
-    public Task<CheckInDevice?> FindByKeyHashAsync(
-        string keyHash,
-        CancellationToken cancellationToken = default)
-    {
-        return _dbContext.CheckInDevices
-            .IgnoreQueryFilters()
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.KeyHash == keyHash, cancellationToken);
     }
 
     public Task<CheckInDevice?> FindTerminalBySerialAsync(

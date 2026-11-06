@@ -9,7 +9,6 @@
     }
     public enum AgentType
     {
-        Internal,
-        External
+        Internal
     }
 }

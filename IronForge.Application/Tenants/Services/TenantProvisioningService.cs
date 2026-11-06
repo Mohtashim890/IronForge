@@ -5,10 +5,12 @@ using IronForge.Application.Auditing.Services;
 using IronForge.Application.Auth.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
+using IronForge.Application.Gym.Common;
 using IronForge.Application.Gym.Settings;
 using IronForge.Application.Persistence;
 using IronForge.Application.Tenants.Invitations;
 using IronForge.Shared.Authorization;
+using IronForge.Shared.Models.Gym;
 using IronForge.Shared.Models.Tenants;
 using IronForge.Shared.Subscriptions;
 
@@ -143,6 +145,22 @@ public sealed class TenantProvisioningService : ITenantProvisioningService
         {
             return ServiceResult<ProvisionTenantResult>.Fail(
                 UnknownPlanMessage(request.Plan),
+                400);
+        }
+
+        // A wrong time zone would silently bill on UTC dates; a wrong currency
+        // would block the gym's own settings page until corrected.
+        if (!string.IsNullOrWhiteSpace(request.Currency) && !GymCurrencies.IsKnown(request.Currency))
+        {
+            return ServiceResult<ProvisionTenantResult>.Fail(
+                $"Currency must be one of: {string.Join(", ", GymCurrencies.All)}.",
+                400);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.TimeZoneId) && !GymCalendar.IsValidTimeZone(request.TimeZoneId.Trim()))
+        {
+            return ServiceResult<ProvisionTenantResult>.Fail(
+                $"Unknown time zone '{request.TimeZoneId}'. Use an IANA name such as Asia/Karachi.",
                 400);
         }
 

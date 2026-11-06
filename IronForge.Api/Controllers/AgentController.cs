@@ -8,8 +8,6 @@ using IronForge.Application.Agents.Services;
 using IronForge.Application.Commons;
 using IronForge.Shared.Models.Agents.Manage;
 using AgentDto = IronForge.Application.Agents.DTOs.AgentDto;
-using CreateAgentRequest = IronForge.Application.Agents.DTOs.CreateAgentRequest;
-using UpdateAgentRequest = IronForge.Application.Agents.DTOs.UpdateAgentRequest;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -46,10 +44,12 @@ public class AgentController : ControllerBase
             await _agentManagementService.GetAgentsAsync(
                 cancellationToken);
 
-        return Ok(result.Data);
+        return result.Success
+            ? Ok(result.Data)
+            : ToActionResult(result);
     }
 
-    // Literal segments (tools, available, model-profiles, usage) take
+    // Literal segments (available, usage) take
     // precedence over the {agentId} route below.
 
     [HttpGet("available")]
@@ -58,19 +58,6 @@ public class AgentController : ControllerBase
     {
         var result =
             await _agentManagementService.GetAvailableAgentsAsync(
-                cancellationToken);
-
-        return result.Success
-            ? Ok(result.Data)
-            : ToActionResult(result);
-    }
-
-    [HttpGet("model-profiles")]
-    public async Task<IActionResult> GetModelProfiles(
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.GetModelProfilesAsync(
                 cancellationToken);
 
         return result.Success
@@ -91,22 +78,6 @@ public class AgentController : ControllerBase
             : ToActionResult(result);
     }
 
-    [HttpGet("tools")]
-    public async Task<IActionResult> GetToolCatalog(
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.GetToolCatalogAsync(
-                cancellationToken);
-
-        if (!result.Success)
-        {
-            return ToActionResult(result);
-        }
-
-        return Ok(result.Data);
-    }
-
     [HttpGet("{agentId}")]
     public async Task<IActionResult> GetAgent(
         string agentId,
@@ -125,101 +96,22 @@ public class AgentController : ControllerBase
         return Ok(result.Data);
     }
 
-    [HttpPost]
-    public async Task<IActionResult> CreateAgent(
-        CreateAgentRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.CreateAgentAsync(
-                request,
-                cancellationToken);
-
-        if (!result.Success)
-        {
-            return ToActionResult(result);
-        }
-
-        return CreatedAtAction(
-            nameof(GetAgent),
-            new
-            {
-                agentId = result.Data!.AgentId
-            },
-            result.Data);
-    }
-
-    [HttpPut("{agentId}")]
-    public async Task<IActionResult> UpdateAgent(
+    /// <summary>Turns a built-in agent on or off for the gym.</summary>
+    [HttpPut("{agentId}/active")]
+    public async Task<IActionResult> SetActive(
         string agentId,
-        UpdateAgentRequest request,
+        SetAgentActiveRequest request,
         CancellationToken cancellationToken)
     {
         var result =
-            await _agentManagementService.UpdateAgentAsync(
+            await _agentManagementService.SetActiveAsync(
                 agentId,
-                request,
-                cancellationToken);
-
-        if (!result.Success)
-        {
-            return ToActionResult(result);
-        }
-
-        return Ok(result.Data);
-    }
-
-    [HttpDelete("{agentId}")]
-    public async Task<IActionResult> DeleteAgent(
-        string agentId,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.DeleteAgentAsync(
-                agentId,
-                cancellationToken);
-
-        if (!result.Success)
-        {
-            return ToActionResult(result);
-        }
-
-        return NoContent();
-    }
-
-    [HttpPost("{agentId}/detach")]
-    public async Task<IActionResult> Detach(
-        string agentId,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.DetachAsync(
-                agentId,
+                request.IsActive,
                 cancellationToken);
 
         return result.Success
             ? Ok(result.Data)
             : ToActionResult(result);
-    }
-
-    [HttpPut("{agentId}/tools")]
-    public async Task<IActionResult> UpdateTools(
-        string agentId,
-        UpdateAgentToolsRequest request,
-        CancellationToken cancellationToken)
-    {
-        var result =
-            await _agentManagementService.UpdateToolsAsync(
-                agentId,
-                request,
-                cancellationToken);
-
-        if (!result.Success)
-        {
-            return ToActionResult(result);
-        }
-
-        return Ok(result.Data);
     }
 
     // ============================================================

@@ -94,7 +94,7 @@
         /// <summary>Staff scanned the member's pass from the app.</summary>
         PassScan = 1,
 
-        /// <summary>An unattended check-in device scanned the member's pass.</summary>
+        /// <summary>History only: an unattended kiosk scanned the pass (kiosks were removed).</summary>
         Kiosk = 2,
 
         // 3 was GymQr (the member scanned a code shown by the gym); removed, old rows were migrated to Kiosk.
@@ -105,7 +105,7 @@
 
     public enum CheckInDeviceKind
     {
-        /// <summary>A tablet or PC running /kiosk, paired with a code.</summary>
+        /// <summary>History only: a paired kiosk tablet (kiosks were removed).</summary>
         Kiosk = 0,
 
         /// <summary>A ZKTeco fingerprint terminal speaking the push (ADMS) protocol, registered by serial number.</summary>

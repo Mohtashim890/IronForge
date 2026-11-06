@@ -14,8 +14,6 @@ namespace IronForge.Application.Auditing.DTOs
 
         public string? AgentId { get; set; }
 
-        public Guid? DelegationId { get; set; }
-
         public string? ResourceType { get; set; }
 
         public string? ResourceId { get; set; }

@@ -54,8 +54,6 @@ namespace IronForge.Application.Auditing.Services
 
                 UserId = actor?.UserId,
                 AgentId = actor?.Agent?.AgentId,
-                ClientId = actor?.ClientId,
-                DelegationId = actor?.DelegationId,
 
                 ResourceType = resourceType,
                 ResourceId = resourceId,

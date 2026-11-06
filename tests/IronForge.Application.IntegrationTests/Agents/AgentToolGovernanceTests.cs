@@ -176,159 +176,6 @@ public sealed class AgentToolGovernanceTests
         Assert.Equal("Internal agent does not have the required permission.", result.Reason);
     }
 
-    // ---- 2. MCP calls go through the same governance -------------------------
-
-    [Fact]
-    public async Task External_ReadToolBoundToTheAgent_IsAllowed()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "search_members",
-                new Dictionary<string, object?>()));
-
-        Assert.True(result.Allowed, result.Reason);
-    }
-
-    [Fact]
-    public async Task External_ToolThatNeedsApproval_IsRefused()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var result = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "send_payment_reminder",
-                McpArguments("""{ "invoiceId": 1 }""")));
-
-        Assert.False(result.Allowed);
-        Assert.Contains("requires human approval, which is not available over MCP", result.Reason);
-    }
-
-    [Fact]
-    public async Task External_AmountLimit_AppliesToMcpArguments()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var result = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "record_cash_payment",
-                McpArguments("""{ "invoiceId": 1, "amount": 50000 }""")));
-
-        Assert.False(result.Allowed);
-        Assert.Contains("exceeds the maximum allowed amount 2000", result.Reason);
-    }
-
-    [Fact]
-    public async Task External_ToolNotBoundToTheAgent_IsRefused()
-    {
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Professional.Id);
-        await SeedAgentAsync(tenantId, GymAdminId, ["search_members"]);
-
-        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "get_member_details",
-                McpArguments("""{ "memberId": 1 }""")));
-
-        Assert.False(result.Allowed);
-        Assert.Equal($"Tool 'get_member_details' is not enabled for agent '{GymAdminId}'.", result.Reason);
-    }
-
-    [Fact]
-    public async Task External_ToolOfDisabledModule_IsRefused()
-    {
-        var tenantId = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
-        await SeedAgentAsync(tenantId, GymAdminId, ["search_audit_events"]);
-
-        var result = await AsExternalAgent(tenantId, [Permissions.AuditRead], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "search_audit_events",
-                new Dictionary<string, object?>()));
-
-        Assert.False(result.Allowed);
-        Assert.Contains("not included in this workspace's subscription", result.Reason);
-    }
-
-    [Fact]
-    public async Task External_ScopeNotDelegated_IsDeniedByTheUserPolicy()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        // Only gym.members.read was delegated; the agent itself may freeze.
-        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "freeze_membership",
-                McpArguments("""{ "memberId": 1, "until": "2030-01-01" }""")));
-
-        Assert.False(result.Allowed);
-        Assert.Contains("You do not have permission 'gym.members.manage'", result.Reason);
-    }
-
-    [Fact]
-    public async Task External_UnknownTool_IsRefused()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var result = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], s =>
-            s.ExternalAgentTools.AuthorizeAsync(
-                "drop_database",
-                new Dictionary<string, object?>()));
-
-        Assert.False(result.Allowed);
-        Assert.Equal("Tool 'drop_database' is not in the tool catalogue.", result.Reason);
-    }
-
-    [Theory]
-    [InlineData(new[] { "gym.members.read" }, new[]
-    {
-        "get_attendance_summary", "get_dashboard_summary", "get_member_details", "get_member_routines",
-        "list_exercises", "list_expiring_memberships", "search_members"
-    })]
-    // Reminders and cash payments need approval, which MCP cannot provide.
-    [InlineData(new[] { "gym.billing.read", "gym.billing.manage" }, new[]
-    {
-        "get_revenue_summary", "list_overdue_invoices"
-    })]
-    [InlineData(new string[0], new string[0])]
-    public async Task External_ListsOnlyToolsItCanActuallyCall(string[] scopes, string[] expected)
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var tools = await AsExternalAgent(tenantId, scopes, async s =>
-            (await s.ExternalAgentTools.GetCallableToolsAsync())
-                .Select(x => x.Name)
-                .Order()
-                .ToList());
-
-        Assert.Equal(expected, tools);
-    }
-
-    [Fact]
-    public async Task External_ToolSchemaIsTheCatalogueSchema()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var details = await AsExternalAgent(tenantId, [Permissions.GymMembersRead], async s =>
-            (await s.ExternalAgentTools.GetCallableToolsAsync())
-                .Single(x => x.Name == "get_member_details"));
-
-        Assert.True(details.JsonSchema.GetProperty("properties").TryGetProperty("memberId", out _));
-    }
-
-    [Fact]
-    public async Task External_InvokingAToolThatIsNotCallable_IsRefused()
-    {
-        var tenantId = await SeedTenantWithGymAdminAsync();
-
-        var (success, _, error) = await AsExternalAgent(tenantId, [Permissions.GymBillingManage], s =>
-            s.ExternalAgentTools.InvokeAsync(
-                "send_payment_reminder",
-                McpArguments("""{ "invoiceId": 1 }""")));
-
-        Assert.False(success);
-        Assert.Equal("Tool 'send_payment_reminder' is not available to this agent.", error);
-    }
-
     // ---- Helpers ---------------------------------------------------------------
 
     private static AgentIdentity Identity(AgentType type) =>
@@ -340,17 +187,11 @@ public sealed class AgentToolGovernanceTests
             Type = type
         };
 
-    /// <summary>Arguments as the MCP server passes them: JSON values by name.</summary>
-    private static IDictionary<string, object?> McpArguments(string json) =>
-        JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json)!
-            .ToDictionary(x => x.Key, x => (object?)x.Value);
-
     private static GymAccessService GymAccess(TestServiceFactory s) =>
         new(
             s.ContextAccessor,
             new UserAuthorizationService(s.ContextAccessor),
             new AgentAuthorizationService(s.AgentPermissions),
-            effectiveAgentAuthorization: null!,
             new EfRepository<MemberProfile>(s.Db),
             s.Entitlements);
 
@@ -364,19 +205,6 @@ public sealed class AgentToolGovernanceTests
             tenantId,
             RolePermissions.GetPermissions(role),
             Identity(AgentType.Internal),
-            action);
-    }
-
-    /// <summary>An MCP call: the credential carries only the delegated scopes.</summary>
-    private Task<T> AsExternalAgent<T>(
-        int tenantId,
-        string[] delegatedScopes,
-        Func<TestServiceFactory, Task<T>> action)
-    {
-        return RunAsync(
-            tenantId,
-            delegatedScopes,
-            Identity(AgentType.External),
             action);
     }
 
