@@ -51,6 +51,7 @@ public static class IronForgeClientServiceCollectionExtensions
         // The member app replaces this with secure storage, so the pass works offline.
         services.TryAddScoped<IMemberPassStore, InMemoryMemberPassStore>();
         services.TryAddScoped<IPhoneUnlock, NoPhoneUnlock>();
+        services.TryAddScoped<IronForge.Shared.Components.Gym.DisplayTimeZone>();
 
         // Hosts may register their own (the mobile app opens the system browser).
         services.TryAddScoped<IExternalLinkOpener, NavigationLinkOpener>();

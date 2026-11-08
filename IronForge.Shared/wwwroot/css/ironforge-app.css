@@ -200,6 +200,17 @@
     border-bottom: 0;
 }
 
+/* A row's main link: looks like text, still reachable by keyboard. */
+.if-link-plain {
+    color: inherit;
+    text-decoration: none;
+}
+
+.if-link-plain:hover,
+.if-link-plain:focus-visible {
+    text-decoration: underline;
+}
+
 .if-table tr.clickable {
     cursor: pointer;
 }
@@ -780,6 +791,55 @@
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 0.93rem;
+}
+
+/* The arguments of an agent action awaiting approval (ApprovalArguments). */
+.approval-arguments-list {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 14px;
+    margin: 8px 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--if-bg, #f6f7f9);
+    font-size: 0.88rem;
+}
+
+.approval-arguments-list dt {
+    color: var(--if-muted, #6b7280);
+    font-weight: 500;
+}
+
+.approval-arguments-list dd {
+    margin: 0;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+/* Rendered AI reply (ChatText): paragraphs and lists, not pre-wrapped text. */
+.if-chat-text {
+    white-space: normal;
+}
+
+.if-chat-text p {
+    margin: 0 0 0.5em;
+}
+
+.if-chat-text ul,
+.if-chat-text ol {
+    margin: 0 0 0.5em;
+    padding-left: 1.3em;
+}
+
+.if-chat-text > :last-child {
+    margin-bottom: 0;
+}
+
+.if-chat-text code {
+    font-size: 0.9em;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.06);
 }
 
 .if-bubble.user {

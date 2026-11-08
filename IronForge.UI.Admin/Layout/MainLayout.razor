@@ -1,9 +1,10 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
 @inject IAuthService AuthService
 @inject ClientAppProfile Profile
 @inject NavigationManager Navigation
 @inject GymApiClient Gym
+@inject IronForge.Shared.Components.Gym.DisplayTimeZone DisplayZone
 
 <div class="ironforge-shell @(_mobileMenuOpen ? "mobile-menu-open" : "")">
 
@@ -136,6 +137,7 @@
             var gyms = await AuthService.GetMyTenantsAsync();
             _gymName = gyms.Data?.FirstOrDefault(x => x.TenantId == gym.TenantId)?.TenantName;
             _settings = Profile.AcceptsRole(gym.Role) ? (await Gym.GetSettingsAsync()).Data : null;
+            DisplayZone.Set(_settings?.TimeZoneId);
         }
 
         _gym = gym;

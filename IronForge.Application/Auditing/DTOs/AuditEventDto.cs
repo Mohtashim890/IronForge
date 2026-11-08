@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json.Serialization;
 using IronForge.Application.Auditing.Models;
 
 namespace IronForge.Application.Auditing.DTOs
@@ -18,6 +18,10 @@ namespace IronForge.Application.Auditing.DTOs
         public AuditActorType ActorType { get; set; }
 
         public int? UserId { get; set; }
+
+        /// <summary>The user's name, so readers need not resolve the id.</summary>
+        public string? Username { get; set; }
+
         public string? AgentId { get; set; }
 
         public string? ResourceType { get; set; }

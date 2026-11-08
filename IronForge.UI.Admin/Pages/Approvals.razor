@@ -8,8 +8,9 @@
 
 @inject IApprovalQueueClient ApprovalQueue
 @inject IAgentWorkspaceService AgentWorkspace
+@inject ITenantMembersService StaffService
 
-<PageTitle>Approvals</PageTitle>
+<PageTitle>Approvals | IronForge</PageTitle>
 
 <div class="approvals-page">
     <PageHeader Title="Approvals"
@@ -68,6 +69,14 @@
             {
                 <p class="approvals-muted">You have no high-risk requests waiting.</p>
             }
+            else if (noOtherApprover && queue.YourRequests.Any(x => !x.CanRun))
+            {
+                <div class="alert alert-warning" role="note">
+                    Nobody else in this gym can approve these: you are its only Admin, and you cannot
+                    approve your own requests. <a href="/staff">Invite a second Admin</a>, or do the
+                    action yourself on its page.
+                </div>
+            }
 
             @foreach (var item in queue.YourRequests)
             {
@@ -109,6 +118,7 @@
     private ApprovalQueueDto queue = new();
     private bool isLoading = true;
     private bool canDecide;
+    private bool noOtherApprover;
     private string? busyId;
     private string? message;
     private bool messageIsError;
@@ -123,6 +133,11 @@
         }
 
         await LoadAsync();
+
+        // Four-eyes needs another active Admin; staff lists need tenant.members.read.
+        var staff = await StaffService.GetMembersAsync();
+        noOtherApprover = staff.Success &&
+            !staff.Data!.Any(x => !x.IsCurrentUser && x.IsActive && x.Role == TenantRoles.Admin);
     }
 
     private async Task LoadAsync()

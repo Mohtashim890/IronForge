@@ -55,18 +55,19 @@ namespace IronForge.Application.Tenants.Services
                 x => tenantIds.Contains(x.Id),
                 cancellationToken);
 
-            // Suspended, canceled and expired-trial tenants cannot be selected.
+            // Suspended, canceled and expired-trial tenants are listed as
+            // unavailable, with the reason, so the user knows why; they cannot
+            // be selected (SelectAsync checks access again).
             var now = DateTime.UtcNow;
 
-            var tenantById = tenants
-                .Where(x => x.HasAccess(now))
-                .ToDictionary(x => x.Id);
+            var tenantById = tenants.ToDictionary(x => x.Id);
 
             var results = memberships
                 .Where(x => tenantById.ContainsKey(x.TenantId))
                 .Select(x =>
                 {
                     var tenant = tenantById[x.TenantId];
+                    var hasAccess = tenant.HasAccess(now);
 
                     return new TenantMembershipResult
                     {
@@ -74,7 +75,8 @@ namespace IronForge.Application.Tenants.Services
                         TenantName = tenant.Name,
                         Slug = tenant.Slug,
                         Role = x.Role,
-                        IsActive = true
+                        IsActive = hasAccess,
+                        UnavailableReason = hasAccess ? null : tenant.DescribeNoAccess(now)
                     };
                 })
                 .ToList();

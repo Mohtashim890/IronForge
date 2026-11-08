@@ -1,4 +1,4 @@
-﻿using IronForge.Application.Auditing.DTOs;
+using IronForge.Application.Auditing.DTOs;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Entities;
 using IronForge.Application.Execution;
@@ -14,12 +14,15 @@ namespace IronForge.Application.Auditing.Services
         private readonly IRepository<AuditEvent> _auditEvents;
         private readonly IExecutionContextAccessor _executionContext;
         private readonly IGymAccessService _access;
+        private readonly IRepository<User> _users;
 
         public AuditQueryService(
             IRepository<AuditEvent> auditEvents,
             IExecutionContextAccessor executionContext,
-            IGymAccessService access)
+            IGymAccessService access,
+            IRepository<User> users)
         {
+            _users = users;
             _auditEvents = auditEvents;
             _executionContext = executionContext;
             _access = access;
@@ -136,6 +139,21 @@ namespace IronForge.Application.Auditing.Services
                         Reason = x.Reason
                     }),
                 cancellationToken);
+
+            var userIds = items.Where(x => x.UserId.HasValue).Select(x => x.UserId!.Value).Distinct().ToList();
+
+            if (userIds.Count > 0)
+            {
+                var names = (await _users.QueryAsync(
+                        q => q.Where(x => userIds.Contains(x.Id)).Select(x => new { x.Id, x.Username }),
+                        cancellationToken))
+                    .ToDictionary(x => x.Id, x => x.Username);
+
+                foreach (var item in items)
+                {
+                    item.Username = item.UserId is { } id ? names.GetValueOrDefault(id) : null;
+                }
+            }
 
             var result = new AuditQueryResult
             {

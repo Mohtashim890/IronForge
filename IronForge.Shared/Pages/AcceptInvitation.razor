@@ -10,6 +10,7 @@
 @inject IInvitationService InvitationService
 @inject IAuthService AuthService
 @inject NavigationManager Navigation
+@inject ClientAppProfile Profile
 
 <PageTitle>Accept invitation</PageTitle>
 
@@ -43,11 +44,15 @@
                 <p class="invite-muted">Sign in as <strong>@accepted.Username</strong> to start.</p>
             }
 
-            <button type="button"
-                    class="invite-submit"
-                    @onclick="GoToLogin">
-                Sign in
-            </button>
+            @* Members sign in in the mobile app; this host's login would turn them away. *@
+            @if (accepted.Role != "Member" || Profile.Audience == ClientAudience.Member)
+            {
+                <button type="button"
+                        class="invite-submit"
+                        @onclick="GoToLogin">
+                    Sign in
+                </button>
+            }
         }
         else if (preview is null)
         {
@@ -121,7 +126,7 @@
             </EditForm>
 
             <p class="invite-muted invite-expiry">
-                This invitation expires @preview.ExpiresAtUtc.ToLocalTime().ToString("g").
+                This invitation expires @IronForge.Shared.Components.Gym.GymFormat.DateTime(preview.ExpiresAtUtc).
             </p>
         }
     </div>

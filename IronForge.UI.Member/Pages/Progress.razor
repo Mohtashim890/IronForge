@@ -26,7 +26,7 @@
         <div class="if-row" style="margin-top: 12px; flex-wrap: nowrap">
             <input class="if-input" type="number" step="0.1" placeholder="Today's weight (kg)" @bind="_newWeight" />
             <input class="if-input" type="number" step="0.1" placeholder="Body fat %" @bind="_newFat" style="max-width: 120px" />
-            <button class="if-btn primary" disabled="@(_newWeight is null && _newFat is null)" @onclick="RecordAsync">Save</button>
+            <button class="if-btn primary" @onclick="RecordAsync">Save</button>
         </div>
     </div>
 
@@ -47,7 +47,7 @@
                 <li>
                     <div style="flex: 1">
                         <strong>@goal.Description</strong>
-                        <div class="if-small if-muted">@goal.Type @(goal.TargetDate is { } d ? $"· by {GymFormat.Date(d)}" : "")</div>
+                        <div class="if-small if-muted">@GymFormat.Words(goal.Type) @(goal.TargetDate is { } d ? $"· by {GymFormat.Date(d)}" : "")</div>
                     </div>
                     @if (goal.Status == GoalStatus.Active)
                     {
@@ -63,13 +63,13 @@
 
         <div class="if-field" style="margin-top: 12px">
             <label>New goal</label>
-            <input @bind="_goal.Description" placeholder="e.g. Run 5 km without stopping" />
+            <input @bind="_goal.Description" @bind:event="oninput" placeholder="e.g. Run 5 km without stopping" />
         </div>
         <div class="if-row" style="flex-wrap: nowrap">
             <select class="if-input" @bind="_goal.Type">
                 @foreach (var type in Enum.GetValues<GoalType>())
                 {
-                    <option value="@type">@type</option>
+                    <option value="@type">@GymFormat.Words(type)</option>
                 }
             </select>
             <input class="if-input" type="date" @bind="_goal.TargetDate" />
@@ -121,6 +121,13 @@
 
     private async Task RecordAsync()
     {
+        if (_newWeight is null && _newFat is null)
+        {
+            _error = "Enter your weight, your body fat %, or both.";
+            return;
+        }
+
+        _error = null;
         var result = await Me.RecordMetricAsync(new RecordBodyMetricRequest { WeightKg = _newWeight, BodyFatPercent = _newFat });
 
         if (!result.Success)

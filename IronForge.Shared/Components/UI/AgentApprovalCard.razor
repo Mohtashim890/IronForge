@@ -1,4 +1,4 @@
-﻿@using IronForge.Shared.Models.Agents
+@using IronForge.Shared.Models.Agents
 <div class="agent-approval-card">
 
     <div class="agent-approval-header">
@@ -45,6 +45,8 @@
 
         </div>
 
+        <ApprovalArguments Json="@Approval.ArgumentsJson" />
+
         @if (RequiresSecondApprover)
         {
             <div class="agent-approval-four-eyes" role="note">
@@ -69,7 +71,7 @@
             </span>
 
             <span>
-                @Approval.CreatedAtUtc.ToLocalTime().ToString("g")
+                @GymFormat.DateTime(Approval.CreatedAtUtc)
             </span>
 
         </div>
@@ -81,7 +83,7 @@
             </span>
 
             <span>
-                @Approval.ExpiresAtUtc.ToLocalTime().ToString("g")
+                @GymFormat.DateTime(Approval.ExpiresAtUtc)
             </span>
 
         </div>
@@ -140,28 +142,8 @@
     [Parameter]
     public EventCallback Reject { get; set; }
 
-    private string DisplayToolName =>
-        Approval.ToolName switch
-        {
-            "create_product" =>
-                "Create product",
+    private string DisplayToolName => Approval.ToolName.Replace("_", " ");
 
-            "update_product" =>
-                "Update product",
-
-            "delete_product" =>
-                "Delete product",
-
-            "get_product" =>
-                "Get product",
-
-            "get_products" =>
-                "Get products",
-
-            _ =>
-                Approval.ToolName
-                    .Replace("_", " ")
-        };
 
     /// <summary>High/Critical risk: four-eyes, never approved by the requester.</summary>
     private bool RequiresSecondApprover =>

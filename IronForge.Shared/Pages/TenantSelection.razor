@@ -1,4 +1,4 @@
-﻿@page "/select-tenant"
+@page "/select-tenant"
 
 @attribute [Authorize]
 @using Microsoft.AspNetCore.Authorization
@@ -78,11 +78,21 @@
 
                 <h2>No gym available</h2>
 
-                <p>
-                    @(hasOtherRoles
-                        ? Profile.WrongAppMessage
-                        : "Your account is not part of an active gym. Ask your gym for an invitation, or join with its code.")
-                </p>
+                @if (unavailable.Count > 0)
+                {
+                    @foreach (var gym in unavailable)
+                    {
+                        <p><strong>@gym.TenantName</strong>: @gym.UnavailableReason</p>
+                    }
+                }
+                else
+                {
+                    <p>
+                        @(hasOtherRoles
+                            ? Profile.WrongAppMessage
+                            : "Your account is not part of an active gym. Ask your gym for an invitation, or join with its code.")
+                    </p>
+                }
 
                 <button type="button" class="if-btn" @onclick="SignOutAsync">Sign out</button>
             </div>
@@ -144,6 +154,7 @@
 @code {
 
     private List<TenantMembership> tenants = new();
+    private List<TenantMembership> unavailable = new();
 
     // The account has gyms, but none with a role this app serves.
     private bool hasOtherRoles;
@@ -187,11 +198,15 @@
             var all = result.Data ?? new();
 
             // Staff use the web dashboard, members the mobile app.
-            tenants = all
+            var forThisApp = all
                 .Where(x => Profile.AcceptsRole(x.Role))
                 .ToList();
 
-            hasOtherRoles = tenants.Count == 0 && all.Count > 0;
+            // Suspended or canceled gyms are listed with the reason, not selectable.
+            tenants = forThisApp.Where(x => x.IsActive).ToList();
+            unavailable = forThisApp.Where(x => !x.IsActive).ToList();
+
+            hasOtherRoles = forThisApp.Count == 0 && all.Count > 0;
 
             // One gym: select it automatically.
             if (tenants.Count == 1)

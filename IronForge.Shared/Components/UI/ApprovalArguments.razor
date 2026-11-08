@@ -1,0 +1,63 @@
+@* What an agent action will be done with, so the approver sees exactly what they approve. *@
+
+@if (_fields.Count > 0)
+{
+    <dl class="approval-arguments-list">
+        @foreach (var (label, value) in _fields)
+        {
+            <dt>@label</dt>
+            <dd>@value</dd>
+        }
+    </dl>
+}
+else if (!string.IsNullOrWhiteSpace(Json))
+{
+    <code class="approval-arguments">@Json</code>
+}
+
+@code {
+    [Parameter] public string? Json { get; set; }
+
+    private List<(string Label, string Value)> _fields = [];
+
+    protected override void OnParametersSet()
+    {
+        _fields = [];
+
+        if (string.IsNullOrWhiteSpace(Json))
+            return;
+
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(Json);
+
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return;
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                var value = property.Value.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.String => property.Value.GetString() ?? "",
+                    System.Text.Json.JsonValueKind.Null => "—",
+                    System.Text.Json.JsonValueKind.True => "yes",
+                    System.Text.Json.JsonValueKind.False => "no",
+                    _ => property.Value.GetRawText()
+                };
+
+                _fields.Add((Label(property.Name), value));
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            _fields = [];
+        }
+    }
+
+    /// <summary>"memberId" → "Member id".</summary>
+    private static string Label(string name)
+    {
+        var words = System.Text.RegularExpressions.Regex.Replace(name.Replace('_', ' '), "(?<=[a-z0-9])([A-Z])", " $1").Trim();
+        return words.Length == 0 ? name : char.ToUpperInvariant(words[0]) + words[1..].ToLowerInvariant();
+    }
+}

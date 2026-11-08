@@ -1,4 +1,4 @@
-﻿@page "/agent"
+@page "/agent"
 @attribute [Authorize]
 
 @using IronForge.Shared.Components.UI
@@ -12,7 +12,7 @@
 @inject IAgentWorkspaceService AgentWorkspaceService
 @inject IJSRuntime JS
 
-<PageTitle>Agent Workspace</PageTitle>
+<PageTitle>AI assistant | IronForge</PageTitle>
 
 <div class="agent-workspace @(isSessionSidebarOpen ? "session-sidebar-open" : "")">
 
@@ -153,7 +153,7 @@
         </header>
 
 
-        <main class="agent-message-area" @ref="conversationContainer">
+        <section class="agent-message-area" @ref="conversationContainer">
 
             @if (selectedSessionId is null)
             {
@@ -164,11 +164,11 @@
                     </div>
 
                     <h2>
-                        Select a conversation
+                        Ask the @AgentName
                     </h2>
 
                     <p>
-                        Choose an existing conversation or start a new one.
+                        Type a question below to start a conversation, or pick an earlier one.
                     </p>
 
                 </div>
@@ -238,11 +238,11 @@
                                     </div>
 
                                     <div class="agent-message-content">
-                                        @item.Message.Content
+                                        <ChatText Text="@item.Message.Content" />
                                     </div>
 
                                     <div class="agent-message-time">
-                                        @item.Message.CreatedAtUtc.ToLocalTime().ToString("g")
+                                        @GymFormat.DateTime(item.Message.CreatedAtUtc)
                                     </div>
 
                                 </div>
@@ -254,7 +254,7 @@
                 </div>
             }
 
-        </main>
+        </section>
 
         @if (pendingApproval is not null)
         {
@@ -298,18 +298,16 @@
                 <textarea class="agent-composer-input"
                           @bind="composerText"
                           @bind:event="oninput"
-                          placeholder="@(selectedSessionId is null
-                                          ? "Select a conversation first..."
-                                          : $"Ask the {AgentName}...")"
-                          disabled="@(selectedSessionId is null || IsAgentBusy)"
+                          @onkeydown="ComposerKeyAsync"
+                          placeholder="@($"Ask the {AgentName}...")"
+                          disabled="@IsAgentBusy"
                           rows="1">
                 </textarea>
 
                 <button type="button"
                         class="btn btn-primary agent-send-button"
                         @onclick="SendMessageAsync"
-                        disabled="@(selectedSessionId is null
-                                                    || IsAgentBusy
+                        disabled="@(IsAgentBusy
                                                     || string.IsNullOrWhiteSpace(composerText))">
 
                     @if (IsAgentBusy)
@@ -626,8 +624,25 @@
         };
     }
 
+    private async Task ComposerKeyAsync(KeyboardEventArgs e)
+    {
+        // Enter sends, Shift+Enter starts a new line (as in the member app's coach).
+        if (e.Key == "Enter" && !e.ShiftKey)
+        {
+            await SendMessageAsync();
+        }
+    }
+
     private async Task SendMessageAsync()
     {
+        if (selectedSessionId is null && !string.IsNullOrWhiteSpace(composerText))
+        {
+            // Typing without picking a conversation starts a new one.
+            var draft = composerText;
+            await CreateNewSessionAsync();
+            composerText = draft;
+        }
+
         if (selectedSessionId is null)
             return;
 
@@ -714,7 +729,7 @@
             session.LastMessageAtUtc
             ?? session.UpdatedAtUtc;
 
-        return timestamp.ToLocalTime().ToString("g");
+        return GymFormat.DateTime(timestamp);
     }
     private string AgentStatusMessage =>
         executionState switch
@@ -724,6 +739,9 @@
 
             AgentExecutionState.Processing =>
                 $"{AgentName} is processing your request...",
+
+            AgentExecutionState.AwaitingApproval when pendingApproval?.RiskLevel is "High" or "Critical" =>
+                "Waiting for another approver under Approvals...",
 
             AgentExecutionState.AwaitingApproval =>
                 "Waiting for your approval...",

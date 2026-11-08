@@ -1,4 +1,4 @@
-﻿@using IronForge.Shared.Models.Agents.Workflows
+@using IronForge.Shared.Models.Agents.Workflows
 @if (Workflow is null)
 {
     return;
@@ -50,7 +50,7 @@
                     @if (step.CompletedAtUtc.HasValue)
                     {
                         <div class="agent-workflow-step-time">
-                            @step.CompletedAtUtc.Value.ToLocalTime().ToString("g")
+                            @GymFormat.DateTime(step.CompletedAtUtc)
                         </div>
                     }
 

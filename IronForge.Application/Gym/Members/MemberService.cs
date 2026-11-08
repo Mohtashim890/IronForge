@@ -1,4 +1,4 @@
-﻿using IronForge.Application.Auditing.Models;
+using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
@@ -114,6 +114,7 @@ public sealed class MemberService : IMemberService
     private readonly IRepository<User> _users;
     private readonly IBillingEngine _billing;
     private readonly ITenantInvitationService _invitations;
+    private readonly ITenantInvitationStore _invitationStore;
     private readonly ITenantEntitlementService _entitlements;
     private readonly INotificationService _notifications;
     private readonly IUnitOfWork _unitOfWork;
@@ -136,6 +137,7 @@ public sealed class MemberService : IMemberService
         IRepository<User> users,
         IBillingEngine billing,
         ITenantInvitationService invitations,
+        ITenantInvitationStore invitationStore,
         ITenantEntitlementService entitlements,
         INotificationService notifications,
         IUnitOfWork unitOfWork,
@@ -158,6 +160,7 @@ public sealed class MemberService : IMemberService
         _users = users;
         _billing = billing;
         _invitations = invitations;
+        _invitationStore = invitationStore;
         _entitlements = entitlements;
         _notifications = notifications;
         _unitOfWork = unitOfWork;
@@ -267,6 +270,7 @@ public sealed class MemberService : IMemberService
                         MemberId = x.MemberProfileId,
                         MemberName = member.FullName,
                         Description = x.Description,
+                        IsOneOff = x.IsOneOff,
                         PeriodStart = x.PeriodStart,
                         PeriodEnd = x.PeriodEnd,
                         Amount = x.Amount,
@@ -328,6 +332,19 @@ public sealed class MemberService : IMemberService
                     }),
                 cancellationToken)
         };
+
+        if (!summary.HasAppAccount)
+        {
+            var invitation = (await _invitationStore.ListOpenAsync(
+                    member.TenantId,
+                    member.Email,
+                    cancellationToken))
+                .Where(x => x.Role == TenantRoles.Member)
+                .MaxBy(x => x.CreatedAtUtc);
+
+            detail.AppInvitationSentAtUtc = invitation?.CreatedAtUtc;
+            detail.AppInvitationExpiresAtUtc = invitation?.ExpiresAtUtc;
+        }
 
         if (member.PhotoUpdatedAtUtc is not null)
         {
@@ -456,10 +473,15 @@ public sealed class MemberService : IMemberService
             return failure!;
         }
 
+        if (!MemberGender.TryNormalize(request.Gender, out var gender))
+        {
+            return GymResults.Invalid<MemberSummaryDto>(MemberGender.Invalid);
+        }
+
         member.FullName = request.FullName.Trim();
         member.Phone = Clean(request.Phone);
         member.DateOfBirth = request.DateOfBirth;
-        member.Gender = Clean(request.Gender);
+        member.Gender = gender;
         member.HeightCm = request.HeightCm;
         member.EmergencyContact = Clean(request.EmergencyContact);
         member.Notes = Clean(request.Notes);
@@ -655,6 +677,25 @@ public sealed class MemberService : IMemberService
         if (member.Status != MemberStatus.Frozen)
         {
             return GymResults.Conflict<MemberSummaryDto>($"{member.FullName} is not frozen.");
+        }
+
+        // Ended early: give back the freeze days after today, which the
+        // freeze added to billing and to the paid period (a shifted paid
+        // period always ends after the freeze).
+        if (member.FrozenUntil is { } until)
+        {
+            var gym = await _billing.GetGymAsync(member.TenantId, cancellationToken);
+            var today = GymCalendar.Today(_clock, gym?.Settings.TimeZoneId);
+            var unused = until.DayNumber - today.DayNumber;
+
+            if (unused > 0)
+            {
+                if (member.NextBillingDate is { } next)
+                    member.NextBillingDate = next.AddDays(-unused);
+
+                if (member.PaidThrough is { } paid && paid > until)
+                    member.PaidThrough = paid.AddDays(-unused);
+            }
         }
 
         member.Status = MemberStatus.Active;
@@ -954,6 +995,7 @@ public sealed class MemberService : IMemberService
             Currency = currency,
             WorkoutsThisWeek = workoutDays.Count(x => x >= weekStart),
             WeeklyStreak = GymCalendar.WeeklyStreak(workoutDays, today),
+            GymToday = today,
             CheckInsLast30Days = await _checkIns.CountAsync(
                 x => x.MemberProfileId == member.Id && x.CheckedInAtUtc >= since,
                 cancellationToken),
@@ -973,6 +1015,7 @@ public sealed class MemberService : IMemberService
                     MemberId = member.Id,
                     MemberName = member.FullName,
                     Description = next.Description,
+                    IsOneOff = next.IsOneOff,
                     PeriodStart = next.PeriodStart,
                     PeriodEnd = next.PeriodEnd,
                     Amount = next.Amount,
@@ -1003,10 +1046,15 @@ public sealed class MemberService : IMemberService
 
         var member = current.Data!;
 
+        if (!MemberGender.TryNormalize(request.Gender, out var gender))
+        {
+            return GymResults.Invalid<MyMembershipDto>(MemberGender.Invalid);
+        }
+
         member.FullName = request.FullName.Trim();
         member.Phone = Clean(request.Phone);
         member.DateOfBirth = request.DateOfBirth;
-        member.Gender = Clean(request.Gender);
+        member.Gender = gender;
         member.HeightCm = request.HeightCm;
         member.EmergencyContact = Clean(request.EmergencyContact);
 

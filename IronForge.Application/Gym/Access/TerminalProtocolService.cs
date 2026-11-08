@@ -319,6 +319,7 @@ public sealed class TerminalProtocolService : ITerminalProtocolService
         var overdue = (await _invoices.QueryAsync(
                 q => q
                     .Where(x => memberIds.Contains(x.MemberProfileId) &&
+                                !x.IsOneOff &&
                                 (x.Status == InvoiceStatus.Overdue ||
                                  (x.Status == InvoiceStatus.Open && x.DueDate < today)))
                     .Select(x => new { x.MemberProfileId, x.Number, x.Amount, x.Currency, x.DueDate }),
@@ -470,6 +471,7 @@ public sealed class TerminalProtocolService : ITerminalProtocolService
             var overdue = (await _invoices.QueryAsync(
                     q => q
                         .Where(x => x.MemberProfileId == memberId &&
+                                    !x.IsOneOff &&
                                     (x.Status == InvoiceStatus.Overdue ||
                                      (x.Status == InvoiceStatus.Open && x.DueDate < today)))
                         .OrderBy(x => x.DueDate)

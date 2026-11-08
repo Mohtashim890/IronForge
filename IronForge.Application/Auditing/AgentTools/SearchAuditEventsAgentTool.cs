@@ -1,4 +1,4 @@
-﻿using IronForge.Shared.Subscriptions;
+using IronForge.Shared.Subscriptions;
 using System.ComponentModel;
 using IronForge.Application.Agents.Governance;
 using IronForge.Application.Agents.Tools;
@@ -120,6 +120,7 @@ public sealed class SearchAuditEventsAgentTool : AgentTool
                 Outcome = x.Outcome.ToString(),
                 ActorType = x.ActorType.ToString(),
                 x.UserId,
+                x.Username,
                 x.AgentId,
                 x.ResourceType,
                 x.ResourceId,

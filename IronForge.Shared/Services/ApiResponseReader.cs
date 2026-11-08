@@ -5,8 +5,12 @@ using IronForge.Shared.Models;
 namespace IronForge.Shared.Services;
 
 /// <summary>Turns API responses into <see cref="ServiceResult{T}"/>.</summary>
-internal static class ApiResponseReader
+internal static partial class ApiResponseReader
 {
+    /// <summary>A property name in a default validation message, e.g. "MuscleGroup".</summary>
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b")]
+    private static partial System.Text.RegularExpressions.Regex FieldName();
+
     public static async Task<ServiceResult<T>> ReadAsync<T>(
         HttpResponseMessage response,
         string fallbackMessage,
@@ -48,8 +52,9 @@ internal static class ApiResponseReader
 
     /// <summary>
     /// The user-facing message of a failed response: the API's plain-text
-    /// message, or the "message" of its JSON error body. HTML and
-    /// problem+json bodies fall back to a message per status code.
+    /// message, the "message" of its JSON error body, or the field messages
+    /// of a validation problem. Other HTML and problem+json bodies fall back
+    /// to a message per status code.
     /// </summary>
     public static async Task<string> ErrorMessageAsync(
         HttpResponseMessage response,
@@ -68,6 +73,25 @@ internal static class ApiResponseReader
                     response.StatusCode != HttpStatusCode.InternalServerError)
                 {
                     return fromJson;
+                }
+
+                // Model validation (ValidationProblemDetails): show the field messages.
+                if (json.RootElement.TryGetProperty("errors", out var errors) &&
+                    errors.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    var messages = errors.EnumerateObject()
+                        .SelectMany(x => x.Value.ValueKind == System.Text.Json.JsonValueKind.Array
+                            ? x.Value.EnumerateArray().Select(m => m.GetString())
+                            : [])
+                        .Where(m => !string.IsNullOrWhiteSpace(m))
+                        .Select(m => FieldName().Replace(m!, x => x.Value[..1] + string.Concat(x.Value[1..].Select(c => char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()))))
+                        .Distinct()
+                        .ToList();
+
+                    if (messages.Count > 0)
+                    {
+                        return string.Join(" ", messages);
+                    }
                 }
             }
             catch (System.Text.Json.JsonException)

@@ -117,11 +117,11 @@
     <ChildContent>
         <div class="if-field">
             <label for="terminal-name">Name</label>
-            <input id="terminal-name" @bind="_terminal.Name" maxlength="100" placeholder="Turnstile, main door" />
+            <input id="terminal-name" @bind="_terminal.Name" @bind:event="oninput" maxlength="100" placeholder="Turnstile, main door" />
         </div>
         <div class="if-field">
             <label for="terminal-serial">Serial number</label>
-            <input id="terminal-serial" class="if-mono" @bind="_terminal.SerialNumber" maxlength="40" placeholder="CJDE212460012" />
+            <input id="terminal-serial" class="if-mono" @bind="_terminal.SerialNumber" @bind:event="oninput" maxlength="40" placeholder="CJDE212460012" />
         </div>
         <div class="if-field">
             <label for="terminal-ip">Only accept it from this IP address (optional)</label>

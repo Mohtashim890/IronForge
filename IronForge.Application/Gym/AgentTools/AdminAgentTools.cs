@@ -180,7 +180,10 @@ public sealed class ListOverdueInvoicesAgentTool : AgentTool
     public override AgentToolDescriptor Descriptor { get; } = new()
     {
         Name = "list_overdue_invoices",
-        Description = "Lists overdue invoices with member, amount, due date and days overdue.",
+        Description =
+            "Lists unpaid invoices with member, amount, status, due date and days overdue. By default only " +
+            "overdue ones (past their due date). For 'unpaid', 'outstanding' or 'who owes money' questions " +
+            "set includeNotYetDue=true to add the open invoices that are not due yet.",
         RequiredPermission = Permissions.GymBillingRead,
         Module = PlatformModules.GymBilling
     };
@@ -188,33 +191,52 @@ public sealed class ListOverdueInvoicesAgentTool : AgentTool
     protected override Delegate Handler => ExecuteAsync;
 
     private async Task<object> ExecuteAsync(
-        [Description("Maximum results, 1 to 100. Default 50.")]
+        [Description("Also list open invoices that are not due yet (all unpaid invoices). Default false.")]
+        bool includeNotYetDue = false,
+        [Description("Maximum results per status, 1 to 100. Default 50.")]
         int limit = 50)
     {
-        var result = await _billing.ListInvoicesAsync(new InvoiceQuery
-        {
-            Status = InvoiceStatus.Overdue,
-            PageSize = Math.Clamp(limit, 1, 100)
-        });
+        var statuses = includeNotYetDue
+            ? new[] { InvoiceStatus.Overdue, InvoiceStatus.Open }
+            : [InvoiceStatus.Overdue];
 
-        return result.Success
-            ? GymToolResult.Ok(new
+        var invoices = new List<InvoiceDto>();
+        var totalCount = 0;
+
+        foreach (var status in statuses)
+        {
+            var result = await _billing.ListInvoicesAsync(new InvoiceQuery
             {
-                result.Data!.TotalCount,
-                TotalAmount = result.Data.Items.Sum(x => x.Amount),
-                Invoices = result.Data.Items.Select(x => new
-                {
-                    InvoiceId = x.Id,
-                    x.Number,
-                    x.MemberId,
-                    x.MemberName,
-                    x.Amount,
-                    x.Currency,
-                    x.DueDate,
-                    x.DaysOverdue
-                })
+                Status = status,
+                PageSize = Math.Clamp(limit, 1, 100)
+            });
+
+            if (!result.Success)
+            {
+                return GymToolResult.From(result);
+            }
+
+            totalCount += result.Data!.TotalCount;
+            invoices.AddRange(result.Data.Items);
+        }
+
+        return GymToolResult.Ok(new
+        {
+            TotalCount = totalCount,
+            TotalAmount = invoices.Sum(x => x.Amount),
+            Invoices = invoices.Select(x => new
+            {
+                InvoiceId = x.Id,
+                x.Number,
+                x.MemberId,
+                x.MemberName,
+                x.Amount,
+                x.Currency,
+                Status = x.Status.ToString(),
+                x.DueDate,
+                x.DaysOverdue
             })
-            : GymToolResult.From(result);
+        });
     }
 }
 

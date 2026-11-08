@@ -1,4 +1,4 @@
-﻿using IronForge.Application.Agents.Models;
+using IronForge.Application.Agents.Models;
 using IronForge.Application.Agents.Runtime;
 using IronForge.Application.Auth.DTOs;
 using IronForge.Application.Auth.Models;
@@ -373,7 +373,7 @@ public sealed class TenantSubscriptionTests
     }
 
     [Fact]
-    public async Task CanceledTenant_IsNotListedForItsMembers()
+    public async Task CanceledTenant_IsListedAsUnavailable_WithTheReason()
     {
         var active = await SeedTenantAsync(SubscriptionPlans.Starter.Id);
         var canceled = await SeedTenantAsync(SubscriptionPlans.Starter.Id, SubscriptionStatus.Canceled);
@@ -388,7 +388,11 @@ public sealed class TenantSubscriptionTests
                 s.ContextAccessor,
                 s.Audit).GetMyTenantsAsync());
 
-        Assert.Equal([active], tenants.Select(x => x.TenantId));
+        Assert.Equal([active], tenants.Where(x => x.IsActive).Select(x => x.TenantId));
+
+        var unavailable = Assert.Single(tenants, x => !x.IsActive);
+        Assert.Equal(canceled, unavailable.TenantId);
+        Assert.Contains("subscription has ended", unavailable.UnavailableReason);
     }
 
     // ---- Helpers -----------------------------------------------------------

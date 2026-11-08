@@ -13,6 +13,11 @@
     <div class="if-alert error">@_error</div>
 }
 
+@if (_loading)
+{
+    <p class="if-muted">Loading…</p>
+}
+
 @if (_dayName is not null)
 {
     <p class="if-muted">Following <strong>@_dayName</strong>. Adjust reps and weights to what you actually did.</p>
@@ -22,7 +27,7 @@
     <div class="if-form-grid">
         <div class="if-field">
             <label>Date</label>
-            <input type="date" @bind="_request.PerformedOn" />
+            <input type="date" @bind="_request.PerformedOn" min="@_gymToday?.AddDays(-60).ToString("yyyy-MM-dd")" max="@_gymToday?.ToString("yyyy-MM-dd")" />
         </div>
         <div class="if-field">
             <label>Duration (minutes)</label>
@@ -87,12 +92,27 @@
     private readonly List<LogWorkoutSetRequest> _sets = [];
     private List<ExerciseDto> _library = [];
     private string? _dayName;
+    private DateOnly? _gymToday;
+    private bool _loading = true;
     private bool _saving;
     private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
-        var library = await Me.GetExercisesAsync();
+        var libraryTask = Me.GetExercisesAsync();
+        var membershipTask = Me.GetMembershipAsync();
+        var routinesTask = DayId is null ? null : Me.GetRoutinesAsync();
+
+        var library = await libraryTask;
+        var membership = await membershipTask;
+        _loading = false;
+
+        // The gym's calendar decides which dates are valid, not the phone's.
+        if (membership.Data is { } me)
+        {
+            _gymToday = me.GymToday;
+            _request.PerformedOn = me.GymToday;
+        }
 
         if (!library.Success)
         {
@@ -102,11 +122,11 @@
 
         _library = library.Data!;
 
-        if (DayId is not { } dayId)
+        if (DayId is not { } dayId || routinesTask is null)
             return;
 
         // Prefill from the routine day.
-        var routines = await Me.GetRoutinesAsync();
+        var routines = await routinesTask;
         var day = routines.Data?.SelectMany(x => x.Days).FirstOrDefault(x => x.Id == dayId);
 
         if (day is null)

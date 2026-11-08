@@ -1,4 +1,4 @@
-﻿@page "/settings"
+@page "/settings"
 @attribute [Authorize(Policy = Permissions.GymSettingsManage)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -34,7 +34,7 @@
                 <div class="if-card-head"><h2>Join code</h2></div>
                 <p class="if-muted if-small">New members enter this code in the IronForge app to request to join @_settings.GymName.</p>
                 <div style="font-size: 2rem; font-weight: 800; letter-spacing: 0.15em" class="if-mono">@_settings.JoinCode</div>
-                <button class="if-btn" style="margin-top: 10px" disabled="@_busy" @onclick="RegenerateAsync">Create a new code</button>
+                <button class="if-btn" style="margin-top: 10px" disabled="@_busy" @onclick="() => _confirmNewCode = true">Create a new code</button>
                 <p class="if-muted if-small">The old code stops working immediately.</p>
             </div>
 
@@ -161,7 +161,18 @@
     }
 </div>
 
+<Modal @bind-Open="_confirmNewCode" Title="Create a new join code?">
+    <ChildContent>
+        <p>The current code stops working at once, including on posters and social media posts. People who already joined are not affected.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmNewCode = false">Keep the current code</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="RegenerateAsync">Create a new code</button>
+    </Footer>
+</Modal>
+
 @code {
+    private bool _confirmNewCode;
     private GymSettingsDto? _settings;
     private UpdateGymSettingsRequest _form = new();
     private string _afterDue = "";
@@ -230,7 +241,11 @@
         await RunAsync(() => Gym.UpdateSettingsAsync(_form), "Settings saved.");
     }
 
-    private Task RegenerateAsync() => RunAsync(Gym.RegenerateJoinCodeAsync, "New join code created.");
+    private Task RegenerateAsync()
+    {
+        _confirmNewCode = false;
+        return RunAsync(Gym.RegenerateJoinCodeAsync, "New join code created.");
+    }
 
     private async Task RunAsync(Func<CancellationToken, Task<ServiceResult<GymSettingsDto>>> action, string success)
     {

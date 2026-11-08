@@ -387,6 +387,11 @@ namespace IronForge.Api.Controllers
         public async Task<IActionResult> Get(int invoiceId, CancellationToken cancellationToken) =>
             this.ToActionResult(await _billing.GetInvoiceAsync(invoiceId, cancellationToken));
 
+        /// <summary>A one-off charge for a member (personal training, a locker…).</summary>
+        [HttpPost("members/{memberId:int}/invoices")]
+        public async Task<IActionResult> CreateOneOff(int memberId, CreateInvoiceRequest request, CancellationToken cancellationToken) =>
+            this.ToActionResult(await _billing.CreateOneOffInvoiceAsync(memberId, request, cancellationToken));
+
         [HttpPost("invoices/{invoiceId:int}/payments")]
         public async Task<IActionResult> RecordPayment(int invoiceId, RecordPaymentRequest request, CancellationToken cancellationToken) =>
             this.ToActionResult(await _billing.RecordPaymentAsync(invoiceId, request, cancellationToken));

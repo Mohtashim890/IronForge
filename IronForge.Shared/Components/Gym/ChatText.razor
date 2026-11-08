@@ -1,0 +1,74 @@
+@* An AI reply with the little Markdown models write: **bold**, *italic*,
+   `code`, headings, bullet and numbered lists. The text is HTML-encoded
+   first, so nothing in a reply can inject markup. *@
+
+<div class="if-chat-text">@((MarkupString)Render(Text))</div>
+
+@code {
+    [Parameter] public string? Text { get; set; }
+
+    private static readonly System.Text.RegularExpressions.Regex Bold = new(@"\*\*(.+?)\*\*");
+    private static readonly System.Text.RegularExpressions.Regex Italic = new(@"(?<![\*\w])\*(?!\s)(.+?)(?<!\s)\*(?![\*\w])");
+    private static readonly System.Text.RegularExpressions.Regex Code = new(@"`([^`]+)`");
+    private static readonly System.Text.RegularExpressions.Regex Bullet = new(@"^\s*[-*•]\s+(.*)$");
+    private static readonly System.Text.RegularExpressions.Regex Numbered = new(@"^\s*\d+[.)]\s+(.*)$");
+    private static readonly System.Text.RegularExpressions.Regex Heading = new(@"^\s*#{1,6}\s+(.*)$");
+
+    internal static string Render(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        var html = new System.Text.StringBuilder();
+        string? list = null;
+
+        void CloseList()
+        {
+            if (list is not null)
+            {
+                html.Append($"</{list}>");
+                list = null;
+            }
+        }
+
+        foreach (var raw in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = System.Net.WebUtility.HtmlEncode(raw);
+
+            if (Bullet.Match(line) is { Success: true } bullet)
+            {
+                if (list != "ul") { CloseList(); html.Append("<ul>"); list = "ul"; }
+                html.Append($"<li>{Inline(bullet.Groups[1].Value)}</li>");
+            }
+            else if (Numbered.Match(line) is { Success: true } numbered)
+            {
+                if (list != "ol") { CloseList(); html.Append("<ol>"); list = "ol"; }
+                html.Append($"<li>{Inline(numbered.Groups[1].Value)}</li>");
+            }
+            else if (string.IsNullOrWhiteSpace(line))
+            {
+                CloseList();
+            }
+            else if (Heading.Match(line) is { Success: true } heading)
+            {
+                CloseList();
+                html.Append($"<p><strong>{Inline(heading.Groups[1].Value)}</strong></p>");
+            }
+            else
+            {
+                CloseList();
+                html.Append($"<p>{Inline(line)}</p>");
+            }
+        }
+
+        CloseList();
+        return html.ToString();
+    }
+
+    private static string Inline(string encoded)
+    {
+        encoded = Code.Replace(encoded, "<code>$1</code>");
+        encoded = Bold.Replace(encoded, "<strong>$1</strong>");
+        return Italic.Replace(encoded, "<em>$1</em>");
+    }
+}

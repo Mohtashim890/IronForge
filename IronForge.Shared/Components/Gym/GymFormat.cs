@@ -16,10 +16,13 @@ public static class GymFormat
         date.ToString("d MMM", CultureInfo.InvariantCulture);
 
     public static string Date(DateTime? utc) =>
-        utc is null ? "—" : utc.Value.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+        utc is null ? "—" : DisplayTimeZone.ToDisplay(utc.Value).ToString("d MMM yyyy", CultureInfo.InvariantCulture);
 
     public static string DateTime(DateTime? utc) =>
-        utc is null ? "—" : utc.Value.ToLocalTime().ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture);
+        utc is null ? "—" : DisplayTimeZone.ToDisplay(utc.Value).ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture);
+
+    public static string Time(DateTime utc) =>
+        DisplayTimeZone.ToDisplay(utc).ToString("HH:mm", CultureInfo.InvariantCulture);
 
     public static string Ago(DateTime utc)
     {
@@ -34,6 +37,22 @@ public static class GymFormat
             _ => Date(utc)
         };
     }
+
+    /// <summary>An enum value as words: LoseWeight → "Lose weight".</summary>
+    public static string Words(Enum value)
+    {
+        var name = value.ToString();
+        return string.Concat(name.Select((c, i) => i > 0 && char.IsUpper(c) ? " " + char.ToLowerInvariant(c) : c.ToString()));
+    }
+
+    /// <summary>How a member got in: "Pass scan", "Fingerprint (Main door)", "Front desk".</summary>
+    public static string CheckInMethodText(CheckInMethod method, string? device = null) => method switch
+    {
+        CheckInMethod.Kiosk => device ?? "Kiosk",
+        CheckInMethod.Terminal => $"Fingerprint{(device is null ? "" : $" ({device})")}",
+        CheckInMethod.PassScan => "Pass scan",
+        _ => "Front desk"
+    };
 
     public static string Interval(BillingInterval interval) => interval switch
     {

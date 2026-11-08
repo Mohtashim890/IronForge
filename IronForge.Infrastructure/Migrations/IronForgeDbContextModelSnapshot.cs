@@ -1025,6 +1025,9 @@ namespace IronForge.Api.Migrations
                     b.Property<DateOnly>("DueDate")
                         .HasColumnType("date");
 
+                    b.Property<bool>("IsOneOff")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("IssuedAtUtc")
                         .HasColumnType("timestamp with time zone");
 

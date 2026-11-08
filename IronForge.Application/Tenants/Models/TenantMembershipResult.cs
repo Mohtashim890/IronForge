@@ -1,4 +1,4 @@
-﻿namespace IronForge.Application.Tenants.Models
+namespace IronForge.Application.Tenants.Models
 {
     public class TenantMembershipResult
     {
@@ -11,5 +11,8 @@
         public string Role { get; init; } = "";
 
         public bool IsActive { get; init; }
+
+        /// <summary>Why the gym cannot be opened (suspended, trial ended…); null when IsActive.</summary>
+        public string? UnavailableReason { get; init; }
     }
 }

@@ -31,7 +31,7 @@
             <div class="if-row">
                 <strong>Usage this month</strong>
                 <span class="if-spacer"></span>
-                <span class="if-muted if-small">Resets @_usage.PeriodEndUtc.ToLocalTime().ToString("d MMM yyyy")</span>
+                <span class="if-muted if-small">Resets @GymFormat.Date(_usage.PeriodEndUtc)</span>
             </div>
             <div style="font-size: 1.3rem; font-weight: 700; margin-top: 6px">
                 @_usage.TokensUsed.ToString("N0")

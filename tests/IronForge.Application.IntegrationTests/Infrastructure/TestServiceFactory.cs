@@ -64,7 +64,7 @@ public sealed class TestServiceFactory
     public TestExecutionContextAccessor ContextAccessor { get; }
 
     public AuditQueryService AuditQuery =>
-        new(new EfRepository<AuditEvent>(Db), ContextAccessor, GymAccess);
+        new(new EfRepository<AuditEvent>(Db), ContextAccessor, GymAccess, new EfRepository<User>(Db));
 
     public AuditService Audit =>
         new(new EfRepository<AuditEvent>(Db), ContextAccessor);
@@ -385,6 +385,16 @@ public sealed class TestServiceFactory
             Audit,
             Clock);
 
+    public GymDashboardService Dashboard =>
+        new(
+            GymAccess,
+            new EfRepository<MemberProfile>(Db),
+            new EfRepository<Invoice>(Db),
+            new EfRepository<Payment>(Db),
+            new EfRepository<CheckIn>(Db),
+            BillingEngine,
+            Clock);
+
     public MemberService GymMembers =>
         new(
             GymAccess,
@@ -401,6 +411,7 @@ public sealed class TestServiceFactory
             new EfRepository<User>(Db),
             BillingEngine,
             Invitations,
+            new TenantInvitationStore(Db),
             Entitlements,
             Notifications,
             new EfUnitOfWork(Db),

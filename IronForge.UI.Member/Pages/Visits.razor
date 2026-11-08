@@ -1,4 +1,4 @@
-﻿@page "/visits"
+@page "/visits"
 @attribute [Authorize]
 @inject MemberApiClient Me
 
@@ -24,7 +24,7 @@ else
                 <li>
                     <span style="flex: 1">
                         @GymFormat.DateTime(visit.CheckedInAtUtc)
-                        <span class="if-muted if-small">· @(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.Terminal => "Fingerprint", _ => "Front desk" })</span>
+                        <span class="if-muted if-small">· @GymFormat.CheckInMethodText(visit.Method, visit.DeviceName)</span>
                     </span>
                     <span class="if-muted if-small">@GymFormat.Ago(visit.CheckedInAtUtc)</span>
                 </li>

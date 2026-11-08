@@ -8,7 +8,7 @@
         <strong>Invitation link for @Link.Invitation.Email</strong>
         <span>
             Role @Link.Invitation.Role · valid until
-            @Link.Invitation.ExpiresAtUtc.ToLocalTime().ToString("g")
+            @GymFormat.DateTime(Link.Invitation.ExpiresAtUtc)
         </span>
     </div>
 

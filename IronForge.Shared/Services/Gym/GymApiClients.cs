@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Json;
+using System.Net.Http.Json;
 using IronForge.Shared.CheckIns;
 using IronForge.Shared.Models;
 using IronForge.Shared.Models.Gym;
@@ -204,6 +204,9 @@ public sealed class GymApiClient : ApiClientBase
                 ("pageSize", query.PageSize)),
             "Unable to load invoices.",
             ct);
+
+    public Task<ServiceResult<InvoiceDto>> CreateOneOffInvoiceAsync(int memberId, CreateInvoiceRequest request, CancellationToken ct = default) =>
+        PostAsync<InvoiceDto>($"api/gym/members/{memberId}/invoices", request, "Unable to create the invoice.", ct);
 
     public Task<ServiceResult<PaymentDto>> RecordPaymentAsync(int invoiceId, RecordPaymentRequest request, CancellationToken ct = default) =>
         PostAsync<PaymentDto>($"api/gym/invoices/{invoiceId}/payments", request, "Unable to record the payment.", ct);
@@ -417,6 +420,8 @@ public sealed class AuditItemDto
     public string ActorType { get; set; } = "";
 
     public int? UserId { get; set; }
+
+    public string? Username { get; set; }
 
     public string? AgentId { get; set; }
 

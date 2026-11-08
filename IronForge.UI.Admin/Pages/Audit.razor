@@ -43,7 +43,7 @@
                             <td>@item.Category</td>
                             <td><strong>@item.Action</strong></td>
                             <td><Badge Tone="@(item.Outcome == "Succeeded" ? "success" : item.Outcome == "Denied" ? "danger" : "warning")">@item.Outcome</Badge></td>
-                            <td class="if-small">@(item.AgentId is not null ? $"🤖 {item.AgentId}" : item.UserId is not null ? $"User {item.UserId}" : item.ActorType)</td>
+                            <td class="if-small">@(item.AgentId is not null ? $"🤖 {item.AgentId}" : item.UserId is not null ? item.Username ?? $"User {item.UserId}" : item.ActorType)</td>
                             <td class="if-small if-muted">@item.Reason</td>
                         </tr>
                     }

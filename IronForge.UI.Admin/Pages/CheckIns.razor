@@ -1,4 +1,4 @@
-﻿@page "/checkins"
+@page "/checkins"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
@@ -264,13 +264,8 @@
         return true;
     }
 
-    private static string MethodText(CheckInMethod method, string? device) => method switch
-    {
-        CheckInMethod.Kiosk => device ?? "Kiosk",
-        CheckInMethod.Terminal => $"Fingerprint{(device is null ? "" : $" ({device})")}",
-        CheckInMethod.PassScan => "Pass scan",
-        _ => "Front desk"
-    };
+    private static string MethodText(CheckInMethod method, string? device) => GymFormat.CheckInMethodText(method, device);
+
 
     private static bool IsPassProblem(CheckInDenialReason reason) =>
         reason is CheckInDenialReason.InvalidPass or CheckInDenialReason.ReusedPass

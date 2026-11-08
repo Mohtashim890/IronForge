@@ -1,4 +1,4 @@
-﻿@page "/home"
+@page "/home"
 @attribute [Authorize]
 @inject MemberApiClient Me
 @inject IExternalLinkOpener Links
@@ -65,7 +65,7 @@ else
                 <div style="flex: 1">
                     <div class="if-small if-muted">@(invoice.DaysOverdue > 0 ? $"Overdue by {invoice.DaysOverdue} day(s)" : $"Due {GymFormat.Date(invoice.DueDate)}")</div>
                     <div style="font-size: 1.4rem; font-weight: 800">@GymFormat.Money(invoice.Amount, invoice.Currency)</div>
-                    <div class="if-small if-muted">@invoice.Number</div>
+                    <div class="if-small if-muted">@invoice.Number@(invoice.IsOneOff ? $" · {invoice.Description}" : "")</div>
                 </div>
                 @if (_me.OnlinePaymentAvailable)
                 {
@@ -76,7 +76,16 @@ else
             {
                 <div class="if-small if-muted" style="margin-top: 8px; white-space: pre-line">@(_me.PaymentInstructions ?? "Pay at the front desk.")</div>
             }
+            @if (_payingInvoiceId == invoice.Id)
+            {
+                <div class="if-small if-muted" style="margin-top: 8px">@_payInfo</div>
+                <button class="if-btn block" style="margin-top: 8px" disabled="@_checking" @onclick="CheckPaymentAsync">@(_checking ? "Checking…" : "I've paid — check now")</button>
+            }
         </div>
+    }
+    else if (_paidMessage is not null)
+    {
+        <div class="if-alert success">@_paidMessage</div>
     }
 
     @if (_me.CoachingEnabled)
@@ -153,15 +162,55 @@ else
         }
     }
 
+    // The invoice whose checkout was opened in the browser.
+    private int? _payingInvoiceId;
+    private string? _payInfo;
+    private string? _paidMessage;
+    private bool _checking;
+
     private async Task PayAsync(InvoiceDto invoice)
     {
         _paying = true;
+        _error = null;
         var result = await Me.StartCheckoutAsync(invoice.Id);
         _paying = false;
 
-        if (result.Success)
-            await Links.OpenAsync(result.Data!.Url);
-        else
+        if (!result.Success)
+        {
             _error = result.ErrorMessage;
+            return;
+        }
+
+        _payingInvoiceId = invoice.Id;
+        _payInfo = result.Data!.Simulated
+            ? "A test checkout opened in your browser. No real money is charged. Come back here when you're done."
+            : "Complete the payment in your browser, then come back here.";
+
+        await Links.OpenAsync(result.Data.Url);
+    }
+
+    /// <summary>Asks the gym's payment provider (through the API) whether the payment went through.</summary>
+    private async Task CheckPaymentAsync()
+    {
+        _checking = true;
+        _error = null;
+        var result = await Me.CheckPaymentAsync(_payingInvoiceId!.Value);
+        _checking = false;
+
+        if (!result.Success)
+        {
+            _error = result.ErrorMessage;
+            return;
+        }
+
+        if (!result.Data!.Paid)
+        {
+            _payInfo = result.Data.Message;
+            return;
+        }
+
+        _payingInvoiceId = null;
+        _paidMessage = result.Data.Message;
+        _me = (await Me.GetMembershipAsync()).Data ?? _me;
     }
 }

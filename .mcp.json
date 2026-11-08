@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "playwright-web": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@playwright/mcp@latest", "--isolated", "--ignore-https-errors"]
+    },
+    "playwright-maui": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@playwright/mcp@latest", "--cdp-endpoint", "http://localhost:9222"]
+    },
+    "mobile": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@mobilenext/mobile-mcp@latest"]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-﻿@page "/members"
+@page "/members"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -81,7 +81,7 @@
                                 <div class="if-row" style="flex-wrap: nowrap">
                                     <span class="if-avatar">@GymFormat.Initials(member.FullName)</span>
                                     <div>
-                                        <strong>@member.FullName</strong>
+                                        <a href="@($"/members/{member.Id}")" class="if-link-plain" @onclick:stopPropagation="true"><strong>@member.FullName</strong></a>
                                         <div class="if-muted if-small">
                                             @member.Email
                                             @if (!member.HasAppAccount)
@@ -284,7 +284,7 @@
         {
             // Allowed: the visit time; already in: the earlier visit. Plus any warning (overdue).
             _message = result.Data.Outcome == CheckInOutcome.Allowed
-                ? $"{member.FullName} checked in at {result.Data.CheckIn!.CheckedInAtUtc.ToLocalTime():HH:mm}."
+                ? $"{member.FullName} checked in at {GymFormat.Time(result.Data.CheckIn!.CheckedInAtUtc)}."
                 : result.Data.Message;
 
             if (result.Data.Warning is not null)

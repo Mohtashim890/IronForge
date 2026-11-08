@@ -1,4 +1,4 @@
-﻿@page "/dashboard"
+@page "/dashboard"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 
@@ -9,7 +9,7 @@
         <div>
             <div class="if-eyebrow">Today at your gym</div>
             <h1>@(_data?.GymName ?? "Dashboard")</h1>
-            <p>Members, revenue and attendance at a glance.</p>
+            <p>@(_data?.IncludesBilling == false ? "Members and attendance at a glance." : "Members, revenue and attendance at a glance.")</p>
         </div>
         <div class="if-row">
             <a class="if-btn" href="/checkins">Check in a member</a>
@@ -38,8 +38,11 @@
     {
         <div class="if-grid">
             <StatTile Label="Active members" Value="@_data.ActiveMembers.ToString()" Sub="@($"+{_data.NewMembersThisMonth} new this month")" Tone="success" />
-            <StatTile Label="Revenue this month" Value="@GymFormat.Money(_data.RevenueThisMonth, _data.Currency)" Sub="@($"Last month: {GymFormat.Money(_data.RevenueLastMonth, _data.Currency)}")" Tone="accent" />
-            <StatTile Label="Overdue" Value="@GymFormat.Money(_data.OverdueAmount, _data.Currency)" Sub="@($"{_data.OverdueInvoices} invoice(s)")" Tone="danger" />
+            @if (_data.IncludesBilling)
+            {
+                <StatTile Label="Revenue this month" Value="@GymFormat.Money(_data.RevenueThisMonth, _data.Currency)" Sub="@($"Last month: {GymFormat.Money(_data.RevenueLastMonth, _data.Currency)}")" Tone="accent" />
+                <StatTile Label="Overdue" Value="@GymFormat.Money(_data.OverdueAmount, _data.Currency)" Sub="@($"{_data.OverdueInvoices} invoice(s)")" Tone="danger" />
+            }
             <StatTile Label="Check-ins today" Value="@_data.CheckInsToday.ToString()" Sub="@($"{_data.CheckInsLast7Days} in the last 7 days")" Tone="info" />
         </div>
 
@@ -66,14 +69,17 @@
             </div>
         </div>
 
-        <div class="if-grid-2" style="margin-top: 16px">
-            <div class="if-card">
-                <div class="if-card-head">
-                    <h2>Revenue (last 6 months)</h2>
-                    <span class="if-muted if-small">@_data.Currency</span>
+        <div class="@(_data.IncludesBilling ? "if-grid-2" : "")" style="margin-top: 16px">
+            @if (_data.IncludesBilling)
+            {
+                <div class="if-card">
+                    <div class="if-card-head">
+                        <h2>Revenue (last 6 months)</h2>
+                        <span class="if-muted if-small">@_data.Currency</span>
+                    </div>
+                    <BarChart Points="@_revenue" ShowValues="true" Format="@(v => GymFormat.Compact((long)v))" AriaLabel="Revenue by month" />
                 </div>
-                <BarChart Points="@_revenue" ShowValues="true" Format="@(v => GymFormat.Compact((long)v))" AriaLabel="Revenue by month" />
-            </div>
+            }
 
             <div class="if-card">
                 <div class="if-card-head">

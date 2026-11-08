@@ -28,3 +28,6 @@ signing-password.txt
 # Per-developer IDE state
 *.user
 *.suo
+
+# Playwright MCP snapshots and screenshots
+.playwright-mcp/

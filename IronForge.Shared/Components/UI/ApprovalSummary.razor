@@ -14,11 +14,11 @@
 
     <div class="approval-summary-meta">
         @Item.AgentName · requested by @Item.RequestedBy ·
-        @Item.CreatedAtUtc.ToLocalTime().ToString("g") ·
-        expires @Item.ExpiresAtUtc.ToLocalTime().ToString("g")
+        @GymFormat.DateTime(Item.CreatedAtUtc) ·
+        expires @GymFormat.DateTime(Item.ExpiresAtUtc)
     </div>
 
-    <code class="approval-arguments">@Item.ArgumentsJson</code>
+    <ApprovalArguments Json="@Item.ArgumentsJson" />
 </div>
 
 @code {

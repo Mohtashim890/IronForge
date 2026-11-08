@@ -1,4 +1,4 @@
-﻿using IronForge.Shared.Subscriptions;
+using IronForge.Shared.Subscriptions;
 
 namespace IronForge.Application.Entities
 {
@@ -90,13 +90,13 @@ namespace IronForge.Application.Entities
         public string DescribeNoAccess(DateTime nowUtc)
         {
             if (!IsActive)
-                return "The workspace is suspended.";
+                return "This gym's IronForge account is suspended. Please contact the gym.";
 
             return SubscriptionStatus switch
             {
-                SubscriptionStatus.Trial when TrialEndsAtUtc <= nowUtc => "The workspace's trial has ended.",
-                SubscriptionStatus.Canceled => "The workspace's subscription is canceled.",
-                _ => "The workspace is not available."
+                SubscriptionStatus.Trial when TrialEndsAtUtc <= nowUtc => "This gym's IronForge trial has ended. Please contact the gym.",
+                SubscriptionStatus.Canceled => "This gym's IronForge subscription has ended. Please contact the gym.",
+                _ => "This gym is not available on IronForge right now."
             };
         }
     }

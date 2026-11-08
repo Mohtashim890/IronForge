@@ -20,6 +20,15 @@ public interface IBillingService
         int invoiceId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Bills a member a one-off charge (personal training, a locker…). It does
+    /// not change the membership's billing dates or its access to the gym.
+    /// </summary>
+    Task<ServiceResult<InvoiceDto>> CreateOneOffInvoiceAsync(
+        int memberId,
+        CreateInvoiceRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Records a payment taken at the desk; it must cover the invoice in full.</summary>
     Task<ServiceResult<PaymentDto>> RecordPaymentAsync(
         int invoiceId,
@@ -174,6 +183,82 @@ public sealed class BillingService : IBillingService
         return ServiceResult<InvoiceDto>.Ok(invoice);
     }
 
+    public async Task<ServiceResult<InvoiceDto>> CreateOneOffInvoiceAsync(
+        int memberId,
+        CreateInvoiceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var authorization = await _access.AuthorizeAsync(Permissions.GymBillingManage, cancellationToken);
+
+        if (!authorization.Allowed)
+        {
+            return GymResults.Forbidden<InvoiceDto>(authorization);
+        }
+
+        var member = await _members.FirstOrDefaultAsync(
+            x => x.Id == memberId && x.AnonymizedAtUtc == null,
+            cancellationToken);
+
+        if (member is null)
+        {
+            return GymResults.NotFound<InvoiceDto>("Member");
+        }
+
+        if (member.Status == MemberStatus.Pending)
+        {
+            return GymResults.Conflict<InvoiceDto>($"{member.FullName}'s join request is not approved yet.");
+        }
+
+        var description = request.Description?.Trim() ?? "";
+
+        if (description.Length is 0 or > 200)
+        {
+            return GymResults.Invalid<InvoiceDto>("Say what the invoice is for, in at most 200 characters.");
+        }
+
+        if (request.Amount is <= 0 or > 10_000_000)
+        {
+            return GymResults.Invalid<InvoiceDto>("The amount must be between 0.01 and 10,000,000.");
+        }
+
+        var gym = await _engine.GetGymAsync(member.TenantId, cancellationToken);
+
+        if (gym is null)
+        {
+            return GymResults.NotFound<InvoiceDto>("Gym");
+        }
+
+        var today = GymCalendar.Today(_clock, gym.Settings.TimeZoneId);
+        var dueDate = request.DueDate ?? today;
+
+        if (dueDate < today || dueDate > today.AddDays(90))
+        {
+            return GymResults.Invalid<InvoiceDto>(
+                $"The due date must be between today ({BillingEngine.Format(today)}) and 90 days ahead.");
+        }
+
+        var invoice = await _engine.IssueOneOffInvoiceAsync(
+            gym,
+            member,
+            description,
+            decimal.Round(request.Amount, 2),
+            dueDate,
+            cancellationToken);
+
+        await _invoices.SaveChangesAsync(cancellationToken);
+
+        await _audit.RecordAsync(
+            AuditCategory.Billing,
+            "InvoiceIssued",
+            AuditOutcome.Succeeded,
+            resourceType: "Invoice",
+            resourceId: invoice.Id.ToString(),
+            reason: $"{invoice.Number} to {member.FullName}: {description}, {BillingEngine.FormatMoney(invoice.Amount, invoice.Currency)}.",
+            cancellationToken: cancellationToken);
+
+        return await GetInvoiceAsync(invoice.Id, cancellationToken);
+    }
+
     public async Task<ServiceResult<PaymentDto>> RecordPaymentAsync(
         int invoiceId,
         RecordPaymentRequest request,
@@ -269,6 +354,7 @@ public sealed class BillingService : IBillingService
             Currency = payment.Currency,
             Method = payment.Method,
             Provider = payment.Provider,
+            Reference = payment.ProviderReference,
             PaidAtUtc = payment.PaidAtUtc
         });
     }
@@ -584,6 +670,7 @@ public sealed class BillingService : IBillingService
             MemberId = x.MemberProfileId,
             MemberName = x.MemberProfile!.FullName,
             Description = x.Description,
+            IsOneOff = x.IsOneOff,
             PeriodStart = x.PeriodStart,
             PeriodEnd = x.PeriodEnd,
             Amount = x.Amount,
@@ -606,6 +693,7 @@ public sealed class BillingService : IBillingService
             Currency = x.Currency,
             Method = x.Method,
             Provider = x.Provider,
+            Reference = x.ProviderReference,
             PaidAtUtc = x.PaidAtUtc
         };
 

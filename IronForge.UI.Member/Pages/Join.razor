@@ -41,9 +41,9 @@
             <h1>Request sent 🎉</h1>
             <p>
                 Thanks! <strong>@_result.GymName</strong> will review your request.
-                Sign in as <strong>@_result.Username</strong> to follow its status; you'll get a notification once you're approved.
+                We'll email you when you're approved; then sign in as <strong>@_result.Username</strong>.
             </p>
-            <a class="if-btn primary block" href="/login">Sign in</a>
+            <a class="if-btn primary block" href="/login">Back to sign in</a>
         }
         else if (_gym is null)
         {
@@ -52,7 +52,7 @@
 
             <div class="if-field">
                 <label for="code">Join code</label>
-                <input id="code" class="if-mono" style="text-transform: uppercase; letter-spacing: 0.12em; font-size: 1.2rem" maxlength="20" @bind="_code" />
+                <input id="code" class="if-mono" style="text-transform: uppercase; letter-spacing: 0.12em; font-size: 1.2rem" maxlength="20" @bind="_code" @bind:event="oninput" />
             </div>
             <button class="if-btn primary block" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="FindAsync">@(_busy ? "Looking…" : "Find my gym")</button>
         }

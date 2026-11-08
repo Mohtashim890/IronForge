@@ -1,4 +1,4 @@
-﻿@page "/tenants"
+@page "/tenants"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(
     Policy = IronForge.Shared.Authorization.Permissions.PlatformTenantsManage)]
 
@@ -12,10 +12,10 @@
 @inject IPlatformTenantService TenantService
 @inject IJSRuntime JS
 
-<PageTitle>Tenants</PageTitle>
+<PageTitle>Gyms | IronForge Platform</PageTitle>
 
 <div class="platform-tenants-page">
-    <PageHeader Title="Tenants"
+    <PageHeader Title="Gyms"
                 Subtitle="Gyms on the platform: onboard new gyms, change their plan and control their access.">
         <Actions>
             <button type="button"
@@ -46,13 +46,13 @@
 
     @if (showProvision)
     {
-        <section class="tenants-panel" aria-label="New tenant">
+        <section class="tenants-panel" aria-label="New gym">
             <div class="tenants-panel-header">
                 <div>
-                    <h2>Onboard a client</h2>
+                    <h2>Onboard a gym</h2>
                     <p>
-                        Creates the workspace with the standard agents and an
-                        invitation for its first Admin.
+                        Creates the gym with the AI agents its plan covers and
+                        emails an invitation to its first Admin.
                     </p>
                 </div>
 
@@ -71,12 +71,12 @@
 
                     <div class="tenants-form-grid">
                         <div>
-                            <label class="form-label" for="tenant-name">Client name</label>
+                            <label class="form-label" for="tenant-name">Gym name</label>
                             <InputText id="tenant-name"
                                        class="form-control"
                                        @bind-Value="provisionModel.Name"
                                        @bind-Value:after="SuggestSlug"
-                                       placeholder="Acme Corporation" />
+                                       placeholder="Iron Paradise Gym" />
                             <ValidationMessage For="@(() => provisionModel.Name)" />
                         </div>
 
@@ -86,7 +86,7 @@
                                        class="form-control"
                                        @bind-Value="provisionModel.Slug"
                                        @bind-Value:after="() => slugEdited = true"
-                                       placeholder="acme" />
+                                       placeholder="ironparadise" />
                             <ValidationMessage For="@(() => provisionModel.Slug)" />
                         </div>
 
@@ -95,7 +95,7 @@
                             <InputText id="tenant-admin"
                                        class="form-control"
                                        @bind-Value="provisionModel.AdminEmail"
-                                       placeholder="it@acme.com" />
+                                       placeholder="owner@gym.com" />
                             <ValidationMessage For="@(() => provisionModel.AdminEmail)" />
                         </div>
 
@@ -358,14 +358,15 @@
                   Items="@tenants"
                   IsLoading="@isLoading"
                   ErrorMessage="@loadError"
-                  EmptyTitle="No tenants yet"
-                  EmptyMessage="Onboard your first client to create their workspace."
+                  EmptyTitle="No gyms yet"
+                  EmptyMessage="Onboard your first gym to create its workspace."
                   OnRetry="LoadAsync">
 
         <ToolbarContent>
             <div class="tenants-summary">
-                <span>@tenants.Count tenants</span>
-                <span>@tenants.Count(x => x.IsActive) active</span>
+                <span>@tenants.Count gyms</span>
+                <span>@tenants.Count(x => x.HasAccess) with access</span>
+                <span>@tenants.Count(x => !x.IsActive) suspended</span>
             </div>
         </ToolbarContent>
 
@@ -374,7 +375,10 @@
                 <div class="tenant-main">
                     <div class="tenant-title">
                         <a href="@($"/tenants/{tenant.TenantId}")"><strong>@tenant.Name</strong></a>
-                        <StatusBadge Text="@(tenant.IsActive ? "Active" : "Suspended")" />
+                        @if (!tenant.IsActive)
+                        {
+                            <StatusBadge Text="Suspended" />
+                        }
                         <StatusBadge Text="@StatusText(tenant.SubscriptionStatus, tenant.TrialEndsAtUtc)" />
                         @if (tenant.IsActive && !tenant.HasAccess)
                         {
@@ -390,8 +394,8 @@
                         <strong>@(SubscriptionPlans.Find(tenant.Plan)?.Name ?? tenant.Plan)</strong>
                         <small class="tenants-hint">@string.Join(", ", tenant.AllowedModelProfiles)</small>
                     </div>
-                    <div>
-                        <span>Members</span>
+                    <div title="Staff and members who can sign in to this gym">
+                        <span>Active accounts</span>
                         <strong>@tenant.ActiveMemberCount</strong>
                     </div>
                     <div>
@@ -400,7 +404,7 @@
                     </div>
                     <div>
                         <span>Created</span>
-                        <strong>@tenant.CreatedAtUtc.ToLocalTime().ToString("d")</strong>
+                        <strong>@tenant.CreatedAtUtc.ToLocalTime().ToString("d MMM yyyy")</strong>
                     </div>
                 </div>
 
@@ -420,7 +424,7 @@
                     <button type="button"
                             class="btn btn-sm @(tenant.IsActive ? "btn-outline-danger" : "btn-outline-success")"
                             disabled="@(busyTenantId == tenant.TenantId)"
-                            @onclick="() => ToggleStatusAsync(tenant)">
+                            @onclick="() => RequestToggleStatus(tenant)">
                         @(tenant.IsActive ? "Suspend" : "Reactivate")
                     </button>
                 </div>
@@ -429,8 +433,17 @@
     </ResourceList>
 </div>
 
-@code {
-    private List<PlatformTenantDto> tenants = [];
+<Modal Open="@(suspendTenant is not null)" OpenChanged="@(open => { if (!open) suspendTenant = null; })" Title="@($"Suspend {suspendTenant?.Name}?")">
+    <ChildContent>
+        <p>Every admin, trainer and member of this gym is signed out within a minute and cannot sign in until you reactivate it. Their data is kept.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => suspendTenant = null">Cancel</button>
+        <button class="if-btn danger" @onclick="ConfirmSuspendAsync">Suspend gym</button>
+    </Footer>
+</Modal>
+
+@code {    private List<PlatformTenantDto> tenants = [];
     private bool isLoading;
     private string? loadError;
     private string? actionError;
@@ -642,7 +655,7 @@
         status switch
         {
             SubscriptionStatus.Trial when trialEndsAtUtc is { } end =>
-                $"Trial until {end.ToLocalTime():d}",
+                $"Trial until {end.ToLocalTime():d MMM yyyy}",
             SubscriptionStatus.PastDue => "Past due",
             _ => status.ToString()
         };
@@ -697,6 +710,27 @@
         {
             isSaving = false;
         }
+    }
+
+    private PlatformTenantDto? suspendTenant;
+
+    /// <summary>Suspending cuts off a whole gym at once, so it is confirmed first.</summary>
+    private Task RequestToggleStatus(PlatformTenantDto tenant)
+    {
+        if (tenant.IsActive)
+        {
+            suspendTenant = tenant;
+            return Task.CompletedTask;
+        }
+
+        return ToggleStatusAsync(tenant);
+    }
+
+    private async Task ConfirmSuspendAsync()
+    {
+        var tenant = suspendTenant!;
+        suspendTenant = null;
+        await ToggleStatusAsync(tenant);
     }
 
     private async Task ToggleStatusAsync(PlatformTenantDto tenant)

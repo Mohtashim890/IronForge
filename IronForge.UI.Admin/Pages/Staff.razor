@@ -1,4 +1,4 @@
-﻿@page "/staff"
+@page "/staff"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(
     Policy = IronForge.Shared.Authorization.Permissions.MembersRead)]
 
@@ -14,7 +14,7 @@
 @inject ITenantMembersService MembersService
 @inject IJSRuntime JS
 
-<PageTitle>Staff</PageTitle>
+<PageTitle>Staff | IronForge</PageTitle>
 
 <div class="members-page">
     <PageHeader Title="Staff and accounts"
@@ -40,13 +40,13 @@
 
     @if (showInvite)
     {
-        <section class="members-panel" aria-label="Invite member">
+        <section class="members-panel" aria-label="Invite staff">
             <div class="members-panel-header">
                 <div>
-                    <h2>Invite a member</h2>
+                    <h2>Invite staff</h2>
                     <p>
-                        Creates a single-use link. Send it to the person yourself;
-                        it is shown only once and expires after a few days.
+                        Emails a single-use sign-up link to this address. The link is
+                        also shown once here, to share another way; it expires after a few days.
                     </p>
                 </div>
 
@@ -165,7 +165,7 @@
                     {
                         <strong>@member.Role</strong>
                     }
-                    <span class="member-joined">Joined @member.JoinedAtUtc.ToLocalTime().ToString("d")</span>
+                    <span class="member-joined">Joined @GymFormat.Date(member.JoinedAtUtc)</span>
                 </div>
 
                 <div class="member-actions">
@@ -204,7 +204,7 @@
                             @invitation.Role ·
                             @(invitation.IsExpired
                                 ? "expired"
-                                : $"expires {invitation.ExpiresAtUtc.ToLocalTime():g}")
+                                : $"expires {GymFormat.DateTime(invitation.ExpiresAtUtc)}")
                         </span>
                     </div>
 

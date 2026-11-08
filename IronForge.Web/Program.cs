@@ -40,6 +40,9 @@ builder.Services.AddIronForgeApiClients(new ClientAppProfile
     HomeRoute = "/dashboard"
 });
 
+// Times show in the selected gym's time zone (set by MainLayout).
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, DisplayTimeZoneCircuitHandler>();
+
 builder.Services.AddIronForgeWebAuthorization();
 builder.Services.AddCascadingAuthenticationState();
 

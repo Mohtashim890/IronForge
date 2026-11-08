@@ -1,4 +1,4 @@
-﻿@page "/members/{MemberId:int}"
+@page "/members/{MemberId:int}"
 @attribute [Authorize(Policy = Permissions.GymMembersRead)]
 @inject GymApiClient Gym
 @inject NavigationManager Navigation
@@ -58,7 +58,7 @@
                             break;
                         case MemberStatus.Active:
                             <button class="if-btn" disabled="@_busy" @onclick="() => _freezing = true">Freeze</button>
-                            <button class="if-btn danger" disabled="@_busy" @onclick="CancelAsync">Cancel membership</button>
+                            <button class="if-btn danger" disabled="@_busy" @onclick="() => _confirmCancel = true">Cancel membership</button>
                             break;
                         case MemberStatus.Frozen:
                             <button class="if-btn primary" disabled="@_busy" @onclick="UnfreezeAsync">Unfreeze</button>
@@ -86,11 +86,22 @@
                 <div class="if-alert info" style="margin-top: 16px">
                     <div class="if-row" style="justify-content: space-between; flex-wrap: wrap; gap: 10px">
                         <span>
-                            <strong>No app sign-in yet.</strong>
-                            @s.FullName needs an invitation to choose a username and password for the IronForge app.
+                            <strong>No app sign-in yet.</strong>@(" ")
+                            @if (_member.AppInvitationExpiresAtUtc is { } expires && expires > DateTime.UtcNow)
+                            {
+                                @($"Invitation emailed {GymFormat.Ago(_member.AppInvitationSentAtUtc!.Value)}; it expires {GymFormat.Date(expires)}. {s.FullName} chooses a username and password from it.")
+                            }
+                            else if (_member.AppInvitationExpiresAtUtc is not null)
+                            {
+                                @($"The invitation to {s.Email} expired. Send a new one so {s.FullName} can choose a username and password.")
+                            }
+                            else
+                            {
+                                @($"{s.FullName} needs an invitation to choose a username and password for the IronForge app.")
+                            }
                         </span>
                         <button class="if-btn primary sm" disabled="@_busy" @onclick="SendInvitationAsync">
-                            @(_inviteLink is null ? "Send app invitation" : "Send a new invitation")
+                            @(_inviteLink is null && _member.AppInvitationSentAtUtc is null ? "Send app invitation" : "Send a new invitation")
                         </button>
                     </div>
                     @if (_inviteLink is not null)
@@ -241,10 +252,19 @@
         }
         else if (_tab == "Billing")
         {
+            <AuthorizeView Policy="@Permissions.GymBillingManage" Context="billingAuth">
+                @if (s.Status != MemberStatus.Pending)
+                {
+                    <div class="if-row" style="justify-content: space-between; margin-bottom: 10px">
+                        <span class="if-muted if-small">Membership invoices are issued automatically. Bill extras here: personal training, a locker, a lost key…</span>
+                        <button class="if-btn sm primary" disabled="@_busy" @onclick="OpenNewInvoice">+ New invoice</button>
+                    </div>
+                }
+            </AuthorizeView>
             <div class="if-table-wrap">
                 <table class="if-table">
                     <thead>
-                        <tr><th>Invoice</th><th>Period</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
+                        <tr><th>Invoice</th><th>For</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
                     </thead>
                     <tbody>
                         @if (_member.RecentInvoices.Count == 0)
@@ -255,7 +275,16 @@
                         {
                             <tr>
                                 <td class="if-mono">@invoice.Number</td>
-                                <td class="if-small">@GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</td>
+                                <td class="if-small">
+                                    @if (invoice.IsOneOff)
+                                    {
+                                        <Badge Tone="accent">Extra</Badge> @invoice.Description
+                                    }
+                                    else
+                                    {
+                                        @($"{GymFormat.ShortDate(invoice.PeriodStart)} – {GymFormat.Date(invoice.PeriodEnd)}")
+                                    }
+                                </td>
                                 <td>@GymFormat.Date(invoice.DueDate)</td>
                                 <td><Badge Tone="@GymFormat.Tone(invoice.Status)">@invoice.Status</Badge></td>
                                 <td class="num">@GymFormat.Money(invoice.Amount, invoice.Currency)</td>
@@ -301,6 +330,10 @@
                                         <div class="if-muted if-small">@routine.DayCount day(s) · @routine.Source · @GymFormat.Date(routine.CreatedAtUtc)</div>
                                     </div>
                                     <Badge Tone="@(routine.IsActive ? "success" : "")">@(routine.IsActive ? "Active" : "Archived")</Badge>
+                                    <button class="if-btn sm" disabled="@_busy" @onclick="() => ViewRoutineAsync(routine.Id)">View</button>
+                                    <AuthorizeView Policy="@Permissions.GymRoutinesManage" Context="routineAuth">
+                                        <button class="if-btn sm ghost" disabled="@_busy" @onclick="() => SetRoutineActiveAsync(routine.Id, !routine.IsActive)">@(routine.IsActive ? "Archive" : "Restore")</button>
+                                    </AuthorizeView>
                                 </li>
                             }
                         </ul>
@@ -319,7 +352,16 @@
                             <div><div class="if-stat-label">Workouts (30d)</div><strong>@_progress.WorkoutsLast30Days</strong></div>
                             <div><div class="if-stat-label">Weekly streak</div><strong>@_progress.WeeklyStreak</strong></div>
                             <div><div class="if-stat-label">Weight</div><strong>@(_progress.CurrentWeightKg is { } w ? $"{w} kg" : "—")</strong></div>
+                            <div><div class="if-stat-label">Last workout</div><strong>@GymFormat.Date(_progress.LastWorkoutOn)</strong></div>
+                            <div><div class="if-stat-label">This week</div><strong>@_progress.WorkoutsThisWeek</strong></div>
+                            <div><div class="if-stat-label">Volume (30d)</div><strong>@($"{_progress.VolumeLast30DaysKg:N0} kg")</strong></div>
                         </div>
+                        @if (_progress.ActiveGoals.Count > 0)
+                        {
+                            <div class="if-small" style="margin-top: 10px">
+                                <strong>Goals:</strong> @string.Join(" · ", _progress.ActiveGoals.Select(g => g.Description))
+                            </div>
+                        }
                         <div style="margin-top: 12px">
                             <LineChart Points="@_weight" Unit=" kg" AriaLabel="Weight trend" />
                         </div>
@@ -339,7 +381,7 @@
                     <ul class="if-list">
                         @foreach (var visit in _member.RecentCheckIns)
                         {
-                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@(visit.Method switch { CheckInMethod.Kiosk => visit.DeviceName ?? "Kiosk", CheckInMethod.Terminal => "Fingerprint", CheckInMethod.PassScan => "Pass scan", _ => "Front desk" })</span></li>
+                            <li><span style="flex: 1">@GymFormat.DateTime(visit.CheckedInAtUtc)</span><span class="if-muted if-small">@GymFormat.CheckInMethodText(visit.Method, visit.DeviceName)</span></li>
                         }
                     </ul>
                 }
@@ -372,7 +414,15 @@
             <div class="if-field"><label>Full name</label><input @bind="_edit.FullName" /></div>
             <div class="if-field"><label>Phone</label><input @bind="_edit.Phone" /></div>
             <div class="if-field"><label>Date of birth</label><input type="date" @bind="_edit.DateOfBirth" /></div>
-            <div class="if-field"><label>Gender</label><input @bind="_edit.Gender" /></div>
+            <div class="if-field">
+                <label>Gender</label>
+                <select @bind="_edit.Gender">
+                    <option value="">Not given</option>
+                    <option>Female</option>
+                    <option>Male</option>
+                    <option>Other</option>
+                </select>
+            </div>
             <div class="if-field"><label>Height (cm)</label><input type="number" @bind="_edit.HeightCm" /></div>
             <div class="if-field"><label>Emergency contact</label><input @bind="_edit.EmergencyContact" /></div>
         </div>
@@ -394,6 +444,45 @@
     </Footer>
 </Modal>
 
+<Modal @bind-Open="_newInvoiceOpen" Title="New invoice">
+    <ChildContent>
+        <p class="if-muted if-small">A one-off charge for @(_member?.Summary.FullName). It doesn't change the membership's billing dates, and an unpaid one never blocks entry. The member is notified and can pay in the app.</p>
+        <div class="if-field">
+            <label for="invoice-description">What for</label>
+            <input id="invoice-description" @bind="_newInvoice.Description" @bind:event="oninput" maxlength="200" placeholder="Personal training, 4 sessions" />
+        </div>
+        <div class="if-form-grid">
+            <div class="if-field">
+                <label for="invoice-amount">Amount (@_currency)</label>
+                <input id="invoice-amount" type="number" min="0.01" step="0.01" @bind="_newInvoice.Amount" />
+            </div>
+            <div class="if-field">
+                <label for="invoice-due">Due date</label>
+                <input id="invoice-due" type="date" @bind="_newInvoice.DueDate" />
+                <span class="if-muted if-small">Empty: due today.</span>
+            </div>
+        </div>
+        @if (_newInvoiceError is not null)
+        {
+            <div class="if-alert error">@_newInvoiceError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _newInvoiceOpen = false">Cancel</button>
+        <button class="if-btn primary" disabled="@_busy" @onclick="CreateInvoiceAsync">Issue invoice</button>
+    </Footer>
+</Modal>
+
+<Modal @bind-Open="_confirmCancel" Title="Cancel membership?">
+    <ChildContent>
+        <p>@(_member?.Summary.FullName) stops being billed and can no longer check in. Open invoices for future periods are voided. You can reactivate the membership later.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmCancel = false">Keep membership</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="CancelAsync">Cancel membership</button>
+    </Footer>
+</Modal>
+
 <Modal @bind-Open="_confirmDelete" Title="Delete personal data?">
     <ChildContent>
         <p>This permanently erases @(_member?.Summary.FullName)'s profile, routines, workouts, measurements and goals, and removes their app access. Invoices are kept anonymously.</p>
@@ -401,6 +490,42 @@
     <Footer>
         <button class="if-btn" @onclick="() => _confirmDelete = false">Keep</button>
         <button class="if-btn danger" disabled="@_busy" @onclick="AnonymizeAsync">Delete data</button>
+    </Footer>
+</Modal>
+
+<Modal Open="@(_viewRoutine is not null)" OpenChanged="@(open => { if (!open) _viewRoutine = null; })" Title="@(_viewRoutine?.Name ?? "")" Wide="true">
+    <ChildContent>
+        @if (_viewRoutine is not null)
+        {
+            <p class="if-muted if-small">
+                @(_viewRoutine.Goal is { Length: > 0 } goal ? $"Goal: {goal} · " : "")@_viewRoutine.Source@(_viewRoutine.AssignedBy is { } by ? $" · assigned by {by}" : "") · @GymFormat.Date(_viewRoutine.CreatedAtUtc)
+            </p>
+            @if (!string.IsNullOrWhiteSpace(_viewRoutine.Notes))
+            {
+                <p>@_viewRoutine.Notes</p>
+            }
+            @foreach (var day in _viewRoutine.Days.OrderBy(x => x.DayNumber))
+            {
+                <h3 style="font-size: 1rem; margin: 14px 0 6px">Day @day.DayNumber · @day.Name</h3>
+                <table class="if-table">
+                    <thead><tr><th>Exercise</th><th>Muscle</th><th>Sets × reps</th><th>Notes</th></tr></thead>
+                    <tbody>
+                        @foreach (var exercise in day.Exercises.OrderBy(x => x.Order))
+                        {
+                            <tr>
+                                <td>@exercise.ExerciseName</td>
+                                <td class="if-muted">@exercise.MuscleGroup</td>
+                                <td>@exercise.Sets × @exercise.Reps@(exercise.TargetWeightKg is { } kg ? $" @ {kg} kg" : "")</td>
+                                <td class="if-small">@exercise.Notes</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _viewRoutine = null">Close</button>
     </Footer>
 </Modal>
 
@@ -435,6 +560,55 @@
     private bool _editing;
     private UpdateMemberRequest _edit = new();
     private bool _confirmDelete;
+    private bool _confirmCancel;
+    private bool _newInvoiceOpen;
+    private CreateInvoiceRequest _newInvoice = new();
+    private string? _newInvoiceError;
+
+    private void OpenNewInvoice()
+    {
+        _newInvoice = new CreateInvoiceRequest();
+        _newInvoiceError = null;
+        _newInvoiceOpen = true;
+    }
+
+    private async Task CreateInvoiceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newInvoice.Description) || _newInvoice.Amount <= 0)
+        {
+            _newInvoiceError = "Enter what the invoice is for and an amount.";
+            return;
+        }
+
+        _busy = true;
+        var result = await Gym.CreateOneOffInvoiceAsync(MemberId, _newInvoice);
+        _busy = false;
+
+        if (!result.Success)
+        {
+            _newInvoiceError = result.ErrorMessage;
+            return;
+        }
+
+        _newInvoiceOpen = false;
+        _error = null;
+        _message = $"Invoice {result.Data!.Number} issued for {GymFormat.Money(result.Data.Amount, result.Data.Currency)}. The member was notified.";
+        await LoadAsync();
+    }
+    private RoutineDto? _viewRoutine;
+
+    private async Task ViewRoutineAsync(int routineId)
+    {
+        var result = await Gym.GetRoutineAsync(routineId);
+
+        if (result.Success)
+            _viewRoutine = result.Data;
+        else
+            _error = result.ErrorMessage;
+    }
+
+    private Task SetRoutineActiveAsync(int routineId, bool active) =>
+        RunAsync(() => Gym.SetRoutineActiveAsync(routineId, active), active ? "Routine restored." : "Routine archived.");
     private bool _confirmResetPass;
     private bool _accessControl;
     private TerminalUserDto? _terminalUser;
@@ -574,7 +748,11 @@
 
     private Task UnfreezeAsync() => RunAsync(() => Gym.UnfreezeMemberAsync(MemberId), "Membership is active again.");
 
-    private Task CancelAsync() => RunAsync(() => Gym.CancelMemberAsync(MemberId), "Membership cancelled. Future invoices were voided.");
+    private Task CancelAsync()
+    {
+        _confirmCancel = false;
+        return RunAsync(() => Gym.CancelMemberAsync(MemberId), "Membership cancelled. Future invoices were voided.");
+    }
 
     private Task ReactivateAsync() => RunAsync(() => Gym.ReactivateMemberAsync(MemberId), "Membership reactivated.");
 

@@ -59,7 +59,7 @@
 
             <div class="if-field" style="max-width: 260px">
                 <label>Current code from your app (or a recovery code)</label>
-                <input @bind="_code" autocomplete="one-time-code" maxlength="20" />
+                <input @bind="_code" @bind:event="oninput" autocomplete="one-time-code" maxlength="20" />
             </div>
 
             <div class="if-row">
@@ -97,7 +97,7 @@
 
                 <div class="if-field" style="max-width: 200px">
                     <label>Code from the app</label>
-                    <input @bind="_code" autocomplete="one-time-code" inputmode="numeric" maxlength="7" />
+                    <input @bind="_code" @bind:event="oninput" autocomplete="one-time-code" inputmode="numeric" maxlength="7" />
                 </div>
                 <button class="if-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_code))" @onclick="EnableAsync">Turn on</button>
             }

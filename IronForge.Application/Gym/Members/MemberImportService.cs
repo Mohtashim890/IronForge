@@ -248,13 +248,10 @@ public sealed class MemberImportService : IMemberImportService
             candidate.EmergencyContact = Text(row, "EmergencyContact", 200, errors);
             candidate.Notes = Text(row, "Notes", 2000, errors);
 
-            var gender = Text(row, "Gender", 20, errors);
-            candidate.Gender = gender is null
-                ? null
-                : new[] { "Female", "Male", "Other" }.FirstOrDefault(x => string.Equals(x, gender, StringComparison.OrdinalIgnoreCase));
-
-            if (gender is not null && candidate.Gender is null)
+            if (!MemberGender.TryNormalize(Text(row, "Gender", 20, errors), out var gender))
                 errors.Add("Gender must be Female, Male or Other");
+
+            candidate.Gender = gender;
 
             // Bill from the day after the paid period; never for the time before the import.
             dto.FirstBillingDate = dto.PaidThrough is { } paid && paid >= today ? paid.AddDays(1) : today;

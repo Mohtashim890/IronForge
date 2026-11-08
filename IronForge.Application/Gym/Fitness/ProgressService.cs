@@ -108,7 +108,7 @@ public sealed class ProgressService : IProgressService
 
         if (performedOn > today || performedOn < today.AddDays(-60))
         {
-            return GymResults.Invalid<WorkoutLogDto>("Workouts can be logged for today or the last 60 days.");
+            return GymResults.Invalid<WorkoutLogDto>($"Workouts can be logged from {today.AddDays(-60):d MMM yyyy} to today, {today:d MMM yyyy} (the gym's date).");
         }
 
         if (request.Sets.Count is 0 or > 100)

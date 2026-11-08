@@ -5,6 +5,7 @@ using IronForge.Application.Gym.Common;
 using IronForge.Application.Persistence;
 using IronForge.Shared.Authorization;
 using IronForge.Shared.Models.Gym;
+using IronForge.Shared.Subscriptions;
 
 namespace IronForge.Application.Gym.Members;
 
@@ -74,11 +75,19 @@ public sealed class GymDashboardService : IGymDashboardService
                 cancellationToken))
             .ToDictionary(x => x.Status, x => x.Count);
 
-        var payments = await _payments.QueryAsync(
-            q => q
-                .Where(x => x.PaidAtUtc >= sixMonthsUtc)
-                .Select(x => new { x.PaidAtUtc, x.Amount }),
-            cancellationToken);
+        // Money is for staff who may see billing (Admins), not Trainers.
+        var includesBilling = (await _access.AuthorizeAsync(
+            Permissions.GymBillingRead,
+            PlatformModules.GymBilling,
+            cancellationToken)).Allowed;
+
+        var payments = includesBilling
+            ? await _payments.QueryAsync(
+                q => q
+                    .Where(x => x.PaidAtUtc >= sixMonthsUtc)
+                    .Select(x => new { x.PaidAtUtc, x.Amount }),
+                cancellationToken)
+            : [];
 
         var revenueByMonth = payments
             .GroupBy(x => GymCalendar.MonthStart(GymCalendar.ToLocalDate(x.PaidAtUtc, timeZone)))
@@ -118,10 +127,15 @@ public sealed class GymDashboardService : IGymDashboardService
             RevenueLastMonth = payments
                 .Where(x => x.PaidAtUtc >= lastMonthStartUtc && x.PaidAtUtc < monthStartUtc)
                 .Sum(x => x.Amount),
-            OverdueAmount = await _invoices.QuerySumAsync(
-                q => q.Where(x => x.Status == InvoiceStatus.Overdue).Select(x => x.Amount),
-                cancellationToken),
-            OverdueInvoices = await _invoices.CountAsync(x => x.Status == InvoiceStatus.Overdue, cancellationToken),
+            IncludesBilling = includesBilling,
+            OverdueAmount = includesBilling
+                ? await _invoices.QuerySumAsync(
+                    q => q.Where(x => x.Status == InvoiceStatus.Overdue).Select(x => x.Amount),
+                    cancellationToken)
+                : 0,
+            OverdueInvoices = includesBilling
+                ? await _invoices.CountAsync(x => x.Status == InvoiceStatus.Overdue, cancellationToken)
+                : 0,
             CheckInsToday = checkIns.Count(x => x >= todayStartUtc),
             CheckInsLast7Days = checkIns.Count(x => x >= weekAgoUtc),
             ExpiringSoon = await _members.CountAsync(
@@ -130,10 +144,12 @@ public sealed class GymDashboardService : IGymDashboardService
                      x.PaidThrough >= today &&
                      x.PaidThrough <= expiringBy,
                 cancellationToken),
-            RevenueByMonth = Enumerable.Range(0, 6)
-                .Select(i => monthStart.AddMonths(i - 5))
-                .Select(month => new RevenuePointDto { Month = month, Collected = revenueByMonth.GetValueOrDefault(month) })
-                .ToList(),
+            RevenueByMonth = includesBilling
+                ? Enumerable.Range(0, 6)
+                    .Select(i => monthStart.AddMonths(i - 5))
+                    .Select(month => new RevenuePointDto { Month = month, Collected = revenueByMonth.GetValueOrDefault(month) })
+                    .ToList()
+                : [],
             CheckInsByDay = Enumerable.Range(0, 14)
                 .Select(i => today.AddDays(i - 13))
                 .Select(day => new DailyCountDto { Day = day, Count = checkInsByDay.GetValueOrDefault(day) })

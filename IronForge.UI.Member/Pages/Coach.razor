@@ -36,7 +36,7 @@
 
         @foreach (var message in _messages)
         {
-            <div class="if-bubble @(message.User ? "user" : "assistant")">@message.Text</div>
+            <div class="if-bubble @(message.User ? "user" : "assistant")"><ChatText Text="@message.Text" /></div>
         }
 
         @if (_sending)

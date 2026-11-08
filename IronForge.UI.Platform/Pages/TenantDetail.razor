@@ -34,7 +34,7 @@
                 </p>
             </div>
             <div class="if-row">
-                <button class="if-btn @(t.IsActive ? "danger" : "primary")" disabled="@_busy" @onclick="ToggleSuspendAsync">@(t.IsActive ? "Suspend" : "Reactivate")</button>
+                <button class="if-btn @(t.IsActive ? "danger" : "primary")" disabled="@_busy" @onclick="async () => { if (t.IsActive) _confirmSuspend = true; else await ToggleSuspendAsync(); }">@(t.IsActive ? "Suspend" : "Reactivate")</button>
             </div>
         </div>
 
@@ -141,7 +141,7 @@
 
                 <h3 style="font-size: 1rem; margin-top: 16px">Invite another admin</h3>
                 <div class="if-row" style="flex-wrap: nowrap">
-                    <input class="if-input" type="email" placeholder="owner@gym.com" @bind="_inviteEmail" />
+                    <input class="if-input" type="email" placeholder="owner@gym.com" @bind="_inviteEmail" @bind:event="oninput" />
                     <button class="if-btn" disabled="@(_busy || string.IsNullOrWhiteSpace(_inviteEmail))" @onclick="InviteAsync">Invite</button>
                 </div>
                 @if (_inviteLink is not null)
@@ -172,8 +172,17 @@
     }
 </div>
 
-@code {
-    [Parameter] public int TenantId { get; set; }
+<Modal @bind-Open="_confirmSuspend" Title="Suspend this gym?">
+    <ChildContent>
+        <p>Every admin, trainer and member of this gym is signed out within a minute and cannot sign in until you reactivate it. Their data is kept.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _confirmSuspend = false">Cancel</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="ToggleSuspendAsync">Suspend gym</button>
+    </Footer>
+</Modal>
+
+@code {    [Parameter] public int TenantId { get; set; }
 
     private PlatformTenantDetailDto? _data;
     private List<ChartPoint> _tokens = [];
@@ -238,8 +247,11 @@
         await LoadAsync();
     }
 
+    private bool _confirmSuspend;
+
     private async Task ToggleSuspendAsync()
     {
+        _confirmSuspend = false;
         _busy = true;
         var result = await Tenants.SetStatusAsync(TenantId, !_data!.Tenant.IsActive);
         _busy = false;

@@ -16,6 +16,12 @@ namespace IronForge.Shared.Models.Gym
 
         public int NewMembersThisMonth { get; set; }
 
+        /// <summary>
+        /// False for staff without billing access (Trainers): revenue and
+        /// overdue figures are then zero and not shown.
+        /// </summary>
+        public bool IncludesBilling { get; set; }
+
         public decimal RevenueThisMonth { get; set; }
 
         public decimal RevenueLastMonth { get; set; }

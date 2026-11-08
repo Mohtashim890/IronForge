@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace IronForge.Shared.Models.Gym
 {
@@ -30,7 +30,8 @@ namespace IronForge.Shared.Models.Gym
         [MaxLength(1000)]
         public string? Description { get; set; }
 
-        [Range(typeof(decimal), "0", "100000")]
+        // Wide enough for yearly plans in PKR or JPY.
+        [Range(typeof(decimal), "0", "10000000", ErrorMessage = "The price must be between 0 and 10,000,000.")]
         public decimal Price { get; set; }
 
         public BillingInterval BillingInterval { get; set; }
@@ -90,6 +91,9 @@ namespace IronForge.Shared.Models.Gym
 
         public int CheckInsLast30Days { get; set; }
 
+        /// <summary>Today in the gym's time zone (the phone's may differ): the default for workout and measurement dates.</summary>
+        public DateOnly GymToday { get; set; }
+
         public List<InvoiceDto> RecentInvoices { get; set; } = [];
 
         public List<CheckInDto> RecentCheckIns { get; set; } = [];
@@ -99,6 +103,11 @@ namespace IronForge.Shared.Models.Gym
         public List<FitnessGoalDto> Goals { get; set; } = [];
 
         public MemberPhotoDto? Photo { get; set; }
+
+        /// <summary>The latest unaccepted app invitation, for members without an account.</summary>
+        public DateTime? AppInvitationSentAtUtc { get; set; }
+
+        public DateTime? AppInvitationExpiresAtUtc { get; set; }
     }
 
     public sealed class MemberQuery
@@ -299,6 +308,9 @@ namespace IronForge.Shared.Models.Gym
         public int WeeklyStreak { get; set; }
 
         public int CheckInsLast30Days { get; set; }
+
+        /// <summary>Today in the gym's time zone (the phone's may differ): the default for workout and measurement dates.</summary>
+        public DateOnly GymToday { get; set; }
 
         /// <summary>Whether the gym's plan includes the AI coach and fitness tracking.</summary>
         public bool CoachingEnabled { get; set; }

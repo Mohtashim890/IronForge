@@ -57,7 +57,7 @@
             <div class="if-row">
                 <div style="flex: 1">
                     <strong>@GymFormat.Money(invoice.Amount, invoice.Currency)</strong>
-                    <div class="if-small if-muted">@invoice.Number · @GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</div>
+                    <div class="if-small if-muted">@invoice.Number · @(invoice.IsOneOff ? invoice.Description : $"{GymFormat.ShortDate(invoice.PeriodStart)} – {GymFormat.Date(invoice.PeriodEnd)}")</div>
                     <div class="if-small @(invoice.DaysOverdue > 0 ? "" : "if-muted")" style="@(invoice.DaysOverdue > 0 ? "color: var(--if-danger)" : "")">
                         @(invoice.Status == InvoiceStatus.Paid ? $"Paid {GymFormat.Date(invoice.PaidAtUtc)}" : invoice.DaysOverdue > 0 ? $"Overdue by {invoice.DaysOverdue} day(s)" : $"Due {GymFormat.Date(invoice.DueDate)}")
                     </div>

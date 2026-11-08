@@ -1,4 +1,4 @@
-﻿using IronForge.Application.Auditing.Models;
+using IronForge.Application.Auditing.Models;
 using IronForge.Application.Auditing.Services;
 using IronForge.Application.Commons;
 using IronForge.Application.Entities;
@@ -386,6 +386,7 @@ public sealed class CheckInService : ICheckInService
         var overdue = (await _invoices.QueryAsync(
                 q => q
                     .Where(x => x.MemberProfileId == memberId &&
+                                !x.IsOneOff &&
                                 (x.Status == InvoiceStatus.Overdue ||
                                  (x.Status == InvoiceStatus.Open && x.DueDate < today)))
                     .OrderBy(x => x.DueDate)

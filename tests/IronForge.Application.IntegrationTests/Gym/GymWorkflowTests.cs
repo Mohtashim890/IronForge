@@ -531,6 +531,29 @@ public sealed class GymWorkflowTests
         Assert.True(adminAudit.Success, adminAudit.ErrorMessage);
     }
 
+    [Fact]
+    public async Task Dashboard_ShowsMoney_OnlyToStaffWithBillingAccess()
+    {
+        var gym = await SeedGymAsync();
+        var ali = await SeedMemberAsync(gym, "ali@example.com");
+        var invoiceId = await IssueInvoiceAsync(gym, ali.MemberId);
+        await AsAdmin(gym, s => s.Billing.RecordPaymentAsync(
+            invoiceId, new RecordPaymentRequest { Amount = 50m, Method = PaymentMethod.Cash }));
+        var trainer = await SeedUserAsync(gym, "trainer@gym.test", TenantRoles.Trainer);
+
+        var asAdmin = await AsAdmin(gym, s => s.Dashboard.GetAsync());
+        var asTrainer = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.Dashboard.GetAsync());
+
+        Assert.True(asAdmin.Data!.IncludesBilling);
+        Assert.Equal(50m, asAdmin.Data.RevenueThisMonth);
+
+        Assert.True(asTrainer.Success, asTrainer.ErrorMessage);
+        Assert.False(asTrainer.Data!.IncludesBilling);
+        Assert.Equal(0m, asTrainer.Data.RevenueThisMonth);
+        Assert.Empty(asTrainer.Data.RevenueByMonth);
+        Assert.Equal(asAdmin.Data.ActiveMembers, asTrainer.Data.ActiveMembers);
+    }
+
     // ---- Payments ---------------------------------------------------------------
 
     [Fact]
@@ -669,6 +692,81 @@ public sealed class GymWorkflowTests
         _clock.Now = Start.AddDays(14);
         var after = await AsSystem(gym, s => s.BillingEngine.RunAsync(gym.TenantId));
         Assert.Equal(1, after.MembersUnfrozen);
+    }
+
+    [Fact]
+    public async Task OneOffInvoice_IsBilled_ButNeverTouchesTheMembership()
+    {
+        var gym = await SeedGymAsync();
+        var day0 = Today;
+        var ali = await SeedMemberAsync(gym, "ali@example.com", nextBillingDate: day0.AddDays(40), paidThrough: day0.AddDays(39));
+        var trainer = await SeedUserAsync(gym, "trainer@gym.test", TenantRoles.Trainer);
+        var request = new CreateInvoiceRequest { Description = "Personal training, 4 sessions", Amount = 80m };
+
+        var byTrainer = await AsUser(gym, trainer, TenantRoles.Trainer, s => s.Billing.CreateOneOffInvoiceAsync(ali.MemberId, request));
+        Assert.Equal(403, byTrainer.StatusCode);
+
+        var created = await AsAdmin(gym, s => s.Billing.CreateOneOffInvoiceAsync(ali.MemberId, request));
+
+        Assert.True(created.Success, created.ErrorMessage);
+        Assert.True(created.Data!.IsOneOff);
+        Assert.Equal(InvoiceStatus.Open, created.Data.Status);
+        Assert.Equal(day0, created.Data.DueDate);
+
+        // Unpaid past the 14-day grace period: overdue, but the member keeps access.
+        _clock.Now = Start.AddDays(20);
+        var run = await AsSystem(gym, s => s.BillingEngine.RunAsync(gym.TenantId));
+        Assert.Equal(1, run.InvoicesOverdue);
+        Assert.Equal(0, run.MembersExpired);
+
+        var checkIn = await AsAdmin(gym, s => s.CheckIns.CheckInAsync(ali.MemberId));
+        Assert.True(checkIn.Data!.IsAllowed, checkIn.Data.Message);
+
+        // Paying it leaves the membership dates alone.
+        var paid = await AsAdmin(gym, s => s.Billing.RecordPaymentAsync(
+            created.Data.Id, new RecordPaymentRequest { Amount = 80m, Method = PaymentMethod.Cash }));
+        Assert.True(paid.Success, paid.ErrorMessage);
+
+        await using var db = Database.CreateDbContext();
+        var member = await db.MemberProfiles.IgnoreQueryFilters().SingleAsync(x => x.Id == ali.MemberId);
+        Assert.Equal(day0.AddDays(39), member.PaidThrough);
+        Assert.Equal(day0.AddDays(40), member.NextBillingDate);
+    }
+
+    [Fact]
+    public async Task OneOffInvoice_RejectsAPastDueDateAndAnEmptyDescription()
+    {
+        var gym = await SeedGymAsync();
+        var ali = await SeedMemberAsync(gym, "ali@example.com");
+
+        var past = await AsAdmin(gym, s => s.Billing.CreateOneOffInvoiceAsync(
+            ali.MemberId, new CreateInvoiceRequest { Description = "Locker", Amount = 10m, DueDate = Today.AddDays(-1) }));
+        var empty = await AsAdmin(gym, s => s.Billing.CreateOneOffInvoiceAsync(
+            ali.MemberId, new CreateInvoiceRequest { Description = "  ", Amount = 10m }));
+
+        Assert.Equal(400, past.StatusCode);
+        Assert.Equal(400, empty.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unfreeze_Early_GivesBackTheUnusedFreezeDays()
+    {
+        var gym = await SeedGymAsync();
+        var day0 = Today;
+        var ali = await SeedMemberAsync(gym, "ali@example.com", nextBillingDate: day0.AddDays(10), paidThrough: day0.AddDays(9));
+
+        // 14 freeze days: billing moves to day 24, the paid period to day 23.
+        await AsAdmin(gym, s => s.GymMembers.FreezeAsync(
+            ali.MemberId, new FreezeMemberRequest { Until = day0.AddDays(13) }));
+
+        // Lifted on day 2: days 3..13 (11 days) come back.
+        _clock.Now = Start.AddDays(2);
+        var active = await AsAdmin(gym, s => s.GymMembers.UnfreezeAsync(ali.MemberId));
+
+        Assert.True(active.Success, active.ErrorMessage);
+        Assert.Equal(MemberStatus.Active, active.Data!.Status);
+        Assert.Equal(day0.AddDays(13), active.Data.NextBillingDate);
+        Assert.Equal(day0.AddDays(12), active.Data.PaidThrough);
     }
 
     // ---- Coaching ---------------------------------------------------------------

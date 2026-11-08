@@ -17,6 +17,13 @@ namespace IronForge.Application.Entities
 
         public int? MembershipPlanId { get; set; }
 
+        /// <summary>
+        /// A charge staff added by hand (personal training, a locker…), not a
+        /// membership period: paying it does not extend the membership, and an
+        /// unpaid one never blocks entry or expires the membership.
+        /// </summary>
+        public bool IsOneOff { get; set; }
+
         public string Description { get; set; } = "";
 
         public DateOnly PeriodStart { get; set; }

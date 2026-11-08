@@ -8,7 +8,7 @@
     <div class="if-page-head">
         <div>
             <h1>Invoices &amp; payments</h1>
-            <p>Invoices are issued automatically before each billing date. Card payments arrive through the member app.</p>
+            <p>Membership invoices are issued automatically before each billing date; bill extras from a member's page. Online payments arrive through the member app; record cash and bank transfers here.</p>
         </div>
     </div>
 
@@ -51,7 +51,7 @@
             <div class="if-table-wrap">
                 <table class="if-table">
                     <thead>
-                        <tr><th>Invoice</th><th>Member</th><th>Period</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
+                        <tr><th>Invoice</th><th>Member</th><th>For</th><th>Due</th><th>Status</th><th class="num">Amount</th><th></th></tr>
                     </thead>
                     <tbody>
                         @foreach (var invoice in _invoices.Items)
@@ -59,7 +59,7 @@
                             <tr>
                                 <td class="if-mono">@invoice.Number</td>
                                 <td><a href="@($"/members/{invoice.MemberId}")">@invoice.MemberName</a></td>
-                                <td class="if-small">@GymFormat.ShortDate(invoice.PeriodStart) – @GymFormat.Date(invoice.PeriodEnd)</td>
+                                <td class="if-small">@(invoice.IsOneOff ? invoice.Description : $"{GymFormat.ShortDate(invoice.PeriodStart)} – {GymFormat.Date(invoice.PeriodEnd)}")</td>
                                 <td>
                                     @GymFormat.Date(invoice.DueDate)
                                     @if (invoice.DaysOverdue > 0)
@@ -76,7 +76,7 @@
                                             <div class="if-row" style="justify-content: flex-end; flex-wrap: nowrap">
                                                 <button class="if-btn sm" disabled="@_busy" @onclick="() => RemindAsync(invoice)">Remind</button>
                                                 <button class="if-btn sm" disabled="@_busy" @onclick="() => OpenPayment(invoice)">Record payment</button>
-                                                <button class="if-btn sm ghost" disabled="@_busy" title="Void" @onclick="() => VoidAsync(invoice)">Void</button>
+                                                <button class="if-btn sm ghost" disabled="@_busy" title="Void" @onclick="() => _voidInvoice = invoice">Void</button>
                                             </div>
                                         </AuthorizeView>
                                     }
@@ -102,12 +102,16 @@
         {
             <div class="if-loading">Loading payments…</div>
         }
+        else if (_payments.Items.Count == 0)
+        {
+            <div class="if-card if-empty">No payments received yet.</div>
+        }
         else
         {
             <div class="if-table-wrap">
                 <table class="if-table">
                     <thead>
-                        <tr><th>Date</th><th>Member</th><th>Invoice</th><th>Method</th><th class="num">Amount</th></tr>
+                        <tr><th>Date</th><th>Member</th><th>Invoice</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var payment in _payments.Items)
@@ -116,7 +120,8 @@
                                 <td>@GymFormat.DateTime(payment.PaidAtUtc)</td>
                                 <td><a href="@($"/members/{payment.MemberId}")">@payment.MemberName</a></td>
                                 <td class="if-mono">@payment.InvoiceNumber</td>
-                                <td>@payment.Method <span class="if-muted if-small">(@payment.Provider)</span></td>
+                                <td>@MethodText(payment)</td>
+                                <td class="if-mono if-small">@payment.Reference</td>
                                 <td class="num">@GymFormat.Money(payment.Amount, payment.Currency)</td>
                             </tr>
                         }
@@ -148,6 +153,17 @@
     <Footer>
         <button class="if-btn" @onclick="() => _paying = false">Cancel</button>
         <button class="if-btn primary" disabled="@_busy" @onclick="RecordAsync">Record payment</button>
+    </Footer>
+</Modal>
+
+<Modal Open="@(_voidInvoice is not null)" OpenChanged="@(open => { if (!open) _voidInvoice = null; })" Title="@($"Void {_voidInvoice?.Number}?")">
+    <ChildContent>
+        <p>@_voidInvoice?.MemberName · <strong>@(_voidInvoice is null ? "" : GymFormat.Money(_voidInvoice.Amount, _voidInvoice.Currency))</strong></p>
+        <p class="if-muted if-small">The member will no longer owe this invoice. Voiding cannot be undone.</p>
+    </ChildContent>
+    <Footer>
+        <button class="if-btn" @onclick="() => _voidInvoice = null">Keep invoice</button>
+        <button class="if-btn danger" disabled="@_busy" @onclick="VoidAsync">Void invoice</button>
     </Footer>
 </Modal>
 
@@ -242,8 +258,19 @@
         _error = result.Success ? null : result.ErrorMessage;
     }
 
-    private async Task VoidAsync(InvoiceDto invoice)
+    private static string MethodText(PaymentDto payment) => payment.Method switch
     {
+        PaymentMethod.BankTransfer => "Bank transfer",
+        PaymentMethod.Online => $"Online ({payment.Provider})",
+        _ => payment.Method.ToString()
+    };
+
+    private InvoiceDto? _voidInvoice;
+
+    private async Task VoidAsync()
+    {
+        var invoice = _voidInvoice!;
+        _voidInvoice = null;
         _busy = true;
         var result = await Gym.VoidInvoiceAsync(invoice.Id);
         _busy = false;

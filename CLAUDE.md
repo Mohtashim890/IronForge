@@ -94,7 +94,7 @@ Dependency direction: Api and Migrator → Infrastructure → Payments → Appli
 - `IUnitOfWork.ExecuteInTransactionAsync` covers multi-save operations. All repositories in a scope share one DbContext.
 - Money is `numeric(12,2)`. Enums are stored as strings via `HasConversion<string>()`. Instants are UTC (`DateTime`). Calendar dates (billing, due dates, workouts) are `DateOnly` in the **gym's time zone**; use `GymCalendar.Today(clock, tz)`.
 - `TimeProvider` is injected for all "now" logic (`TimeProvider.System` in production, `TestClock` in tests).
-- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `RemoveMcpAndKiosk`. Add one with:
+- Migrations live in `IronForge.Infrastructure/Migrations`; the latest is `OneOffInvoices`. Add one with:
   ```
   ConnectionStrings__DefaultConnection="Host=localhost;Database=design;Username=x;Password=x" dotnet ef migrations add <Name> --project IronForge.Infrastructure --startup-project IronForge.Infrastructure
   ```
@@ -234,6 +234,7 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
 - **`BillingBackgroundService`** runs hourly and only once across instances (`DistributedLock` = Postgres `pg_try_advisory_lock`). It loops over `IGymDirectory.ListServedTenantIdsAsync` (tenants with access), one scope per tenant with the tenant execution context set.
 - **`BillingService`** wraps the engine with authorization:
   - staff: list invoices, record payment (Cash or BankTransfer only; the amount must equal the total), void, remind, payments, revenue
+  - staff: one-off invoices (`CreateOneOffInvoiceAsync`, `POST api/gym/members/{id}/invoices`, `gym.billing.manage`, member page Billing tab): description, amount, due date (today to +90 days). `Invoice.IsOneOff`: paying it does not extend PaidThrough or reactivate the member, and an unpaid one never blocks check-in or terminal access or expires the membership; it is still outstanding, reminded and payable online
   - member: my invoices, my payments, `StartMyCheckoutAsync`
 - **Online payments** (`Application/Gym/Billing/Payments/*`, providers in `IronForge.Payments`). Stripe was removed. **The gym is the merchant**: each gym connects its own provider account, members pay into it, IronForge never holds money.
   - **Providers** (`IPaymentProvider`, listed by `IPaymentProviderCatalog`):
@@ -319,6 +320,8 @@ Subscription changes, suspension and template rollout go through `TenantProvisio
   - platform overrides `platform-theme`
 
   Charts are dependency-free SVG components. Razor reserves `<text>`, so SVG labels go through `Svg.Text(...)`.
+- **Dates and times**: format UTC instants with `GymFormat.Date/DateTime/Time`, never `ToLocalTime()`. On the web dashboard they show in the gym's time zone (`DisplayTimeZone`, set by `MainLayout`, made current per circuit by `DisplayTimeZoneCircuitHandler`); in the member app, in the phone's. Default member date inputs to `MyMembershipDto.GymToday`, not the phone's date.
+- **Inputs that enable a button** bind with `@bind:event="oninput"` (a `change` only fires on blur, so the button would stay disabled). Irreversible actions (void, cancel membership, new join code, suspend a gym) ask for confirmation in a `Modal`.
 - **Web hosts**:
   - Interactive Server, prerender off (the JWT is in `ProtectedLocalStorage` via `WebTokenStore`).
   - Page endpoints `AllowAnonymous`; authorization happens in the circuit.
@@ -378,7 +381,7 @@ docker run -d --name ironforge-mail -p 1025:1025 -p 8025:8025 axllent/mailpit:v1
 export ConnectionStrings__DefaultConnection="Host=localhost;Database=ironforge;Username=postgres;Password=dev"
 DOTNET_ENVIRONMENT=Development dotnet run --project IronForge.Migrator -- --seed-demo --reset
 dotnet run --project IronForge.Api --launch-profile https      # then Web / Platform / MAUI
-dotnet test IronForge.Server.slnf                              # 302 tests (2 provider-sandbox tests skip without keys); Docker required
+dotnet test IronForge.Server.slnf                              # 306 tests (2 provider-sandbox tests skip without keys); Docker required
 ```
 
 - **Demo data** (`DemoDataSeeder`): deterministic `Random(42)`, idempotent (skips when `operator@ironforge.dev` exists), refuses to run in Production without `--force`. Every password is `Password123!`.

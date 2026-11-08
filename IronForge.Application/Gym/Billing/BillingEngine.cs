@@ -51,8 +51,21 @@ public interface IBillingEngine
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Marks an unpaid invoice paid in full, extends the member's paid period
-    /// and reactivates a Pending or Expired member.
+    /// A one-off charge (personal training, a locker…) due on
+    /// <paramref name="dueDate"/>. It leaves the billing schedule alone.
+    /// </summary>
+    Task<Invoice> IssueOneOffInvoiceAsync(
+        GymInfo gym,
+        MemberProfile member,
+        string description,
+        decimal amount,
+        DateOnly dueDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks an unpaid invoice paid in full. A membership invoice also extends
+    /// the member's paid period and reactivates a Pending or Expired member;
+    /// a one-off invoice does neither.
     /// </summary>
     Payment ApplyPayment(
         GymInfo gym,
@@ -176,6 +189,54 @@ public sealed class BillingEngine : IBillingEngine
         return invoice;
     }
 
+    public async Task<Invoice> IssueOneOffInvoiceAsync(
+        GymInfo gym,
+        MemberProfile member,
+        string description,
+        decimal amount,
+        DateOnly dueDate,
+        CancellationToken cancellationToken = default)
+    {
+        var today = GymCalendar.Today(_clock, gym.Settings.TimeZoneId);
+        var number = await _numbers.NextAsync(gym.TenantId, cancellationToken);
+
+        var invoice = new Invoice
+        {
+            TenantId = gym.TenantId,
+            Number = GymCalendar.FormatInvoiceNumber(number),
+            MemberProfileId = member.Id,
+            IsOneOff = true,
+            Description = description,
+            PeriodStart = today,
+            PeriodEnd = today,
+            Amount = amount,
+            Currency = gym.Settings.Currency,
+            IssuedAtUtc = _clock.GetUtcNow().UtcDateTime,
+            DueDate = dueDate,
+            Status = InvoiceStatus.Open
+        };
+
+        _invoices.Add(invoice);
+
+        _notifications.Queue(
+            gym.TenantId,
+            [Recipient(member)],
+            new NotificationMessage
+            {
+                Type = NotificationType.Payment,
+                Title = $"New invoice {invoice.Number}",
+                Body =
+                    $"Your invoice for {invoice.Description} is ready.\n\n" +
+                    $"Amount: {FormatMoney(invoice.Amount, invoice.Currency)}. Due on {Format(invoice.DueDate)}.\n\n" +
+                    "You can pay it in the IronForge app, or at the front desk.",
+                Link = "/invoices",
+                SendEmail = true,
+                GymName = gym.Name
+            });
+
+        return invoice;
+    }
+
     public Payment ApplyPayment(
         GymInfo gym,
         Invoice invoice,
@@ -212,15 +273,19 @@ public sealed class BillingEngine : IBillingEngine
 
         _payments.Add(payment);
 
-        if (member.PaidThrough is null || member.PaidThrough < invoice.PeriodEnd)
+        // A one-off charge pays for an extra, not for membership time.
+        if (!invoice.IsOneOff)
         {
-            member.PaidThrough = invoice.PeriodEnd;
-        }
+            if (member.PaidThrough is null || member.PaidThrough < invoice.PeriodEnd)
+            {
+                member.PaidThrough = invoice.PeriodEnd;
+            }
 
-        if (member.Status is MemberStatus.Expired or MemberStatus.Pending)
-        {
-            member.Status = MemberStatus.Active;
-            member.ApprovedAtUtc ??= now;
+            if (member.Status is MemberStatus.Expired or MemberStatus.Pending)
+            {
+                member.Status = MemberStatus.Active;
+                member.ApprovedAtUtc ??= now;
+            }
         }
 
         _notifications.Queue(
@@ -232,7 +297,10 @@ public sealed class BillingEngine : IBillingEngine
                 Title = $"Payment received for {invoice.Number}",
                 Body =
                     $"Thank you! We received {FormatMoney(invoice.Amount, invoice.Currency)} " +
-                    $"for {invoice.Description}.\n\nYour membership is paid through {Format(member.PaidThrough!.Value)}.",
+                    $"for {invoice.Description}." +
+                    (!invoice.IsOneOff && member.PaidThrough is { } paidThrough
+                        ? $"\n\nYour membership is paid through {Format(paidThrough)}."
+                        : ""),
                 Link = "/invoices",
                 SendEmail = true,
                 GymName = gym.Name
@@ -361,6 +429,7 @@ public sealed class BillingEngine : IBillingEngine
             q => q
                 .Where(x => x.TenantId == tenantId &&
                             x.Status == InvoiceStatus.Overdue &&
+                            !x.IsOneOff &&
                             x.DueDate < expiryCutoff)
                 .Select(x => x.MemberProfileId)
                 .Distinct(),

@@ -14,6 +14,9 @@ namespace IronForge.Shared.Models.Gym
 
         public string Description { get; set; } = "";
 
+        /// <summary>A charge staff added by hand, not a membership period.</summary>
+        public bool IsOneOff { get; set; }
+
         public DateOnly PeriodStart { get; set; }
 
         public DateOnly PeriodEnd { get; set; }
@@ -70,12 +73,29 @@ namespace IronForge.Shared.Models.Gym
 
         public string Provider { get; set; } = "";
 
+        /// <summary>The staff receipt number, or the provider's payment reference.</summary>
+        public string? Reference { get; set; }
+
         public DateTime PaidAtUtc { get; set; }
+    }
+
+/// <summary>A one-off charge for a member: personal training, a locker, a lost key…</summary>
+    public sealed class CreateInvoiceRequest
+    {
+        [Required(ErrorMessage = "Say what the invoice is for.")]
+        [MaxLength(200, ErrorMessage = "The description can be at most 200 characters.")]
+        public string Description { get; set; } = "";
+
+        [Range(typeof(decimal), "0.01", "10000000", ErrorMessage = "The amount must be between 0.01 and 10,000,000.")]
+        public decimal Amount { get; set; }
+
+        /// <summary>The gym's date; empty means today.</summary>
+        public DateOnly? DueDate { get; set; }
     }
 
     public sealed class RecordPaymentRequest
     {
-        [Range(typeof(decimal), "0.01", "1000000")]
+        [Range(typeof(decimal), "0.01", "10000000", ErrorMessage = "The amount must be between 0.01 and 10,000,000.")]
         public decimal Amount { get; set; }
 
         public PaymentMethod Method { get; set; } = PaymentMethod.Cash;
